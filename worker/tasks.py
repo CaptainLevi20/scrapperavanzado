@@ -111,3 +111,40 @@ def scrape_source_task(self, run_source_id: int):
         )
     finally:
         db.close()
+
+
+from celery import chord
+
+
+@celery_app.task(name="worker.orchestrate_run")
+def orchestrate_run(run_id: int, source_ids: list[int] | None = None):
+    db = SessionLocal()
+    try:
+        repository.set_run_status(db, run_id, "running", started_at=datetime.now(timezone.utc))
+        sources = repository.list_sources(db, active=True)
+        if source_ids:
+            wanted = set(source_ids)
+            sources = [s for s in sources if s.id in wanted]
+
+        run_source_ids = [repository.create_run_source(db, run_id=run_id, source_id=s.id).id for s in sources]
+    finally:
+        db.close()
+
+    if not run_source_ids:
+        _finalize_run(run_id)
+        return
+
+    chord((scrape_source_task.s(rsid) for rsid in run_source_ids), finalize_run.s(run_id)).apply_async()
+
+
+@celery_app.task(name="worker.finalize_run")
+def finalize_run(_results, run_id: int):
+    _finalize_run(run_id)
+
+
+def _finalize_run(run_id: int):
+    db = SessionLocal()
+    try:
+        repository.set_run_status(db, run_id, "completed", finished_at=datetime.now(timezone.utc))
+    finally:
+        db.close()
