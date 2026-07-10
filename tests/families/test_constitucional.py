@@ -1,3 +1,5 @@
+import threading
+
 import responses
 
 from core.scrapers.families.constitucional import ScrapConstitucional
@@ -50,3 +52,15 @@ def test_constitucional_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401 — triggers registration
 
     assert FAMILY_REGISTRY["constitucional"] is ScrapConstitucional
+
+
+@responses.activate
+def test_scrap_stops_early_when_stop_event_is_already_set():
+    stop_event = threading.Event()
+    stop_event.set()
+
+    scraper = ScrapConstitucional()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", stop_event=stop_event)
+
+    assert docs == []
+    assert len(responses.calls) == 0

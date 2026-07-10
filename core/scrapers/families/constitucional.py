@@ -29,6 +29,9 @@ class ScrapConstitucional(BaseScrapper):
         docs: List[RawDocModel] = []
 
         while fecha_local < fecha_final_global:
+            if stop_event is not None and stop_event.is_set():
+                break
+
             fecha_inicial = fecha_local.strftime("%Y-%m-%d")
             fecha_final = min(fecha_local + timedelta(days=365), fecha_final_global)
 
