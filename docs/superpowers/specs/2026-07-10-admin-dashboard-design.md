@@ -18,7 +18,7 @@ El backend IURISYNC (`docs/superpowers/specs/2026-07-10-saas-scraping-backend-de
 - **Proyecto separado** `frontend/`, SPA construida con **Vite + React + TypeScript**. No se acopla al proceso de FastAPI; se sirve como build estático (Nginx, MinIO/S3 + CDN, o cualquier hosting estático) apuntando a la API vía `VITE_API_BASE_URL`.
 - **Estilos/componentes:** Tailwind CSS + shadcn/ui.
 - **Routing:** React Router. Rutas: `/login`, `/` (overview), `/sources`, `/runs`, `/runs/:id`, `/documents`.
-- **Data fetching:** `@tanstack/react-query` para cache y refetch. Los runs en estado `pending`/`running` usan `refetchInterval` (4s) hasta alcanzar un estado terminal (`success`/`error`/`cancelled`); se detiene automáticamente al llegar a un estado terminal.
+- **Data fetching:** `@tanstack/react-query` para cache y refetch. Los runs en estado `pending`/`running` usan `refetchInterval` (4s); se detiene automáticamente al llegar al único estado terminal (`completed`).
 - **Cliente API** (`src/api/client.ts`): wrapper de `fetch` que:
   - Agrega el header de API key (mismo mecanismo que `require_api_key` en `api/deps.py`) a cada request.
   - Lee la base URL de `VITE_API_BASE_URL`.
@@ -36,7 +36,7 @@ El backend IURISYNC (`docs/superpowers/specs/2026-07-10-saas-scraping-backend-de
 Formulario de un solo campo (API key) + botón "Entrar". Sin registro ni recuperación — las keys se crean por CLI (`core.manage create-api-key`) y se comparten manualmente al equipo.
 
 ### Overview (`/`)
-- Tarjetas resumen: fuentes activas (total), runs de las últimas 24h agrupados por estado (pending/running/success/error), documentos descargados hoy y en los últimos 7 días.
+- Tarjetas resumen: fuentes activas (total), runs de las últimas 24h agrupados por estado (`pending`/`running`/`completed`, que son los únicos valores que existe a nivel de run), documentos totales (`GET /documents` no soporta filtrar por fecha de descarga, así que no se puede desglosar "hoy"/"últimos 7 días" sin un cambio de backend fuera de alcance de este spec).
 - Tabla de los últimos 5 runs con link a su detalle.
 - Botón "Nuevo run" que abre el mismo modal usado en `/runs`.
 - Datos derivados client-side a partir de `GET /runs?limit=...` y `GET /documents?limit=...` — no requiere nuevos endpoints de agregación en el backend.
@@ -49,15 +49,15 @@ Formulario de un solo campo (API key) + botón "Entrar". Sin registro ni recuper
 - Manejo de errores: si `POST /sources` devuelve 400 (familia desconocida), mostrar el mensaje del backend tal cual bajo el campo de familia.
 
 ### Runs (`/runs`)
-- Tabla: id, `triggered_by`, badge de estado con color (pending=gris, running=azul, success=verde, error=rojo, cancelled=amarillo), `fini`/`ffin`, `created_at`.
+- Tabla: id, `triggered_by`, badge de estado con color (`pending`=gris, `running`=azul, `completed`=verde — son los únicos 3 valores que emite el backend a nivel de run), `fini`/`ffin`, `created_at`.
 - Filtro por estado (`status_filter`). Paginación con `limit`/`offset`.
 - Botón "Nuevo run" → modal: multi-select de fuentes activas (vacío = todas las activas), rango de fechas opcional (`fini`/`ffin`) → `POST /runs`. Al crear, navega a `/runs/:id` del run recién creado.
 - Filas en estado no terminal hacen polling (ver Arquitectura) para reflejar cambios de estado sin recargar la página.
 
 ### Detalle de Run (`/runs/:id`)
 - Encabezado: estado (con el mismo polling mientras no sea terminal), `fini`/`ffin`, `started_at`/`finished_at`, `cancel_requested`.
-- Tabla de fuentes del run (`GET /runs/{id}/sources`): fuente, estado, `docs_new`, `docs_errors`, `error_message` (si existe, en una celda expandible).
-- Botón "Cancelar run" (`POST /runs/{id}/cancel`), visible solo si el estado no es terminal. Tras click, deshabilita el botón y muestra "Cancelación solicitada" (el run sigue su curso hasta que el worker respete el `stop_event`, no es instantáneo).
+- Tabla de fuentes del run (`GET /runs/{id}/sources`): fuente, estado (`pending`/`running`/`completed`/`failed`, con `failed` en rojo), `docs_new`, `docs_errors`, `error_message` (si existe, en una celda expandible).
+- Botón "Cancelar run" (`POST /runs/{id}/cancel`), visible solo si `status` no es `completed`. Tras click, deshabilita el botón y muestra "Cancelación solicitada" (el run sigue su curso hasta que el worker respete el `stop_event` vía `cancel_requested`; el run igual termina en estado `completed`, solo que con menos documentos procesados).
 
 ### Documentos (`/documents`)
 - Tabla paginada (`GET /documents`, respuesta `{items, total, limit, offset}`).
