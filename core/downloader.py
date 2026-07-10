@@ -18,6 +18,7 @@ class DownloadResult:
     storage_key: str
     content_type: str
     file_size_bytes: int
+    converted_format: str | None = None
 
 
 def _pdf_to_rtf_fallback(input_path: Path) -> Path:
@@ -173,15 +174,18 @@ class Downloader:
                     if chunk:
                         f.write(chunk)
 
+        converted_format = None
         if doc.convert_to:
             converted = self._convert(temp_path, doc.convert_to)
             if converted != temp_path:
                 storage_key = storage_key.rsplit(".", 1)[0] + ".rtf" if "." in storage_key else storage_key + ".rtf"
                 temp_path = converted
+                converted_format = "rtf"
 
         return DownloadResult(
             local_path=temp_path,
             storage_key=storage_key,
             content_type=content_type,
             file_size_bytes=temp_path.stat().st_size,
+            converted_format=converted_format,
         )

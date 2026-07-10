@@ -87,7 +87,7 @@ def scrape_source_task(self, run_source_id: int):
                             content_type=result.content_type,
                             file_extension=Path(result.storage_key).suffix,
                             file_size_bytes=result.file_size_bytes,
-                            converted_format=doc.convert_to,
+                            converted_format=result.converted_format,
                         )
                         docs_new += 1
                     except FileNotFoundError as exc:

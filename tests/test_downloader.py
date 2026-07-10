@@ -121,3 +121,55 @@ def test_convert_rtf_word_falls_back_to_pypdf_when_word_conversion_fails(tmp_pat
     converted = downloader._convert(pdf_path, "rtf_word")
     assert converted.suffix == ".rtf"
     assert converted.exists()
+
+
+def _pdf_bytes():
+    import io
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+@responses.activate
+def test_download_records_converted_format_when_conversion_succeeds(tmp_path):
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    downloader = Downloader()
+    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
+
+    assert result.converted_format == "rtf"
+    assert result.storage_key.endswith(".rtf")
+    assert result.local_path.suffix == ".rtf"
+
+
+@responses.activate
+def test_download_leaves_converted_format_none_when_conversion_silently_fails(tmp_path, monkeypatch):
+    import core.downloader as downloader_module
+
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=b"not actually a pdf",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("conversión falló")
+
+    monkeypatch.setattr(downloader_module, "_pdf_to_rtf_fallback", _raise)
+
+    downloader = Downloader()
+    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
+
+    assert result.converted_format is None
+    assert result.storage_key.endswith(".pdf")
+    assert result.local_path.suffix == ".pdf"
