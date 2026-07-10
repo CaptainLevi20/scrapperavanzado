@@ -20,6 +20,10 @@ def create_source_family(db: Session, key: str, display_name: str, description: 
     return family
 
 
+def get_source_family(db: Session, key: str) -> Optional[SourceFamily]:
+    return db.get(SourceFamily, key)
+
+
 def list_sources(db: Session, family_key: Optional[str] = None, active: Optional[bool] = None) -> list[Source]:
     stmt = select(Source)
     if family_key is not None:

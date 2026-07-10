@@ -22,6 +22,8 @@ def get_sources(family_key: Optional[str] = None, active: Optional[bool] = None,
 
 @router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
 def post_source(payload: SourceCreate, db: Session = Depends(get_db)):
+    if repository.get_source_family(db, payload.family_key) is None:
+        raise HTTPException(status_code=400, detail=f"Familia técnica desconocida: {payload.family_key}")
     return repository.create_source(
         db, family_key=payload.family_key, name=payload.name, family_params=payload.family_params, active=payload.active
     )

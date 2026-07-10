@@ -35,6 +35,15 @@ def test_patch_unknown_source_returns_404(api_client, api_key_header):
     assert response.status_code == 404
 
 
+def test_create_source_with_unknown_family_key_returns_400(api_client, api_key_header):
+    response = api_client.post(
+        "/sources",
+        json={"family_key": "no-existe", "name": "Fuente X", "family_params": {}},
+        headers=api_key_header,
+    )
+    assert response.status_code == 400
+
+
 def test_authenticated_request_updates_api_key_last_used_at(api_client, api_key_header, db_session):
     from core.db import repository
     from core.security import hash_api_key
