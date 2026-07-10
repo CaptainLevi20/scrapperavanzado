@@ -13,4 +13,5 @@ def require_api_key(
     api_key = repository.get_active_api_key_by_hash(db, hash_api_key(x_api_key))
     if api_key is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key inválida")
+    repository.touch_api_key_last_used(db, api_key.id)
     return api_key

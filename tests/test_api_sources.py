@@ -33,3 +33,18 @@ def test_create_and_list_source(api_client, api_key_header, db_session):
 def test_patch_unknown_source_returns_404(api_client, api_key_header):
     response = api_client.patch("/sources/999999", json={"active": False}, headers=api_key_header)
     assert response.status_code == 404
+
+
+def test_authenticated_request_updates_api_key_last_used_at(api_client, api_key_header, db_session):
+    from core.db import repository
+    from core.security import hash_api_key
+
+    raw_key = api_key_header["X-API-Key"]
+    before = repository.get_active_api_key_by_hash(db_session, hash_api_key(raw_key))
+    assert before.last_used_at is None
+
+    response = api_client.get("/sources", headers=api_key_header)
+    assert response.status_code == 200
+
+    after = repository.get_active_api_key_by_hash(db_session, hash_api_key(raw_key))
+    assert after.last_used_at is not None

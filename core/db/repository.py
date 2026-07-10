@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -196,3 +196,9 @@ def create_api_key(db: Session, name: str, key_hash: str) -> ApiKey:
 def get_active_api_key_by_hash(db: Session, key_hash: str) -> Optional[ApiKey]:
     stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.active.is_(True))
     return db.scalars(stmt).first()
+
+
+def touch_api_key_last_used(db: Session, api_key_id: int) -> None:
+    api_key = db.get(ApiKey, api_key_id)
+    api_key.last_used_at = datetime.now(timezone.utc)
+    db.commit()
