@@ -14,7 +14,8 @@ from core.utils import storage_path
 
 _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
 
-_SAMAI_CORPS = {
+# Public: enumerated by core/seed.py to create one Source per tribunal.
+SAMAI_CORPS = {
     "1100103": "Consejo de Estado",
     "0500123": "Tribunal Administrativo de Antioquia",
     "8100123": "Tribunal Administrativo de Arauca",

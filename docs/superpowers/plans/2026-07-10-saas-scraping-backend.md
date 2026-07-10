@@ -1662,7 +1662,7 @@ git commit -m "feat: port Corte Constitucional scraper as the 'constitucional' f
 
 **Interfaces:**
 - Consumes: `core.scrapers.base.BaseScrapper`, `core.models.RawDocModel`, `core.scrapers.registry.register_family` (Tasks 4, 5)
-- Produces: `core.scrapers.families.samai.ScrapTribunales(corp_code, corp_name)`, `core.scrapers.families.samai._SAMAI_CORPS: dict[str, str]` (28 entries), registered under family key `"samai"`
+- Produces: `core.scrapers.families.samai.ScrapTribunales(corp_code, corp_name)`, `core.scrapers.families.samai.SAMAI_CORPS: dict[str, str]` (28 entries), registered under family key `"samai"`
 
 - [ ] **Step 1: Create `core/scrapers/families/samai.py`** (ported from `WebScrapping_Fuentes/scrappers/samai.py`, with `os.path.join` replaced by `storage_path` and the class registered via `@register_family("samai")`)
 
@@ -1683,7 +1683,8 @@ from core.utils import storage_path
 
 _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
 
-_SAMAI_CORPS = {
+# Public: enumerated by core/seed.py to create one Source per tribunal.
+SAMAI_CORPS = {
     "1100103": "Consejo de Estado",
     "0500123": "Tribunal Administrativo de Antioquia",
     "8100123": "Tribunal Administrativo de Arauca",
@@ -1985,7 +1986,7 @@ Create `tests/families/test_samai.py`:
 ```python
 from bs4 import BeautifulSoup
 
-from core.scrapers.families.samai import ScrapTribunales, _SAMAI_CORPS
+from core.scrapers.families.samai import ScrapTribunales, SAMAI_CORPS
 from core.scrapers.registry import FAMILY_REGISTRY
 
 _ROW_HTML = """
@@ -2003,8 +2004,8 @@ _ROW_HTML = """
 
 
 def test_samai_has_28_registered_tribunals():
-    assert len(_SAMAI_CORPS) == 28
-    assert _SAMAI_CORPS["1100103"] == "Consejo de Estado"
+    assert len(SAMAI_CORPS) == 28
+    assert SAMAI_CORPS["1100103"] == "Consejo de Estado"
 
 
 def test_samai_is_registered_under_its_family_key():
@@ -3262,7 +3263,7 @@ git commit -m "feat: add CLI for minting API keys (python -m core.manage create-
 - Test: `tests/test_seed.py`
 
 **Interfaces:**
-- Consumes: `core.db.repository.*` (Task 3), `core.scrapers.families.samai._SAMAI_CORPS` (Task 9)
+- Consumes: `core.db.repository.*` (Task 3), `core.scrapers.families.samai.SAMAI_CORPS` (Task 9)
 - Produces: `core.seed.seed_source_families_and_sources(db) -> None`
 
 - [ ] **Step 1: Create `core/seed.py`**
@@ -3270,7 +3271,7 @@ git commit -m "feat: add CLI for minting API keys (python -m core.manage create-
 ```python
 from core.db import repository
 from core.db.session import SessionLocal
-from core.scrapers.families.samai import _SAMAI_CORPS
+from core.scrapers.families.samai import SAMAI_CORPS
 
 _FAMILIES = {
     "constitucional": ("Corte Constitucional", "Buscador de relatoría de la Corte Constitucional"),
@@ -3292,7 +3293,7 @@ def seed_source_families_and_sources(db) -> None:
     if "Corte Constitucional" not in existing_sources:
         repository.create_source(db, family_key="constitucional", name="Corte Constitucional", family_params={})
 
-    for corp_code, corp_name in _SAMAI_CORPS.items():
+    for corp_code, corp_name in SAMAI_CORPS.items():
         if corp_name not in existing_sources:
             repository.create_source(
                 db, family_key="samai", name=corp_name, family_params={"corp_code": corp_code, "corp_name": corp_name}

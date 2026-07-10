@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 
-from core.scrapers.families.samai import ScrapTribunales, _SAMAI_CORPS
+from core.scrapers.families.samai import ScrapTribunales, SAMAI_CORPS
 from core.scrapers.registry import FAMILY_REGISTRY
 
 _ROW_HTML = """
@@ -18,8 +18,8 @@ _ROW_HTML = """
 
 
 def test_samai_has_28_registered_tribunals():
-    assert len(_SAMAI_CORPS) == 28
-    assert _SAMAI_CORPS["1100103"] == "Consejo de Estado"
+    assert len(SAMAI_CORPS) == 28
+    assert SAMAI_CORPS["1100103"] == "Consejo de Estado"
 
 
 def test_samai_is_registered_under_its_family_key():

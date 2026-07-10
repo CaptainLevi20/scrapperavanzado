@@ -1,6 +1,6 @@
 from core.db import repository
 from core.db.session import SessionLocal
-from core.scrapers.families.samai import _SAMAI_CORPS
+from core.scrapers.families.samai import SAMAI_CORPS
 
 _FAMILIES = {
     "constitucional": ("Corte Constitucional", "Buscador de relatoría de la Corte Constitucional"),
@@ -22,7 +22,7 @@ def seed_source_families_and_sources(db) -> None:
     if "Corte Constitucional" not in existing_sources:
         repository.create_source(db, family_key="constitucional", name="Corte Constitucional", family_params={})
 
-    for corp_code, corp_name in _SAMAI_CORPS.items():
+    for corp_code, corp_name in SAMAI_CORPS.items():
         if corp_name not in existing_sources:
             repository.create_source(
                 db, family_key="samai", name=corp_name, family_params={"corp_code": corp_code, "corp_name": corp_name}
