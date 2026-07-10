@@ -16,8 +16,14 @@ def get_source_families(db: Session = Depends(get_db)):
 
 
 @router.get("/sources", response_model=list[SourceOut])
-def get_sources(family_key: Optional[str] = None, active: Optional[bool] = None, db: Session = Depends(get_db)):
-    return repository.list_sources(db, family_key=family_key, active=active)
+def get_sources(
+    family_key: Optional[str] = None,
+    active: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    return repository.list_sources(db, family_key=family_key, active=active, limit=limit, offset=offset)
 
 
 @router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)

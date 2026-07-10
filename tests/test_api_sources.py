@@ -44,6 +44,22 @@ def test_create_source_with_unknown_family_key_returns_400(api_client, api_key_h
     assert response.status_code == 400
 
 
+def test_get_sources_respects_limit_and_offset(api_client, api_key_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    for name in ["Fuente A", "Fuente B", "Fuente C"]:
+        repository.create_source(db_session, family_key="constitucional", name=name, family_params={})
+
+    response = api_client.get("/sources?limit=2", headers=api_key_header)
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+    response = api_client.get("/sources?limit=2&offset=2", headers=api_key_header)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
 def test_authenticated_request_updates_api_key_last_used_at(api_client, api_key_header, db_session):
     from core.db import repository
     from core.security import hash_api_key

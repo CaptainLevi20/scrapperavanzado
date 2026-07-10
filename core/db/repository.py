@@ -24,12 +24,19 @@ def get_source_family(db: Session, key: str) -> Optional[SourceFamily]:
     return db.get(SourceFamily, key)
 
 
-def list_sources(db: Session, family_key: Optional[str] = None, active: Optional[bool] = None) -> list[Source]:
+def list_sources(
+    db: Session,
+    family_key: Optional[str] = None,
+    active: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Source]:
     stmt = select(Source)
     if family_key is not None:
         stmt = stmt.where(Source.family_key == family_key)
     if active is not None:
         stmt = stmt.where(Source.active == active)
+    stmt = stmt.order_by(Source.id).limit(limit).offset(offset)
     return list(db.scalars(stmt).all())
 
 
@@ -72,10 +79,11 @@ def get_run(db: Session, run_id: int) -> Optional[Run]:
     return db.get(Run, run_id)
 
 
-def list_runs(db: Session, status: Optional[str] = None) -> list[Run]:
+def list_runs(db: Session, status: Optional[str] = None, limit: int = 100, offset: int = 0) -> list[Run]:
     stmt = select(Run).order_by(Run.created_at.desc())
     if status is not None:
         stmt = stmt.where(Run.status == status)
+    stmt = stmt.limit(limit).offset(offset)
     return list(db.scalars(stmt).all())
 
 

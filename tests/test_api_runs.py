@@ -29,3 +29,18 @@ def test_cancel_run_sets_cancel_requested(api_client, api_key_header, monkeypatc
     cancel_response = api_client.post(f"/runs/{run_id}/cancel", headers=api_key_header)
     assert cancel_response.status_code == 200
     assert cancel_response.json()["cancel_requested"] is True
+
+
+def test_get_runs_respects_limit_and_offset(api_client, api_key_header, monkeypatch):
+    monkeypatch.setattr("api.routers.runs.orchestrate_run.delay", lambda *a, **k: None)
+
+    for _ in range(3):
+        api_client.post("/runs", json={}, headers=api_key_header)
+
+    response = api_client.get("/runs?limit=2", headers=api_key_header)
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+    response = api_client.get("/runs?limit=2&offset=2", headers=api_key_header)
+    assert response.status_code == 200
+    assert len(response.json()) == 1

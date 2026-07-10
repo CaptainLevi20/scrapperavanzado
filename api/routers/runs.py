@@ -19,8 +19,13 @@ def post_run(payload: RunCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/runs", response_model=list[RunOut])
-def get_runs(status_filter: Optional[str] = None, db: Session = Depends(get_db)):
-    return repository.list_runs(db, status=status_filter)
+def get_runs(
+    status_filter: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    return repository.list_runs(db, status=status_filter, limit=limit, offset=offset)
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)
