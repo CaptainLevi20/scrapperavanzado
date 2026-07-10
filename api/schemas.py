@@ -60,3 +60,27 @@ class RunSourceOut(BaseModel):
     docs_new: int
     docs_errors: int
     error_message: Optional[str] = None
+
+
+class DocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    doc_id: str
+    source_id: int
+    title: str
+    tipo: Optional[str] = None
+    seccion: Optional[str] = None
+    f_public: Optional[date] = None
+    f_providencia: Optional[date] = None
+    storage_bucket: str
+    storage_key: str
+    content_type: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    downloaded_at: datetime
+
+
+class PaginatedDocuments(BaseModel):
+    items: list[DocumentOut]
+    total: int
+    limit: int
+    offset: int
