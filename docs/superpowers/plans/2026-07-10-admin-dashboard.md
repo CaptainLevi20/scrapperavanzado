@@ -18,7 +18,7 @@
 - Run status values are exactly `"pending"`, `"running"`, `"completed"` (source: `worker/tasks.py` — there is no `"error"`/`"cancelled"` run status; only `"completed"` is terminal). Run-source status values are exactly `"pending"`, `"running"`, `"completed"`, `"failed"`.
 - Backend base URL comes from `VITE_API_BASE_URL` (Vite env var), defaulting to `http://localhost:8000` when unset.
 - Testing: Vitest + `@testing-library/react` + MSW. No test may hit a real network endpoint — always mock via `frontend/src/test/server.ts`.
-- Do not modify Python backend files except `core/config.py`, `api/main.py`, `core/storage.py`, `.env.example` in Task 1 (CORS) — no other backend changes are in scope.
+- Do not modify Python backend files except `core/config.py`, `api/main.py`, `.env.example`, `tests/test_cors.py`, `tests/test_storage.py` in Task 1 (CORS) — no other backend changes are in scope. `core/storage.py` is read but not modified (see Task 1's "Important note" on MinIO CORS).
 
 ---
 
@@ -27,10 +27,9 @@
 **Backend (modified):**
 - `core/config.py` — add `cors_origins` setting.
 - `api/main.py` — add `CORSMiddleware`.
-- `core/storage.py` — `ensure_bucket` configures bucket CORS.
 - `.env.example` — document `CORS_ORIGINS`.
 - `tests/test_cors.py` — new test file.
-- `tests/test_storage.py` — extended with a CORS assertion.
+- `tests/test_storage.py` — extended with a test confirming MinIO's default CORS behavior (no `core/storage.py` production code change — see Task 1's "Important note").
 
 **Frontend (new `frontend/` project):**
 - `frontend/package.json`, `vite.config.ts`, `tsconfig.json`, `tsconfig.node.json`, `index.html`, `.gitignore`, `.env.example`, `components.json` (shadcn) — project config.
@@ -54,14 +53,15 @@
 **Files:**
 - Modify: `core/config.py`
 - Modify: `api/main.py`
-- Modify: `core/storage.py`
 - Modify: `.env.example`
 - Test: `tests/test_cors.py` (new)
-- Test: `tests/test_storage.py` (extend)
+- Test: `tests/test_storage.py` (extend, no production code change — see the "Important note" below)
 
 **Interfaces:**
 - Consumes: `core.config.get_settings()` (existing), `tests/conftest.py`'s `api_client` fixture and `TEST_S3_BUCKET` constant (existing).
-- Produces: `Settings.cors_origins: str` (comma-separated origins), used by `api/main.py` and `core/storage.py`. Later frontend tasks assume the browser can call the API from `http://localhost:5173` and read presigned-download responses without a CORS error — this task is what makes that true.
+- Produces: `Settings.cors_origins: str` (comma-separated origins), used by `api/main.py`. Later frontend tasks assume the browser can call the API from `http://localhost:5173` and read presigned-download responses without a CORS error — this task is what makes that true.
+
+**Important note (discovered during implementation, not in the original design):** open-source MinIO does **not** implement per-bucket CORS via the S3 API (`PutBucketCors`/`GetBucketCors` return `NotImplemented` — that's an AIStor/enterprise-only feature). MinIO only supports a server-wide `MINIO_API_CORS_ALLOW_ORIGIN` setting, which **defaults to `*`** (all origins) when unset. Since this project's `docker-compose.yml` doesn't set that variable, MinIO already answers presigned-URL requests with a permissive `Access-Control-Allow-Origin` header out of the box — no bucket-level application code is needed. Do **not** call `put_bucket_cors` in `core/storage.py`; instead, write a test that confirms this default behavior empirically (Steps 7-9 below).
 
 - [ ] **Step 1: Write the failing CORS preflight test**
 
@@ -134,31 +134,9 @@ Append to `.env.example`:
 CORS_ORIGINS=http://localhost:5173
 ```
 
-- [ ] **Step 7: Write the failing bucket-CORS test**
+- [ ] **Step 7: Ensure `ensure_bucket` in `core/storage.py` is unchanged**
 
-Append to `tests/test_storage.py`:
-
-```python
-def test_ensure_bucket_configures_cors_for_frontend_origin():
-    from core.storage import _client, ensure_bucket
-
-    ensure_bucket(TEST_S3_BUCKET)
-    client = _client()
-    cors = client.get_bucket_cors(Bucket=TEST_S3_BUCKET)
-
-    allowed_origins = cors["CORSRules"][0]["AllowedOrigins"]
-    assert "http://localhost:5173" in allowed_origins
-    assert "GET" in cors["CORSRules"][0]["AllowedMethods"]
-```
-
-- [ ] **Step 8: Run test to verify it fails**
-
-Run: `.venv\Scripts\pytest tests/test_storage.py::test_ensure_bucket_configures_cors_for_frontend_origin -v`
-Expected: FAIL with `ClientError` (`NoSuchCORSConfiguration`) — no bucket CORS set yet.
-
-- [ ] **Step 9: Configure bucket CORS in `ensure_bucket`**
-
-In `core/storage.py`, replace `ensure_bucket`:
+`core/storage.py`'s `ensure_bucket` must stay exactly as it already is — it only creates the bucket if missing, nothing else:
 
 ```python
 def ensure_bucket(bucket: str) -> None:
@@ -166,37 +144,46 @@ def ensure_bucket(bucket: str) -> None:
     existing = [b["Name"] for b in client.list_buckets().get("Buckets", [])]
     if bucket not in existing:
         client.create_bucket(Bucket=bucket)
-
-    settings = get_settings()
-    client.put_bucket_cors(
-        Bucket=bucket,
-        CORSConfiguration={
-            "CORSRules": [
-                {
-                    "AllowedOrigins": [origin.strip() for origin in settings.cors_origins.split(",")],
-                    "AllowedMethods": ["GET"],
-                    "AllowedHeaders": ["*"],
-                }
-            ]
-        },
-    )
 ```
 
-- [ ] **Step 10: Run test to verify it passes**
+If an earlier attempt at this task added a `put_bucket_cors` call here, remove it — it fails against open-source MinIO with `ClientError: NotImplemented` on every call, which breaks `upload_file()` (and therefore every document download in the scraping pipeline). See the "Important note" above. `core/storage.py` is therefore not actually modified by this task — drop it from the Files list once this step is confirmed.
+
+- [ ] **Step 8: Write a test confirming MinIO's default CORS behavior covers the frontend origin**
+
+Append to `tests/test_storage.py`:
+
+```python
+def test_presigned_url_response_allows_cross_origin_read(tmp_path):
+    from core.storage import presigned_url, upload_file
+
+    file_path = tmp_path / "cors-check.txt"
+    file_path.write_text("contenido de prueba")
+    bucket, key = upload_file(file_path, "cors-check.txt", bucket=TEST_S3_BUCKET)
+    url = presigned_url(bucket, key)
+
+    response = requests.get(url, headers={"Origin": "http://localhost:5173"}, timeout=10)
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") in ("*", "http://localhost:5173")
+```
+
+This is not a red/green TDD step (there's no application code to write — the assertion documents and locks in MinIO's existing default behavior). Skip straight to Step 9.
+
+- [ ] **Step 9: Run test to verify it passes**
 
 Run: `.venv\Scripts\pytest tests/test_storage.py -v`
-Expected: PASS (both the existing roundtrip test and the new CORS test)
+Expected: PASS (both the existing roundtrip test and the new CORS-header test). If it FAILS with a missing/mismatched `access-control-allow-origin` header, this project's MinIO deployment has `MINIO_API_CORS_ALLOW_ORIGIN` set to something other than the default `*` — stop and report BLOCKED rather than adding a `put_bucket_cors` call back (it will not work against open-source MinIO).
 
-- [ ] **Step 11: Run the full backend suite**
+- [ ] **Step 10: Run the full backend suite**
 
 Run: `.venv\Scripts\pytest -v` (requires `docker compose up -d`)
 Expected: all tests pass (same count as before + 2 new tests)
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add core/config.py api/main.py core/storage.py .env.example tests/test_cors.py tests/test_storage.py
-git commit -m "feat: enable CORS for the frontend origin on the API and S3 bucket"
+git add core/config.py api/main.py .env.example tests/test_cors.py tests/test_storage.py
+git commit -m "fix: rely on MinIO's default CORS behavior instead of unsupported put_bucket_cors"
 ```
 
 ---
