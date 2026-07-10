@@ -49,3 +49,29 @@ class DummyFamilyScraper(BaseScrapper):
 
     def scrap(self, fini, ffin, **kwargs):
         return DummyFamilyScraper.docs_to_return
+
+
+@pytest.fixture()
+def api_client(db_session):
+    from fastapi.testclient import TestClient
+
+    from api.deps import get_db
+    from api.main import app
+
+    def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def api_key_header(db_session):
+    from core.db import repository
+    from core.security import hash_api_key
+
+    raw_key = "test-key-12345"
+    repository.create_api_key(db_session, name="tests", key_hash=hash_api_key(raw_key))
+    return {"X-API-Key": raw_key}
