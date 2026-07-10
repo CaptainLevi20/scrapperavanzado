@@ -25,20 +25,6 @@ def ensure_bucket(bucket: str) -> None:
     if bucket not in existing:
         client.create_bucket(Bucket=bucket)
 
-    settings = get_settings()
-    client.put_bucket_cors(
-        Bucket=bucket,
-        CORSConfiguration={
-            "CORSRules": [
-                {
-                    "AllowedOrigins": [origin.strip() for origin in settings.cors_origins.split(",")],
-                    "AllowedMethods": ["GET"],
-                    "AllowedHeaders": ["*"],
-                }
-            ]
-        },
-    )
-
 
 def upload_file(
     local_path: Path, key: str, bucket: Optional[str] = None, content_type: Optional[str] = None

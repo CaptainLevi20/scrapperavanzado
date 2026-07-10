@@ -16,13 +16,13 @@ def test_upload_file_and_presigned_url_roundtrip(tmp_path):
     assert response.text == "contenido de prueba"
 
 
-def test_ensure_bucket_configures_cors_for_frontend_origin():
-    from core.storage import _client, ensure_bucket
+def test_presigned_url_response_allows_cross_origin_read(tmp_path):
+    file_path = tmp_path / "cors-check.txt"
+    file_path.write_text("contenido de prueba")
+    bucket, key = upload_file(file_path, "cors-check.txt", bucket=TEST_S3_BUCKET)
+    url = presigned_url(bucket, key)
 
-    ensure_bucket(TEST_S3_BUCKET)
-    client = _client()
-    cors = client.get_bucket_cors(Bucket=TEST_S3_BUCKET)
+    response = requests.get(url, headers={"Origin": "http://localhost:5173"}, timeout=10)
 
-    allowed_origins = cors["CORSRules"][0]["AllowedOrigins"]
-    assert "http://localhost:5173" in allowed_origins
-    assert "GET" in cors["CORSRules"][0]["AllowedMethods"]
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") in ("*", "http://localhost:5173")
