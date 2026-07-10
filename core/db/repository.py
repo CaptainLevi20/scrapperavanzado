@@ -80,7 +80,7 @@ def get_run(db: Session, run_id: int) -> Optional[Run]:
 
 
 def list_runs(db: Session, status: Optional[str] = None, limit: int = 100, offset: int = 0) -> list[Run]:
-    stmt = select(Run).order_by(Run.created_at.desc())
+    stmt = select(Run).order_by(Run.created_at.desc(), Run.id.desc())
     if status is not None:
         stmt = stmt.where(Run.status == status)
     stmt = stmt.limit(limit).offset(offset)

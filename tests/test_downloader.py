@@ -151,6 +151,32 @@ def test_download_records_converted_format_when_conversion_succeeds(tmp_path):
 
 
 @responses.activate
+def test_download_preserves_doc_convert_to_value_in_converted_format(tmp_path, monkeypatch):
+    """converted_format must reflect the document's own convert_to value (e.g. 'rtf_word',
+    the only value used in production by the samai family), not a hardcoded literal —
+    even when the actual conversion happens via the pypdf fallback rather than Word."""
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    downloader = Downloader()
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("Word no disponible")
+
+    monkeypatch.setattr(downloader._word_converter, "convert", _raise)
+
+    result = downloader.download(_doc(convert_to="rtf_word"), tmp_path)
+
+    assert result.converted_format == "rtf_word"
+    assert result.storage_key.endswith(".rtf")
+    assert result.local_path.suffix == ".rtf"
+
+
+@responses.activate
 def test_download_leaves_converted_format_none_when_conversion_silently_fails(tmp_path, monkeypatch):
     import core.downloader as downloader_module
 

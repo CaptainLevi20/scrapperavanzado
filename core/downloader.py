@@ -180,7 +180,7 @@ class Downloader:
             if converted != temp_path:
                 storage_key = storage_key.rsplit(".", 1)[0] + ".rtf" if "." in storage_key else storage_key + ".rtf"
                 temp_path = converted
-                converted_format = "rtf"
+                converted_format = doc.convert_to
 
         return DownloadResult(
             local_path=temp_path,
