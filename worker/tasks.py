@@ -1,0 +1,113 @@
+import logging
+import tempfile
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from core.db import repository
+from core.db.session import SessionLocal
+from core.downloader import Downloader
+from core.scrapers import families  # noqa: F401 — ensures registry is populated
+from core.scrapers.registry import resolve_scraper
+from core.storage import upload_file
+from core.utils import compute_doc_id
+from worker.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_date(value):
+    if not value:
+        return None
+    return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def _default_date_str(value: date | None) -> str:
+    if value:
+        return value.strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+@celery_app.task(name="worker.scrape_source_task", bind=True, max_retries=2, default_retry_delay=30)
+def scrape_source_task(self, run_source_id: int):
+    db = SessionLocal()
+    try:
+        run_source = repository.get_run_source(db, run_source_id)
+        if run_source is None:
+            return
+
+        source = repository.get_source(db, run_source.source_id)
+        run = repository.get_run(db, run_source.run_id)
+
+        repository.set_run_source_status(db, run_source_id, "running", started_at=datetime.now(timezone.utc))
+
+        try:
+            scraper = resolve_scraper(source.family_key, source.family_params or {})
+            fini = _default_date_str(run.fini)
+            ffin = _default_date_str(run.ffin)
+            docs = scraper.scrap(fini=fini, ffin=ffin)
+        except Exception as exc:
+            repository.set_run_source_status(
+                db, run_source_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)
+            )
+            return
+
+        docs_new = 0
+        docs_errors = 0
+        downloader = Downloader()
+        try:
+            with tempfile.TemporaryDirectory(prefix=f"run_source_{run_source_id}_") as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                for doc in docs:
+                    if repository.is_cancel_requested(db, run.id):
+                        break
+
+                    doc_id = compute_doc_id(doc)
+                    if repository.document_exists(db, doc_id):
+                        continue
+
+                    try:
+                        result = downloader.download(doc, tmp_path)
+                        bucket, storage_key = upload_file(result.local_path, result.storage_key)
+                        repository.insert_document(
+                            db,
+                            doc_id=doc_id,
+                            source_id=source.id,
+                            run_source_id=run_source_id,
+                            title=doc.title,
+                            tipo=doc.tipo,
+                            seccion=doc.seccion,
+                            especialidad=doc.especialidad,
+                            magistrado=doc.magistrado,
+                            detalle=doc.detalle,
+                            f_public=_parse_date(doc.f_public),
+                            f_providencia=_parse_date(doc.f_providencia),
+                            source_url=doc.link.get("url"),
+                            storage_bucket=bucket,
+                            storage_key=storage_key,
+                            content_type=result.content_type,
+                            file_extension=Path(result.storage_key).suffix,
+                            file_size_bytes=result.file_size_bytes,
+                            converted_format=doc.convert_to,
+                        )
+                        docs_new += 1
+                    except FileNotFoundError as exc:
+                        logger.info("Documento no disponible aún: %s", exc)
+                        continue
+                    except Exception as exc:
+                        docs_errors += 1
+                        repository.add_run_error(
+                            db, run_source_id, str(exc), context={"title": doc.title, "url": doc.link.get("url")}
+                        )
+        finally:
+            downloader.close()
+
+        repository.set_run_source_status(
+            db,
+            run_source_id,
+            "completed",
+            docs_new=docs_new,
+            docs_errors=docs_errors,
+            finished_at=datetime.now(timezone.utc),
+        )
+    finally:
+        db.close()

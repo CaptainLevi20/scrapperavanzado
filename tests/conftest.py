@@ -31,3 +31,21 @@ def db_session(test_engine):
         yield session
     finally:
         session.close()
+
+
+from core.models import RawDocModel
+from core.scrapers.base import BaseScrapper
+from core.scrapers.registry import register_family
+
+
+@register_family("test-dummy")
+class DummyFamilyScraper(BaseScrapper):
+    """Registered once at test-collection time; used by pipeline tests instead of hitting a real site."""
+
+    docs_to_return: list[RawDocModel] = []
+
+    def __init__(self, **_params):
+        pass
+
+    def scrap(self, fini, ffin, **kwargs):
+        return DummyFamilyScraper.docs_to_return
