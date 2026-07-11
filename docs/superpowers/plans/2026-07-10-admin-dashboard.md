@@ -1666,7 +1666,10 @@ import { clearStoredApiKey } from "./api/client";
 import { App } from "./App";
 
 describe("App", () => {
-  beforeEach(() => clearStoredApiKey());
+  beforeEach(() => {
+    clearStoredApiKey();
+    window.history.pushState({}, "", "/");
+  });
 
   it("redirects to the login page when there is no stored API key", () => {
     render(<App />);
@@ -1676,10 +1679,16 @@ describe("App", () => {
   it("renders the Overview page when an API key is already stored", () => {
     localStorage.setItem("iurisync_api_key", "existing-key");
     render(<App />);
-    expect(screen.getByText(/Resumen/)).toBeInTheDocument();
+    expect(screen.getByText("Resumen (próximamente)")).toBeInTheDocument();
   });
 });
 ```
+
+**Important notes (discovered during implementation, not in the original design):**
+
+1. `App.tsx` uses `<BrowserRouter>`, which reads and writes the *real* jsdom `window.location`/history — it is not sandboxed per test. Within one `describe` block, multiple `it()`s in the same file share that same `window`/`document` (Vitest doesn't reset jsdom between tests in the same file, only between files). The first test's `<Navigate to="/login" replace />` (fired because there's no stored key) leaves `window.location.pathname` at `/login` — if a later test doesn't reset it, `<BrowserRouter>` mounts already pointed at `/login` regardless of what's in `localStorage`, and the test fails with the LoginPage rendering instead of the expected page, which looks like a routing/nesting bug but isn't. The `window.history.pushState({}, "", "/")` line in `beforeEach` above is the fix — it resets the URL before every test so each one starts from `/` as intended. If a future test file reuses `render(<App />)` multiple times, apply the same reset.
+
+2. Once routing actually renders the Overview page, `screen.getByText(/Resumen/)` matches BOTH the Sidebar's "Resumen" nav link and the OverviewPage stub's "Resumen (próximamente)" text simultaneously — an ambiguity invisible before fix 1 (only the LoginPage rendered, so no "Resumen" text existed at all) that only surfaces once routing is correct. The assertion above uses the full unique stub text to disambiguate — do not revert to the `/Resumen/` regex.
 
 - [ ] **Step 14: Run the full test suite to verify it passes**
 
