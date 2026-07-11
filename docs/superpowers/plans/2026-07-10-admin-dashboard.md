@@ -20,6 +20,12 @@
 - Testing: Vitest + `@testing-library/react` + MSW. No test may hit a real network endpoint — always mock via `frontend/src/test/server.ts`.
 - Do not modify Python backend files except `core/config.py`, `api/main.py`, `.env.example`, `tests/test_cors.py`, `tests/test_storage.py` in Task 1 (CORS) — no other backend changes are in scope. `core/storage.py` is read but not modified (see Task 1's "Important note" on MinIO CORS).
 
+**Cross-cutting correction (discovered during Task 10, fixed in commit `09746ba`, not tied to any single numbered task):** no task brief ever ran `npx tsc -b` (full TypeScript project type-check) as a pass/fail gate — only Vitest. This let two real gaps slip through silently for several tasks:
+1. `frontend/src/main.tsx` kept Vite's scaffolded `import App from './App.tsx'` (default import) even after Task 2 changed `App.tsx` to a named-only export (`export function App()`) to satisfy its own test's `import { App }`. Every Vitest test imports `{ App }` directly and never exercises `main.tsx`, so this was invisible to the test suite — but the actual running app (`npm run dev` / production build) would have had `App === undefined` at runtime. Fixed by changing `main.tsx`'s import to `import { App } from './App.tsx'` (do not add a default export back to `App.tsx` — many test files already depend on the named export).
+2. `buildQuery`'s parameter type (`Record<string, string | number | boolean | undefined>`, from Task 4) requires an explicit index signature on any interface passed to it. `ListSourcesParams`/`ListRunsParams`/`ListDocumentsParams` (Task 5) lacked one. Fixed by adding `[key: string]: string | number | boolean | undefined;` as the last member of each of the three interfaces.
+
+If a later task's implementer runs `tsc -b` (recommended, since Task 15's final `npm run build` step depends on it passing) and finds new errors, fix them the same way: minimal, targeted, and only touching what's necessary — don't introduce `any` to silence errors.
+
 ---
 
 ## File Structure
