@@ -1,32 +1,25 @@
-# React + TypeScript + Vite
+# IURISYNC Admin Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Panel interno para gestionar fuentes de scraping, disparar/monitorear runs y buscar documentos. Ver el diseño completo en `docs/superpowers/specs/2026-07-10-admin-dashboard-design.md`.
 
-Currently, two official plugins are available:
+## Setup local
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. `cd frontend && npm install`
+2. `copy .env.example .env` (ajusta `VITE_API_BASE_URL` si el backend no corre en `http://localhost:8000`)
+3. Asegúrate de que el backend esté corriendo con `CORS_ORIGINS` incluyendo `http://localhost:5173` (valor por defecto en `.env.example` del backend)
 
-## React Compiler
+## Correr en desarrollo
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+`npm run dev` — sirve en `http://localhost:5173`
 
-## Expanding the Oxlint configuration
+## Tests
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+`npm test` (Vitest + React Testing Library + MSW, sin red real)
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
+## Build de producción
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`npm run build` — genera `dist/`, servible como estático detrás de cualquier hosting (Nginx, S3+CDN, etc.)
+
+## Login
+
+No hay registro de usuarios: pega una API key creada con `python -m core.manage create-api-key --name "..."` (ver README del backend) en la pantalla de login.

@@ -17,6 +17,6 @@ describe("App", () => {
   it("renders the Overview page when an API key is already stored", () => {
     localStorage.setItem("iurisync_api_key", "existing-key");
     render(<App />);
-    expect(screen.getByText("Resumen (próximamente)")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Resumen" })).toBeInTheDocument();
   });
 });
