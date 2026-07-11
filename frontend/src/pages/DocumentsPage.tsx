@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchDocuments } from "../api/documents";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { downloadDocumentFile, fetchDocuments } from "../api/documents";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { formatBytes, formatDate } from "../lib/formatters";
 
@@ -20,6 +20,12 @@ export function DocumentsPage() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
+  });
+
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const downloadMutation = useMutation({
+    mutationFn: ({ id, filename }: { id: number; filename: string }) => downloadDocumentFile(id, filename),
+    onError: () => setDownloadError("Error al descargar el documento"),
   });
 
   return (
@@ -50,6 +56,7 @@ export function DocumentsPage() {
       {documentsQuery.isError && (
         <ErrorBanner message="No se pudieron cargar los documentos." onRetry={() => documentsQuery.refetch()} />
       )}
+      {downloadError && <ErrorBanner message={downloadError} onRetry={() => setDownloadError(null)} />}
 
       <table className="w-full border-collapse text-left">
         <thead>
@@ -58,6 +65,7 @@ export function DocumentsPage() {
             <th className="py-2">Tipo</th>
             <th className="py-2">Fecha providencia</th>
             <th className="py-2">Tamaño</th>
+            <th className="py-2">Descargar</th>
           </tr>
         </thead>
         <tbody>
@@ -67,6 +75,14 @@ export function DocumentsPage() {
               <td className="py-2">{document.tipo ?? "—"}</td>
               <td className="py-2">{formatDate(document.f_providencia)}</td>
               <td className="py-2">{formatBytes(document.file_size_bytes)}</td>
+              <td className="py-2">
+                <button
+                  onClick={() => downloadMutation.mutate({ id: document.id, filename: `${document.title}.pdf` })}
+                  className="text-sm text-blue-600 underline"
+                >
+                  Descargar
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>

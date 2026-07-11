@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredApiKey } from "./client";
-import { fetchDocument, fetchDocuments } from "./documents";
+import { downloadDocumentFile, fetchDocument, fetchDocuments } from "./documents";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -48,5 +48,30 @@ describe("documents API", () => {
     const document = await fetchDocument(3);
 
     expect(document.title).toBe("Sentencia X");
+  });
+});
+
+describe("downloadDocumentFile", () => {
+  it("fetches the file and triggers a browser download", async () => {
+    server.use(
+      http.get(`${BASE_URL}/documents/1/download`, () => new HttpResponse(new Blob(["contenido"], { type: "application/pdf" })))
+    );
+    const clickSpy = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") element.click = clickSpy;
+      return element;
+    });
+
+    await downloadDocumentFile(1, "sentencia.pdf");
+
+    expect(clickSpy).toHaveBeenCalledOnce();
+  });
+
+  it("throws when the download request fails", async () => {
+    server.use(http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse(null, { status: 404 })));
+
+    await expect(downloadDocumentFile(2, "x.pdf")).rejects.toThrow();
   });
 });

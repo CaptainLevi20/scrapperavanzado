@@ -61,4 +61,17 @@ describe("DocumentsPage", () => {
 
     await waitFor(() => expect(lastUrl).toContain("title=sentencia"));
   });
+
+  it("triggers a download when the download button is clicked", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })),
+      http.get(`${BASE_URL}/documents/1/download`, () => new HttpResponse(new Blob(["x"], { type: "application/pdf" })))
+    );
+    renderPage();
+
+    await user.click(await screen.findByText("Descargar"));
+
+    await waitFor(() => expect(screen.queryByText(/error al descargar/i)).not.toBeInTheDocument());
+  });
 });
