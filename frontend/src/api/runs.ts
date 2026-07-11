@@ -5,6 +5,7 @@ export interface ListRunsParams {
   status_filter?: string;
   limit?: number;
   offset?: number;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export function fetchRuns(params: ListRunsParams = {}): Promise<Run[]> {

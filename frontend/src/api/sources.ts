@@ -6,6 +6,7 @@ export interface ListSourcesParams {
   active?: boolean;
   limit?: number;
   offset?: number;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export function fetchSources(params: ListSourcesParams = {}): Promise<Source[]> {

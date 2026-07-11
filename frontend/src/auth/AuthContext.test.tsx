@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { clearStoredApiKey, getStoredApiKey } from "../api/client";
 import { AuthProvider, useAuth } from "./AuthContext";

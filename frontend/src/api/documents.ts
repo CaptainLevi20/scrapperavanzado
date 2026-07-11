@@ -8,6 +8,7 @@ export interface ListDocumentsParams {
   title?: string;
   limit?: number;
   offset?: number;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export function fetchDocuments(params: ListDocumentsParams = {}): Promise<PaginatedDocuments> {
