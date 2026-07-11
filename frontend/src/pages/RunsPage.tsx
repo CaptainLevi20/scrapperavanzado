@@ -1,16 +1,104 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchRuns } from "../api/runs";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { createRun, fetchRuns } from "../api/runs";
+import { fetchSources } from "../api/sources";
+import type { Source } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
+import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import { formatDateTime } from "../lib/formatters";
 
 const PAGE_SIZE = 20;
 const POLL_INTERVAL_MS = 4000;
 
+function NewRunDialog({ sources }: { sources: Source[] }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [fini, setFini] = useState("");
+  const [ffin, setFfin] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: createRun,
+    onSuccess: (run) => {
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
+      setOpen(false);
+      navigate(`/runs/${run.id}`);
+    },
+  });
+
+  function toggleSource(id: number) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((existing) => existing !== id) : [...prev, id]));
+  }
+
+  function handleSubmit() {
+    mutation.mutate({
+      source_ids: selectedIds.length > 0 ? selectedIds : undefined,
+      fini: fini || undefined,
+      ffin: ffin || undefined,
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>Nuevo run</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Nuevo run</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Fuentes (vacío = todas las activas)</Label>
+            <div className="max-h-40 space-y-1 overflow-y-auto rounded border p-2">
+              {sources.map((source) => (
+                <label key={source.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    aria-label={source.name}
+                    checked={selectedIds.includes(source.id)}
+                    onChange={() => toggleSource(source.id)}
+                  />
+                  {source.name}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div>
+              <Label htmlFor="run-fini">Desde</Label>
+              <Input id="run-fini" type="date" value={fini} onChange={(event) => setFini(event.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="run-ffin">Hasta</Label>
+              <Input id="run-ffin" type="date" value={ffin} onChange={(event) => setFfin(event.target.value)} />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={handleSubmit} disabled={mutation.isPending}>
+            {mutation.isPending ? "Creando…" : "Iniciar run"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function RunsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(0);
+
+  const activeSourcesQuery = useQuery({
+    queryKey: ["sources", "active-for-new-run"],
+    queryFn: () => fetchSources({ active: true, limit: 100 }),
+  });
 
   const runsQuery = useQuery({
     queryKey: ["runs", statusFilter, page],
@@ -29,7 +117,10 @@ export function RunsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Runs</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Runs</h1>
+        <NewRunDialog sources={activeSourcesQuery.data ?? []} />
+      </div>
 
       <label className="flex items-center gap-2 text-sm">
         Estado

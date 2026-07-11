@@ -66,3 +66,28 @@ describe("RunsPage", () => {
     vi.useRealTimers();
   });
 });
+
+describe("RunsPage — new run", () => {
+  it("creates a run with the selected sources and navigates to its detail page", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    let createdBody: unknown;
+    server.use(
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
+      ),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
+      http.post(`${BASE_URL}/runs`, async ({ request }) => {
+        createdBody = await request.json();
+        return HttpResponse.json({ ...RUN, id: 42 }, { status: 202 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Nuevo run"));
+    await user.click(screen.getByLabelText("Corte Constitucional"));
+    await user.click(screen.getByText("Iniciar run"));
+
+    await waitFor(() => expect(createdBody).toMatchObject({ source_ids: [1] }));
+  });
+});
