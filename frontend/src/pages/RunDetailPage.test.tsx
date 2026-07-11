@@ -82,4 +82,29 @@ describe("RunDetailPage", () => {
 
     expect(await screen.findByText("Cancelación solicitada")).toBeInTheDocument();
   });
+
+  it("does not fire queries when runId is not a valid number", async () => {
+    let runQueryCalled = false;
+    let sourcesQueryCalled = false;
+
+    server.use(
+      http.get(`${BASE_URL}/runs/abc`, () => {
+        runQueryCalled = true;
+        return HttpResponse.json(RUN);
+      }),
+      http.get(`${BASE_URL}/runs/abc/sources`, () => {
+        sourcesQueryCalled = true;
+        return HttpResponse.json([RUN_SOURCE]);
+      })
+    );
+
+    renderPage("abc");
+
+    // Wait for the error message to appear
+    expect(await screen.findByText("Run inválido.")).toBeInTheDocument();
+
+    // Verify that neither endpoint was called
+    expect(runQueryCalled).toBe(false);
+    expect(sourcesQueryCalled).toBe(false);
+  });
 });

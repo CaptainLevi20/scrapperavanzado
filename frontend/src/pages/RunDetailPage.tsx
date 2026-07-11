@@ -28,6 +28,7 @@ export function RunDetailPage() {
       const hasActive = items?.some((runSource) => runSource.status === "pending" || runSource.status === "running");
       return hasActive ? POLL_INTERVAL_MS : false;
     },
+    enabled: !Number.isNaN(id),
   });
 
   const cancelMutation = useMutation({
