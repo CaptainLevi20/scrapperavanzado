@@ -84,15 +84,19 @@ describe("RunDetailPage", () => {
   });
 
   it("does not fire queries when runId is not a valid number", async () => {
+    // The component does `Number(runId)`, so an invalid runId like "abc" becomes NaN.
+    // If the `enabled: !Number.isNaN(id)` guard were missing or broken, the real
+    // requests fired would be GET /runs/NaN and /runs/NaN/sources — NOT /runs/abc.
+    // These handlers must watch those actual URLs, or the test proves nothing.
     let runQueryCalled = false;
     let sourcesQueryCalled = false;
 
     server.use(
-      http.get(`${BASE_URL}/runs/abc`, () => {
+      http.get(`${BASE_URL}/runs/NaN`, () => {
         runQueryCalled = true;
         return HttpResponse.json(RUN);
       }),
-      http.get(`${BASE_URL}/runs/abc/sources`, () => {
+      http.get(`${BASE_URL}/runs/NaN/sources`, () => {
         sourcesQueryCalled = true;
         return HttpResponse.json([RUN_SOURCE]);
       })
