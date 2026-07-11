@@ -62,3 +62,48 @@ describe("SourcesPage", () => {
     expect(await screen.findByText(/no se pudieron cargar las fuentes/i)).toBeInTheDocument();
   });
 });
+
+describe("SourcesPage — create and edit", () => {
+  it("creates a source and refreshes the list", async () => {
+    let createdBody: unknown;
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () =>
+        HttpResponse.json([{ key: "constitucional", display_name: "Corte Constitucional", description: null }])
+      ),
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.post(`${BASE_URL}/sources`, async ({ request }) => {
+        createdBody = await request.json();
+        return HttpResponse.json({ id: 2, ...(createdBody as object) }, { status: 201 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Nueva fuente"));
+    await user.selectOptions(screen.getByLabelText("Familia de la fuente"), "constitucional");
+    await user.type(screen.getByLabelText(/nombre/i), "Corte Constitucional");
+    await user.click(screen.getByText("Crear"));
+
+    await waitFor(() => expect(createdBody).toMatchObject({ family_key: "constitucional", name: "Corte Constitucional" }));
+  });
+
+  it("toggles a source's active state", async () => {
+    let patchedBody: unknown;
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
+      ),
+      http.patch(`${BASE_URL}/sources/1`, async ({ request }) => {
+        patchedBody = await request.json();
+        return HttpResponse.json({ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: false });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Desactivar"));
+
+    await waitFor(() => expect(patchedBody).toMatchObject({ active: false }));
+  });
+});

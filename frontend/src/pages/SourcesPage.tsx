@@ -1,10 +1,122 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSourceFamilies } from "../api/sourceFamilies";
-import { fetchSources } from "../api/sources";
+import { createSource, fetchSources, updateSource } from "../api/sources";
+import { ApiError } from "../api/client";
+import type { Source, SourceFamily } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 
 const PAGE_SIZE = 20;
+
+function NewSourceDialog({ families }: { families: SourceFamily[] }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [familyKey, setFamilyKey] = useState("");
+  const [name, setName] = useState("");
+  const [paramsText, setParamsText] = useState("{}");
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: createSource,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      setOpen(false);
+      setName("");
+      setParamsText("{}");
+      setError(null);
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof ApiError ? err.message : "Error al crear la fuente");
+    },
+  });
+
+  function handleSubmit() {
+    let familyParams: Record<string, unknown>;
+    try {
+      familyParams = JSON.parse(paramsText);
+    } catch {
+      setError("Los parámetros deben ser JSON válido");
+      return;
+    }
+    mutation.mutate({ family_key: familyKey, name, family_params: familyParams, active: true });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>Nueva fuente</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Nueva fuente</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="new-source-family">Familia de la fuente</Label>
+            <select
+              id="new-source-family"
+              value={familyKey}
+              onChange={(event) => setFamilyKey(event.target.value)}
+              className="w-full rounded border px-2 py-1"
+            >
+              <option value="">Selecciona una familia</option>
+              {families.map((family) => (
+                <option key={family.key} value={family.key}>
+                  {family.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="new-source-name">Nombre</Label>
+            <Input id="new-source-name" value={name} onChange={(event) => setName(event.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="new-source-params">Parámetros (JSON)</Label>
+            <textarea
+              id="new-source-params"
+              value={paramsText}
+              onChange={(event) => setParamsText(event.target.value)}
+              className="w-full rounded border px-2 py-1 font-mono text-sm"
+              rows={4}
+            />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button onClick={handleSubmit} disabled={!familyKey || !name || mutation.isPending}>
+            {mutation.isPending ? "Creando…" : "Crear"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SourceRow({ source }: { source: Source }) {
+  const queryClient = useQueryClient();
+  const toggleMutation = useMutation({
+    mutationFn: () => updateSource(source.id, { active: !source.active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sources"] }),
+  });
+
+  return (
+    <tr className="border-b">
+      <td className="py-2">{source.name}</td>
+      <td className="py-2">{source.family_key}</td>
+      <td className="py-2">{source.active ? "Activa" : "Inactiva"}</td>
+      <td className="py-2">
+        <button onClick={() => toggleMutation.mutate()} className="text-sm text-blue-600 underline" disabled={toggleMutation.isPending}>
+          {source.active ? "Desactivar" : "Activar"}
+        </button>
+      </td>
+    </tr>
+  );
+}
 
 export function SourcesPage() {
   const [familyKey, setFamilyKey] = useState("");
@@ -26,7 +138,10 @@ export function SourcesPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Fuentes</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Fuentes</h1>
+        <NewSourceDialog families={familiesQuery.data ?? []} />
+      </div>
 
       <div className="flex gap-3">
         <label className="flex items-center gap-2 text-sm">
@@ -75,15 +190,12 @@ export function SourcesPage() {
             <th className="py-2">Nombre</th>
             <th className="py-2">Familia</th>
             <th className="py-2">Estado</th>
+            <th className="py-2">Acciones</th>
           </tr>
         </thead>
         <tbody>
           {sourcesQuery.data?.map((source) => (
-            <tr key={source.id} className="border-b">
-              <td className="py-2">{source.name}</td>
-              <td className="py-2">{source.family_key}</td>
-              <td className="py-2">{source.active ? "Activa" : "Inactiva"}</td>
-            </tr>
+            <SourceRow key={source.id} source={source} />
           ))}
         </tbody>
       </table>
