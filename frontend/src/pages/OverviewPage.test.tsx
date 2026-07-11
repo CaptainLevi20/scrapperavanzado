@@ -52,4 +52,33 @@ describe("OverviewPage", () => {
     expect(await screen.findByText("12")).toBeInTheDocument();
     expect(screen.getByText("#1")).toBeInTheDocument();
   });
+
+  it("paginates through all active sources instead of capping the count at 100", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, ({ request }) => {
+        const url = new URL(request.url);
+        const offset = Number(url.searchParams.get("offset") ?? "0");
+        if (offset === 0) {
+          return HttpResponse.json(
+            Array.from({ length: 100 }, (_, index) => ({
+              id: index + 1,
+              family_key: "constitucional",
+              name: `Fuente ${index + 1}`,
+              family_params: {},
+              active: true,
+            }))
+          );
+        }
+        return HttpResponse.json([
+          { id: 101, family_key: "constitucional", name: "Fuente 101", family_params: {}, active: true },
+        ]);
+      }),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("101")).toBeInTheDocument();
+  });
 });

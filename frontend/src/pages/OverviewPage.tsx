@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { fetchDocuments } from "../api/documents";
 import { fetchRuns } from "../api/runs";
 import { fetchSources } from "../api/sources";
+import type { Source } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatDateTime } from "../lib/formatters";
 
@@ -11,7 +12,18 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 export function OverviewPage() {
   const activeSourcesQuery = useQuery({
     queryKey: ["sources", "active-count"],
-    queryFn: () => fetchSources({ active: true, limit: 100 }),
+    queryFn: async () => {
+      const PAGE = 100;
+      let offset = 0;
+      const all: Source[] = [];
+      while (true) {
+        const page = await fetchSources({ active: true, limit: PAGE, offset });
+        all.push(...page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+      }
+      return all;
+    },
   });
 
   const recentRunsQuery = useQuery({

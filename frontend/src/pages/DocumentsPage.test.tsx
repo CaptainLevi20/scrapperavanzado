@@ -33,8 +33,19 @@ const DOCUMENT = {
   downloaded_at: "2026-07-10T00:00:00Z",
 };
 
+const SOURCE = { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true };
+const FAMILY = { key: "constitucional", display_name: "Corte Constitucional", description: null };
+
+function mockFilterEndpoints() {
+  server.use(
+    http.get(`${BASE_URL}/sources`, () => HttpResponse.json([SOURCE])),
+    http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([FAMILY]))
+  );
+}
+
 describe("DocumentsPage", () => {
   it("renders fetched documents with formatted size", async () => {
+    mockFilterEndpoints();
     server.use(
       http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
     );
@@ -46,6 +57,7 @@ describe("DocumentsPage", () => {
   });
 
   it("refetches with the title filter applied", async () => {
+    mockFilterEndpoints();
     let lastUrl = "";
     server.use(
       http.get(`${BASE_URL}/documents`, ({ request }) => {
@@ -63,6 +75,7 @@ describe("DocumentsPage", () => {
   });
 
   it("triggers a download when the download button is clicked", async () => {
+    mockFilterEndpoints();
     const user = userEvent.setup();
     server.use(
       http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })),
@@ -73,5 +86,39 @@ describe("DocumentsPage", () => {
     await user.click(await screen.findByText("Descargar"));
 
     await waitFor(() => expect(screen.queryByText(/error al descargar/i)).not.toBeInTheDocument());
+  });
+
+  it("renders the Sección column", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [{ ...DOCUMENT, seccion: "Sala Plena" }], total: 1, limit: 50, offset: 0 })
+      )
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Sala Plena")).toBeInTheDocument();
+  });
+
+  it("refetches with the source and family filters applied", async () => {
+    mockFilterEndpoints();
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("Fuente")).toHaveTextContent("Corte Constitucional"));
+
+    await user.selectOptions(screen.getByLabelText("Fuente"), "1");
+    await waitFor(() => expect(lastUrl).toContain("source_id=1"));
+
+    await user.selectOptions(screen.getByLabelText("Familia"), "constitucional");
+    await waitFor(() => expect(lastUrl).toContain("family_key=constitucional"));
   });
 });

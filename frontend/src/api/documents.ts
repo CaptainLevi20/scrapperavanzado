@@ -21,6 +21,29 @@ export function fetchDocument(id: number): Promise<Document> {
   return apiFetch<Document>(`/documents/${id}`);
 }
 
+const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+};
+
+function extensionFromStorageKey(storageKey: string): string | undefined {
+  const match = /\.([a-zA-Z0-9]+)$/.exec(storageKey);
+  return match ? match[1].toLowerCase() : undefined;
+}
+
+function sanitizeFilename(title: string): string {
+  // eslint-disable-next-line no-control-regex
+  return title.replace(/[/\\\x00-\x1f]/g, "-");
+}
+
+export function buildDownloadFilename(document: Document): string {
+  const ext = extensionFromStorageKey(document.storage_key) ?? (document.content_type ? CONTENT_TYPE_EXTENSIONS[document.content_type] : undefined);
+  const sanitizedTitle = sanitizeFilename(document.title);
+  return ext ? `${sanitizedTitle}.${ext}` : sanitizedTitle;
+}
+
 export async function downloadDocumentFile(id: number, filename: string): Promise<void> {
   const apiKey = getStoredApiKey();
   const headers = new Headers();

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredApiKey } from "./client";
-import { downloadDocumentFile, fetchDocument, fetchDocuments } from "./documents";
+import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocuments } from "./documents";
+import type { Document } from "./types";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -73,5 +74,58 @@ describe("downloadDocumentFile", () => {
     server.use(http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse(null, { status: 404 })));
 
     await expect(downloadDocumentFile(2, "x.pdf")).rejects.toThrow();
+  });
+});
+
+function makeDocument(overrides: Partial<Document> = {}): Document {
+  return {
+    id: 1,
+    doc_id: "abc",
+    source_id: 1,
+    title: "Sentencia X",
+    tipo: null,
+    seccion: null,
+    f_public: null,
+    f_providencia: null,
+    storage_bucket: "iurisync-documents",
+    storage_key: "abc123.pdf",
+    content_type: "application/pdf",
+    file_size_bytes: 1024,
+    downloaded_at: "2026-07-10T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("buildDownloadFilename", () => {
+  it("derives the extension from a recognizable storage_key extension", () => {
+    const document = makeDocument({ title: "Sentencia X", storage_key: "abc123.pdf" });
+
+    expect(buildDownloadFilename(document)).toBe("Sentencia X.pdf");
+  });
+
+  it("falls back to the content_type map when storage_key has no recognizable extension", () => {
+    const document = makeDocument({
+      title: "Reporte",
+      storage_key: "some-opaque-key-without-extension",
+      content_type: "text/plain",
+    });
+
+    expect(buildDownloadFilename(document)).toBe("Reporte.txt");
+  });
+
+  it("omits the extension entirely when neither storage_key nor content_type yield one", () => {
+    const document = makeDocument({
+      title: "Sin extension",
+      storage_key: "opaque-key",
+      content_type: "application/octet-stream",
+    });
+
+    expect(buildDownloadFilename(document)).toBe("Sin extension");
+  });
+
+  it("sanitizes a title containing a slash", () => {
+    const document = makeDocument({ title: "Auto 123/2026", storage_key: "abc123.pdf" });
+
+    expect(buildDownloadFilename(document)).toBe("Auto 123-2026.pdf");
   });
 });

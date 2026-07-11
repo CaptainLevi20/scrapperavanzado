@@ -10,7 +10,7 @@ import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { formatDateTime } from "../lib/formatters";
+import { formatDate, formatDateTime } from "../lib/formatters";
 
 const PAGE_SIZE = 20;
 const POLL_INTERVAL_MS = 4000;
@@ -150,6 +150,8 @@ export function RunsPage() {
             <th className="py-2">ID</th>
             <th className="py-2">Disparado por</th>
             <th className="py-2">Estado</th>
+            <th className="py-2">Desde</th>
+            <th className="py-2">Hasta</th>
             <th className="py-2">Creado</th>
           </tr>
         </thead>
@@ -159,6 +161,8 @@ export function RunsPage() {
               <td className="py-2">{run.id}</td>
               <td className="py-2">{run.triggered_by}</td>
               <td className="py-2"><StatusBadge status={run.status} /></td>
+              <td className="py-2">{formatDate(run.fini)}</td>
+              <td className="py-2">{formatDate(run.ffin)}</td>
               <td className="py-2">{formatDateTime(run.created_at)}</td>
             </tr>
           ))}

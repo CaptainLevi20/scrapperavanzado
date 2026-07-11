@@ -1,9 +1,10 @@
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cancelRun, fetchRun, fetchRunSources } from "../api/runs";
+import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
-import { formatDateTime } from "../lib/formatters";
+import { formatDate, formatDateTime } from "../lib/formatters";
 
 const POLL_INTERVAL_MS = 4000;
 
@@ -16,6 +17,7 @@ export function RunDetailPage() {
     queryKey: ["run", id],
     queryFn: () => fetchRun(id),
     refetchInterval: (query) => (query.state.data?.status !== "completed" ? POLL_INTERVAL_MS : false),
+    enabled: !Number.isNaN(id),
   });
 
   const sourcesQuery = useQuery({
@@ -33,6 +35,10 @@ export function RunDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["run", id] }),
   });
 
+  if (Number.isNaN(id)) return <ErrorBanner message="Run inválido." />;
+  if (runQuery.isError) {
+    return <ErrorBanner message="No se pudo cargar el run." onRetry={() => runQuery.refetch()} />;
+  }
   if (!runQuery.data) return <p>Cargando…</p>;
   const run = runQuery.data;
 
@@ -45,6 +51,10 @@ export function RunDetailPage() {
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
         <dt className="font-medium">Disparado por</dt>
         <dd>{run.triggered_by}</dd>
+        <dt className="font-medium">Desde</dt>
+        <dd>{formatDate(run.fini)}</dd>
+        <dt className="font-medium">Hasta</dt>
+        <dd>{formatDate(run.ffin)}</dd>
         <dt className="font-medium">Iniciado</dt>
         <dd>{formatDateTime(run.started_at)}</dd>
         <dt className="font-medium">Finalizado</dt>

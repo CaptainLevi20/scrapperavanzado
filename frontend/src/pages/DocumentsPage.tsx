@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { downloadDocumentFile, fetchDocuments } from "../api/documents";
+import { buildDownloadFilename, downloadDocumentFile, fetchDocuments } from "../api/documents";
+import { fetchSourceFamilies } from "../api/sourceFamilies";
+import { fetchSources } from "../api/sources";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { formatBytes, formatDate } from "../lib/formatters";
 
@@ -9,14 +11,25 @@ const PAGE_SIZE = 50;
 export function DocumentsPage() {
   const [title, setTitle] = useState("");
   const [tipo, setTipo] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [familyKey, setFamilyKey] = useState("");
   const [page, setPage] = useState(0);
 
+  const sourcesQuery = useQuery({
+    queryKey: ["sources", "for-documents-filter"],
+    queryFn: () => fetchSources({ active: true, limit: 100 }),
+  });
+
+  const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
+
   const documentsQuery = useQuery({
-    queryKey: ["documents", title, tipo, page],
+    queryKey: ["documents", title, tipo, sourceId, familyKey, page],
     queryFn: () =>
       fetchDocuments({
         title: title || undefined,
         tipo: tipo || undefined,
+        source_id: sourceId ? Number(sourceId) : undefined,
+        family_key: familyKey || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -51,6 +64,42 @@ export function DocumentsPage() {
           }}
           className="rounded border px-2 py-1"
         />
+        <label className="flex items-center gap-2 text-sm">
+          Fuente
+          <select
+            value={sourceId}
+            onChange={(event) => {
+              setSourceId(event.target.value);
+              setPage(0);
+            }}
+            className="rounded border px-2 py-1"
+          >
+            <option value="">Todas</option>
+            {sourcesQuery.data?.map((source) => (
+              <option key={source.id} value={String(source.id)}>
+                {source.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          Familia
+          <select
+            value={familyKey}
+            onChange={(event) => {
+              setFamilyKey(event.target.value);
+              setPage(0);
+            }}
+            className="rounded border px-2 py-1"
+          >
+            <option value="">Todas</option>
+            {familiesQuery.data?.map((family) => (
+              <option key={family.key} value={family.key}>
+                {family.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {documentsQuery.isError && (
@@ -63,6 +112,7 @@ export function DocumentsPage() {
           <tr className="border-b">
             <th className="py-2">Título</th>
             <th className="py-2">Tipo</th>
+            <th className="py-2">Sección</th>
             <th className="py-2">Fecha providencia</th>
             <th className="py-2">Tamaño</th>
             <th className="py-2">Descargar</th>
@@ -73,11 +123,12 @@ export function DocumentsPage() {
             <tr key={document.id} className="border-b">
               <td className="py-2">{document.title}</td>
               <td className="py-2">{document.tipo ?? "—"}</td>
+              <td className="py-2">{document.seccion ?? "—"}</td>
               <td className="py-2">{formatDate(document.f_providencia)}</td>
               <td className="py-2">{formatBytes(document.file_size_bytes)}</td>
               <td className="py-2">
                 <button
-                  onClick={() => downloadMutation.mutate({ id: document.id, filename: `${document.title}.pdf` })}
+                  onClick={() => downloadMutation.mutate({ id: document.id, filename: buildDownloadFilename(document) })}
                   className="text-sm text-blue-600 underline"
                 >
                   Descargar
