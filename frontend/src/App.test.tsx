@@ -1,10 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { clearStoredApiKey } from "./api/client";
 import { App } from "./App";
 
 describe("App", () => {
-  it("renders without crashing", () => {
+  beforeEach(() => {
+    clearStoredApiKey();
+    window.history.pushState({}, "", "/");
+  });
+
+  it("redirects to the login page when there is no stored API key", () => {
     render(<App />);
-    expect(screen.getByText(/vite \+ react/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("API key")).toBeInTheDocument();
+  });
+
+  it("renders the Overview page when an API key is already stored", () => {
+    localStorage.setItem("iurisync_api_key", "existing-key");
+    render(<App />);
+    expect(screen.getByText("Resumen (próximamente)")).toBeInTheDocument();
   });
 });
