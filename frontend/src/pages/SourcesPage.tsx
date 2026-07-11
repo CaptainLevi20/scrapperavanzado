@@ -97,6 +97,76 @@ function NewSourceDialog({ families }: { families: SourceFamily[] }) {
   );
 }
 
+function EditParamsDialog({ source }: { source: Source }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [paramsText, setParamsText] = useState(() => JSON.stringify(source.family_params, null, 2));
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: (family_params: Record<string, unknown>) => updateSource(source.id, { family_params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      setOpen(false);
+      setError(null);
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof ApiError ? err.message : "Error al actualizar la fuente");
+    },
+  });
+
+  function handleSubmit() {
+    let familyParams: Record<string, unknown>;
+    try {
+      familyParams = JSON.parse(paramsText);
+    } catch {
+      setError("Los parámetros deben ser JSON válido");
+      return;
+    }
+    mutation.mutate(familyParams);
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) {
+          setParamsText(JSON.stringify(source.family_params, null, 2));
+          setError(null);
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <button className="text-sm text-blue-600 underline">Editar parámetros</button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar parámetros</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor={`edit-params-${source.id}`}>Parámetros (JSON)</Label>
+            <textarea
+              id={`edit-params-${source.id}`}
+              value={paramsText}
+              onChange={(event) => setParamsText(event.target.value)}
+              className="w-full rounded border px-2 py-1 font-mono text-sm"
+              rows={4}
+            />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button onClick={handleSubmit} disabled={mutation.isPending}>
+            {mutation.isPending ? "Guardando…" : "Guardar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SourceRow({ source }: { source: Source }) {
   const queryClient = useQueryClient();
   const toggleMutation = useMutation({
@@ -109,10 +179,11 @@ function SourceRow({ source }: { source: Source }) {
       <td className="py-2">{source.name}</td>
       <td className="py-2">{source.family_key}</td>
       <td className="py-2">{source.active ? "Activa" : "Inactiva"}</td>
-      <td className="py-2">
+      <td className="py-2 flex items-center gap-3">
         <button onClick={() => toggleMutation.mutate()} className="text-sm text-blue-600 underline" disabled={toggleMutation.isPending}>
           {source.active ? "Desactivar" : "Activar"}
         </button>
+        <EditParamsDialog source={source} />
       </td>
     </tr>
   );

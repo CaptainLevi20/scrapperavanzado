@@ -106,4 +106,67 @@ describe("SourcesPage — create and edit", () => {
 
     await waitFor(() => expect(patchedBody).toMatchObject({ active: false }));
   });
+
+  it("edits a source's family_params via the inline dialog", async () => {
+    let patchedBody: unknown;
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([
+          { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: { foo: "bar" }, active: true },
+        ])
+      ),
+      http.patch(`${BASE_URL}/sources/1`, async ({ request }) => {
+        patchedBody = await request.json();
+        return HttpResponse.json({
+          id: 1,
+          family_key: "constitucional",
+          name: "Corte Constitucional",
+          family_params: { foo: "baz" },
+          active: true,
+        });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Editar parámetros"));
+
+    const textarea = screen.getByLabelText(/parámetros \(json\)/i);
+    expect(textarea).toHaveValue(JSON.stringify({ foo: "bar" }, null, 2));
+
+    await user.clear(textarea);
+    await user.type(textarea, '{{"foo": "baz"}');
+    await user.click(screen.getByText("Guardar"));
+
+    await waitFor(() => expect(patchedBody).toMatchObject({ family_params: { foo: "baz" } }));
+  });
+
+  it("shows a validation error and does not call the API when the edited params are invalid JSON", async () => {
+    let patchCalled = false;
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([
+          { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: { foo: "bar" }, active: true },
+        ])
+      ),
+      http.patch(`${BASE_URL}/sources/1`, () => {
+        patchCalled = true;
+        return HttpResponse.json({ id: 1 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Editar parámetros"));
+
+    const textarea = screen.getByLabelText(/parámetros \(json\)/i);
+    await user.clear(textarea);
+    await user.type(textarea, "{{not valid json");
+    await user.click(screen.getByText("Guardar"));
+
+    expect(await screen.findByText("Los parámetros deben ser JSON válido")).toBeInTheDocument();
+    expect(patchCalled).toBe(false);
+  });
 });
