@@ -3349,7 +3349,10 @@ describe("OverviewPage", () => {
   it("renders summary counts and the most recent runs", async () => {
     server.use(
       http.get(`${BASE_URL}/sources`, () =>
-        HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
+        HttpResponse.json([
+          { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true },
+          { id: 2, family_key: "consejo_estado", name: "Consejo de Estado", family_params: {}, active: true },
+        ])
       ),
       http.get(`${BASE_URL}/runs`, () =>
         HttpResponse.json([
@@ -3377,6 +3380,10 @@ describe("OverviewPage", () => {
   });
 });
 ```
+
+**Important note (discovered during implementation, not in the original design):** the original fixture used exactly 1 source and exactly 1 run-in-last-24h, so both the "Fuentes activas" tile and the "Runs (24h)" tile rendered the text `"1"` simultaneously, and `screen.findByText("1")` matched two elements (RTL throws on ambiguous matches). The fixture above uses 2 sources so the two tiles render different digits — this is a test-fixture fix only; `OverviewPage.tsx`'s implementation code is unaffected. If this test is ever regenerated, use fixture counts that don't coincide across tiles.
+
+**Also discovered during this task:** `frontend/src/App.test.tsx` (from Task 7) asserted on the OverviewPage stub's literal placeholder text (`"Resumen (próximamente)"`), which necessarily broke once this task replaced the stub with the real page. Update that assertion to `expect(screen.getByRole("heading", { name: "Resumen" })).toBeInTheDocument();` (using role, not `getByText`, since the sidebar's "Resumen" nav link would otherwise create the same ambiguity Task 7 already hit once). This is a one-line fix in a file outside this task's normal scope, but required for the full suite to stay green — Task 15 is the last task, so this is also the last opportunity to fix it as part of the plan's normal task flow.
 
 - [ ] **Step 2: Run test to verify it fails**
 
