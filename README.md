@@ -22,6 +22,28 @@ Backend SaaS de scraping de fuentes jurídicas/administrativas colombianas. Reut
 
 `.venv\Scripts\pytest -v` (requiere `docker compose up -d` para las pruebas de integración con Postgres/MinIO).
 
+## Despliegue
+
+`Dockerfile` en la raíz define tres targets sobre la misma imagen base (Python 3.14 + `requirements.txt`):
+
+- `api`: `uvicorn api.main:app` en el puerto 8000.
+- `worker`: `celery -A worker.celery_app worker`.
+- `beat`: `celery -A worker.celery_app beat` (correr una sola instancia).
+
+```
+docker build --target api -t iurisync-api .
+docker build --target worker -t iurisync-worker .
+docker build --target beat -t iurisync-beat .
+```
+
+Cada contenedor necesita las mismas variables de entorno que `core/config.py` (`DATABASE_URL`, `REDIS_URL`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `CORS_ORIGINS`) apuntando a Postgres/Redis/MinIO reales, no a `localhost`. Antes de levantar los contenedores hay que aplicar las migraciones una vez, por ejemplo:
+
+```
+docker run --rm --env-file .env.production iurisync-api alembic upgrade head
+```
+
+`docker-compose.yml` sigue siendo solo para infraestructura local (Postgres/Redis/MinIO); no define los servicios `api`/`worker`/`beat`.
+
 ## Alcance
 
 Este repo porta dos familias de scraping como prueba del modelo (`constitucional`, `samai`). Las demás familias de `WebScrapping_Fuentes` (Corte Suprema, JEP, CNDJ, Rama Judicial, ADR, ADRES, ANE, ANH) se portan siguiendo el mismo patrón de `core/scrapers/families/` + `@register_family(...)` como trabajo de seguimiento.
