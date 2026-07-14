@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List
 
 import requests
 
@@ -8,6 +9,7 @@ from core.scrapers.registry import register_family
 from core.utils import storage_path
 
 _CORTE_SUPREMA_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
+_DOWNLOAD_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/"
 
 _QUERY_TEMPLATE = """query GetSearchResult {{
     getSearchResult(
@@ -49,7 +51,7 @@ class ScrapCorteSuprema(BaseScrapper):
         self.url = _CORTE_SUPREMA_URL
         self.tipos = {"Tutelas": "SCT", "Laboral": "SCL", "Civil": "SCC", "Penal": "SCP"}
 
-    def scrap(self, fini, ffin, q="", limit=1000, stop_event=None, on_progress=None):
+    def scrap(self, fini, ffin, q="", limit=1000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         docs = []
 
         fecha_inicio = datetime.fromisoformat(fini).date()
@@ -86,40 +88,41 @@ class ScrapCorteSuprema(BaseScrapper):
                         break
 
                     for item in search_results:
-                        fecha_obj = datetime.fromisoformat(item["fechaCreacion"].replace("Z", "+00:00"))
+                        try:
+                            fecha_obj = datetime.fromisoformat(item["fechaCreacion"].replace("Z", "+00:00"))
 
-                        if fecha_obj.date() > fecha_fin:
+                            if fecha_obj.date() > fecha_fin:
+                                continue
+                            elif fecha_obj.date() < fecha_inicio:
+                                stop = True
+                                break
+
+                            fecha = fecha_obj.strftime("%Y-%m-%d")
+                            titulo = item["title"].split(".")[-2].strip()
+
+                            doc = RawDocModel(
+                                tipo=item.get("typeOfDocument") or "Desconocido",
+                                title=titulo,
+                                link={
+                                    "url": _DOWNLOAD_URL,
+                                    "body": {"path": item["onlinePath"]},
+                                    "method": "POST",
+                                },
+                                f_public=fecha,
+                                source=self.source,
+                                save_path=storage_path(self.source, self.tipos[tipo], "(filename)(extension)"),
+                            )
+                            docs.append(doc)
+
+                            if len(docs) >= limit:
+                                stop = True
+                                break
+                        except (KeyError, IndexError) as e:
+                            print(f"Error: campo inesperado en resultado de '{tipo}': {e}")
                             continue
-                        elif fecha_obj.date() < fecha_inicio:
-                            stop = True
-                            break
-
-                        fecha = fecha_obj.strftime("%Y-%m-%d")
-                        titulo = item["title"].split(".")[-2].strip()
-
-                        doc = RawDocModel(
-                            tipo=item.get("typeOfDocument") or "Desconocido",
-                            title=titulo,
-                            link={
-                                "url": "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/",
-                                "body": {"path": item["onlinePath"]},
-                                "method": "POST",
-                            },
-                            f_public=fecha,
-                            source=self.source,
-                            save_path=storage_path(self.source, self.tipos[tipo], "(filename)(extension)"),
-                        )
-                        docs.append(doc)
-
-                        if len(docs) >= limit:
-                            stop = True
-                            break
 
                     start += 10
 
-                except KeyError as e:
-                    print(f"Error: Missing expected field {e} in response for tipo '{tipo}'")
-                    stop = True
                 except Exception as e:
                     msg = str(e)
                     if "502" in msg or "503" in msg or "504" in msg:

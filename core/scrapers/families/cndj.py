@@ -62,6 +62,7 @@ class ScrapCNDJ(BaseScrapper):
         self.source = "Consejo Nacional de Disciplina Judicial"
 
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        docs: List[RawDocModel] = []
         session = requests.Session()
         session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
@@ -87,6 +88,11 @@ class ScrapCNDJ(BaseScrapper):
         all_rows: dict[str, tuple] = {}  # numero_unico -> (magistrado, decision_text, numero_ficha)
 
         for mag in magistrados:
+            if stop_event is not None and stop_event.is_set():
+                return docs
+            if on_progress:
+                on_progress(f"[{self.source}] Consultando magistrado {mag}...")
+
             body = {
                 "Type": "avanzada",
                 "BusquedaAvanzada": {
@@ -146,8 +152,10 @@ class ScrapCNDJ(BaseScrapper):
             "RequestVerificationToken": token,
         }
 
-        docs = []
         for numero_unico, (magistrado, decision_text, numero_ficha) in all_rows.items():
+            if stop_event is not None and stop_event.is_set():
+                return docs
+
             # Pre-filtro por año: descarta filas donde ningún año del rango aparezca
             # en el texto de decisión ni en el número único (simula búsqueda DataTables)
             if not any(y in decision_text or y in numero_unico for y in years_in_range):
@@ -163,6 +171,9 @@ class ScrapCNDJ(BaseScrapper):
             ffin_holgado = (datetime.strptime(ffin, "%Y-%m-%d") + timedelta(days=90)).strftime("%Y-%m-%d")
             if fecha_estimada < fini_holgado or fecha_estimada > ffin_holgado:
                 continue
+
+            if on_progress:
+                on_progress(f"[{self.source}] Consultando detalle de {numero_unico}...")
 
             try:
                 detail_resp = session.post(

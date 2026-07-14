@@ -150,15 +150,26 @@ class ScrapADR(BaseScrapper):
             on_progress(f"[{self.source}] Procesando Resolución...")
 
         for slug in _RESOLUCIONES_SLUGS_FIJOS:
+            if stop_event is not None and stop_event.is_set():
+                return docs
             html = self._fetch_page_content(session, slug)
             docs.extend(self._extraer_documentos(html, "Resolución", fini, ffin))
+            if len(docs) >= limit:
+                return docs[:limit]
 
         anio_inicial = int(fini[:4])
         anio_final = int(ffin[:4])
         for anio in range(anio_inicial, anio_final + 1):
             if stop_event is not None and stop_event.is_set():
                 return docs
-            html = self._fetch_page_content(session, f"resoluciones-{anio}")
+            try:
+                html = self._fetch_page_content(session, f"resoluciones-{anio}")
+            except Exception as e:
+                # Un año caído/inexistente no debe descartar los documentos ya
+                # recolectados de los demás años ni de las categorías planas.
+                if on_progress:
+                    on_progress(f"[{self.source}] Error consultando resoluciones-{anio}: {e}")
+                continue
             docs.extend(self._extraer_documentos(html, "Resolución", fini, ffin))
             if len(docs) >= limit:
                 return docs[:limit]

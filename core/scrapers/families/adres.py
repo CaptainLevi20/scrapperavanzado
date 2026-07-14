@@ -128,7 +128,9 @@ class ScrapADRES(BaseScrapper):
                 try:
                     resp = session.get(url, timeout=30)
                     resp.raise_for_status()
-                except Exception:
+                except Exception as e:
+                    if on_progress:
+                        on_progress(f"[{self.source}] Error consultando página de {tipo}: {e}")
                     continue
 
                 nuevos, fechas = self._extraer_filas(resp.text, tipo, fini, ffin, vistos)

@@ -70,6 +70,25 @@ JUZGADOS_ENTIDADES = {
 }
 
 
+def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3):
+    """GET with up to `retries` attempts, retrying on timeout or a 5xx status.
+
+    Mirrors the original per-call retry loops in this module: on the final
+    attempt a Timeout propagates to the caller; a persistent 5xx does not
+    raise here; it's left to the caller's own `raise_for_status()`/try-except.
+    """
+    resp = None
+    for attempt in range(retries):
+        try:
+            resp = session.get(url, headers=headers, params=params, timeout=timeout)
+            if resp.status_code < 500:
+                break
+        except requests.exceptions.Timeout:
+            if attempt == retries - 1:
+                raise
+    return resp
+
+
 @register_family("rama_judicial")
 class ScrapRamaJudicial(BaseScrapper):
     def __init__(self, dept_code: str = "", dept_name: str = "Rama Judicial", entidad_id: str = "22"):
@@ -80,14 +99,7 @@ class ScrapRamaJudicial(BaseScrapper):
         self._instance_id = None
 
     def _get_instance_id(self, session, headers):
-        for attempt in range(3):
-            try:
-                resp = session.get(self.url, headers=headers, timeout=60)
-                if resp.status_code < 500:
-                    break
-            except requests.exceptions.Timeout:
-                if attempt == 2:
-                    raise
+        resp = _get_with_retries(session, self.url, headers)
         resp.raise_for_status()
         match = re.search(rf'p_p_id_{_PORTLET}_([A-Za-z0-9]+)_', resp.text)
         if not match:
@@ -102,14 +114,10 @@ class ScrapRamaJudicial(BaseScrapper):
     def _fetch_detail(self, headers, detail_url):
         """Fetch a detail page in its own session (thread-safe) and return file list."""
         s = requests.Session()
-        for attempt in range(3):
-            try:
-                resp = s.get(detail_url, headers=headers, timeout=60)
-                if resp.status_code < 500:
-                    break
-            except requests.exceptions.Timeout:
-                if attempt == 2:
-                    return []
+        try:
+            resp = _get_with_retries(s, detail_url, headers)
+        except requests.exceptions.Timeout:
+            return []
         try:
             resp.raise_for_status()
         except Exception:
@@ -168,14 +176,7 @@ class ScrapRamaJudicial(BaseScrapper):
             if self._dept_code:
                 params[self._p("idDepto")] = self._dept_code
 
-            for attempt in range(3):
-                try:
-                    response = session.get(self.url, params=params, headers=headers, timeout=60)
-                    if response.status_code < 500:
-                        break
-                except requests.exceptions.Timeout:
-                    if attempt == 2:
-                        raise
+            response = _get_with_retries(session, self.url, headers, params=params)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 

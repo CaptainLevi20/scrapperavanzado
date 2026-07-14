@@ -64,6 +64,29 @@ def test_scrap_aggregates_across_categories():
     assert docs[0].f_public == "2024-01-01"
 
 
+@responses.activate
+def test_scrap_continues_past_a_failing_resolucion_year():
+    # A single failing/unavailable year page (e.g. a transient 500) must not
+    # abort the whole run and lose documents already found in other years.
+    def _callback(request):
+        slug = parse_qs(urlparse(request.url).query).get("slug", [""])[0]
+        if slug == "resoluciones-2024":
+            return (500, {}, "boom")
+        if slug == "resoluciones-2025":
+            html = '<a href="/wp-content/uploads/2025/05/res-1.pdf">Resolución 001 de 2025</a>'
+            return (200, {"Content-Type": "application/json"}, json.dumps([{"content": {"rendered": html}}]))
+        return (200, {"Content-Type": "application/json"}, json.dumps([{"content": {"rendered": ""}}]))
+
+    responses.add_callback(responses.GET, _API_PAGES, callback=_callback, content_type="application/json")
+
+    scraper = ScrapADR()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2025-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].tipo == "Resolución"
+    assert docs[0].f_public == "2025-01-01"
+
+
 def test_adr_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 

@@ -96,3 +96,28 @@ def test_scrap_aggregates_across_categories():
     titulos = {d.title for d in docs}
     assert titulos == {"Resolución 1", "Resolución 2"}
     assert all(d.tipo == "Resolución" for d in docs)
+
+
+@responses.activate
+def test_scrap_reports_and_continues_past_a_failing_category_page():
+    # A failing page (network error / non-2xx) must be logged via on_progress,
+    # not swallowed silently, and must not stop the other categories.
+    working_html = """
+    <table>
+    <tr><td>Fecha</td><td>Documento</td><td>Descripción</td></tr>
+    <tr><td>15/01/2024</td><td><a href="/normativa/circular-1.pdf">Circular 1</a></td><td>Detalle</td></tr>
+    </table>
+    """
+    empty_html = "<p>No hay documentos disponibles.</p>"
+
+    responses.add(responses.GET, "https://www.adres.gov.co/normativa/resoluciones", status=500)
+    responses.add(responses.GET, "https://www.adres.gov.co/normativa/circulares", body=working_html, status=200)
+    responses.add(responses.GET, "https://www.adres.gov.co/normativa/acuerdos", body=empty_html, status=200)
+
+    messages = []
+    scraper = ScrapADRES()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31", on_progress=messages.append)
+
+    assert len(docs) == 1
+    assert docs[0].title == "Circular 1"
+    assert any("Error consultando página de Resolución" in m for m in messages)

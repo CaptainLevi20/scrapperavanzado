@@ -75,3 +75,28 @@ def test_corte_suprema_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 
     assert FAMILY_REGISTRY["corte_suprema"] is ScrapCorteSuprema
+
+
+@responses.activate
+def test_scrap_skips_malformed_item_without_aborting_the_rest():
+    # A title with no "." separator makes `title.split(".")[-2]` raise
+    # IndexError; that must only skip this one item, not abort the whole
+    # tipo (and lose every other valid item on the page).
+    def _callback(request):
+        body = json.loads(request.body)
+        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
+        if start == 0:
+            malformed = _item(title="Sin puntos aqui")
+            valid = _item(title="1. Sentencia SC9999-2024. Radicado 22002")
+            payload = {"data": {"getSearchResult": {"searchResults": [malformed, valid]}}}
+        else:
+            payload = {"data": {"getSearchResult": {"searchResults": []}}}
+        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
+
+    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
+
+    scraper = ScrapCorteSuprema()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
+
+    assert len(docs) == 4  # el item malformado se salta, uno válido por cada uno de los 4 tipos
+    assert {d.title for d in docs} == {"Sentencia SC9999-2024"}
