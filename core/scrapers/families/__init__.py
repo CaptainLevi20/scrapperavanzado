@@ -1,1 +1,1 @@
-from . import constitucional, samai  # noqa: F401
+from . import constitucional, samai, corte_suprema  # noqa: F401
