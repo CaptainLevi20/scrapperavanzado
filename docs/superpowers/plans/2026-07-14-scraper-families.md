@@ -84,6 +84,7 @@ def test_scrap_returns_one_doc_per_tipo_within_range():
     assert len(docs) == 4  # uno por cada tipo: Tutelas, Laboral, Civil, Penal
     assert {d.tipo for d in docs} == {"Sentencia"}
     assert {d.title for d in docs} == {"Sentencia SC1234-2024"}
+    assert {d.f_public for d in docs} == {"2024-02-01"}
     save_path_suffixes = {d.save_path.split("/")[1] for d in docs}
     assert save_path_suffixes == {"SCT", "SCL", "SCC", "SCP"}
     assert docs[0].link == {
@@ -185,6 +186,9 @@ class ScrapCorteSuprema(BaseScrapper):
         fecha_fin = datetime.fromisoformat(ffin).date()
 
         for tipo in self.tipos:
+            if stop_event is not None and stop_event.is_set():
+                return docs
+
             stop = False
             start = 0
             while not stop:
@@ -192,7 +196,7 @@ class ScrapCorteSuprema(BaseScrapper):
                     payload = {"query": _QUERY_TEMPLATE.format(tipo, start)}
                     headers = {"Content-Type": "application/json"}
 
-                    response = requests.post(self.url, json=payload, headers=headers)
+                    response = requests.post(self.url, json=payload, headers=headers, timeout=60)
 
                     if response.status_code != 200:
                         if response.status_code in (502, 503, 504):
@@ -220,7 +224,8 @@ class ScrapCorteSuprema(BaseScrapper):
                             stop = True
                             break
 
-                        fecha = fecha_obj.strftime("%Y%m%d")
+                        # Formato "YYYY-MM-DD": el pipeline (worker/tasks.py:_parse_date) lo exige estricto.
+                        fecha = fecha_obj.strftime("%Y-%m-%d")
                         titulo = item["title"].split(".")[-2].strip()
 
                         doc = RawDocModel(
@@ -351,9 +356,9 @@ def test_scrap_filters_by_year_and_deduplicates():
     assert doc.tipo == "Auto"
     assert doc.seccion == "S - Sala de Amnistía o Indulto"
     assert doc.seccion_en_carpeta is False
-    assert doc.f_public == "2024"
+    assert doc.f_public == "2024-01-01"
     assert doc.link == {"url": "https://relatoria.jep.gov.co/docs/Auto_SRVR-003_06-julio-2024.pdf", "method": "GET"}
-    assert doc.save_path == "JEP/2024/Auto/SRVR-003-1(extension)"
+    assert doc.save_path == "JEP/2024-01-01/Auto/SRVR-003-1(extension)"
 
 
 def test_extraer_tipo_prefers_compound_prefixes():
@@ -492,7 +497,10 @@ class ScrapJEP(BaseScrapper):
             radicado = item.get("radicado", "")
             seccion = item.get("nombre") or ""  # sala/sección (ej. "S - Sala de Amnistía o Indulto")
             tipo = _extraer_tipo(hipervinculo)
-            fecha_p = str(fecha_p)
+            # El pipeline de este backend (worker/tasks.py:_parse_date) exige "YYYY-MM-DD"
+            # estricto; JEP solo tiene año, así que se ancla al 1 de enero de ese año (mismo
+            # criterio que el fallback de "solo año" ya usado en adr.py/ane.py).
+            fecha_p = f"{fecha_p}-01-01"
 
             # el radicado NO identifica un único documento: el mismo número de caso se
             # reutiliza para el Auto, su SV/AV, y luego la Sentencia y el suyo propio.
@@ -2082,7 +2090,7 @@ def test_scrap_builds_docs_from_listing_and_detail(monkeypatch):
     assert doc.tipo == "Sentencias"
     assert doc.especialidad == "Civil"
     assert doc.seccion == "Juzgado 1 Civil del Circuito"
-    assert doc.f_public == "15/06/2024"
+    assert doc.f_public == "2024-06-15"
     assert doc.convert_to == "rtf"
     assert doc.link == {
         "url": _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123",
@@ -2090,7 +2098,7 @@ def test_scrap_builds_docs_from_listing_and_detail(monkeypatch):
         "body": {"path": "abc-123"},
     }
     assert doc.save_path == (
-        "Tribunal Superior de Antioquia/Civil/Juzgado 1 Civil del Circuito/15/06/2024/Sentencias/Auto_2024(extension)"
+        "Tribunal Superior de Antioquia/Civil/Juzgado 1 Civil del Circuito/2024-06-15/Sentencias/Auto_2024(extension)"
     )
 
 
@@ -2321,7 +2329,11 @@ class ScrapRamaJudicial(BaseScrapper):
                     fecha_p_tag = row.find("p", class_="publish-date")
                     if not fecha_p_tag:
                         continue
-                    fecha_p = fecha_p_tag.text.split(":")[-1].strip()
+                    fecha_p_raw = fecha_p_tag.text.split(":")[-1].strip()
+                    # El sitio publica "DD/MM/YYYY"; el pipeline de este backend
+                    # (worker/tasks.py:_parse_date) exige "YYYY-MM-DD" estricto.
+                    dia, mes, anio = fecha_p_raw.split("/")
+                    fecha_p = f"{anio}-{mes}-{dia}"
 
                     categorias = {}
                     for span in row.find_all("span", class_="categoria-ep"):
