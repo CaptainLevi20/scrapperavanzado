@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_api_key
-from api.schemas import DocumentOut, DocumentReviewUpdate, PaginatedDocuments
+from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpdate, PaginatedDocuments
 from core.db import repository
 from core.storage import presigned_url
 
@@ -42,6 +42,12 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     return document
+
+
+@router.patch("/documents/bulk-review")
+def patch_bulk_document_review_status(payload: BulkDocumentReviewUpdate, db: Session = Depends(get_db)):
+    updated = repository.bulk_update_document_review_status(db, payload.document_ids, payload.review_status)
+    return {"updated": updated}
 
 
 @router.patch("/documents/{document_id}", response_model=DocumentOut)

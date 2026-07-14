@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceFamilyOut(BaseModel):
@@ -86,6 +86,11 @@ class DocumentOut(BaseModel):
 
 
 class DocumentReviewUpdate(BaseModel):
+    review_status: Literal["pending", "useful", "not_useful"]
+
+
+class BulkDocumentReviewUpdate(BaseModel):
+    document_ids: list[int] = Field(min_length=1)
     review_status: Literal["pending", "useful", "not_useful"]
 
 

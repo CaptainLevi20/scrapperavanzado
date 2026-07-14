@@ -121,3 +121,48 @@ def test_list_documents_filters_by_review_status(db_session):
 
     assert total == 1
     assert items[0].doc_id == "doc-useful"
+
+
+def test_bulk_update_document_review_status_updates_matching_rows(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc1 = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Uno",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    doc2 = repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="Dos",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    doc3 = repository.insert_document(
+        db_session, doc_id="doc-3", source_id=source.id, title="Tres",
+        storage_bucket="iurisync-test", storage_key="c.pdf",
+    )
+
+    updated_count = repository.bulk_update_document_review_status(db_session, [doc1.id, doc2.id], "useful")
+
+    assert updated_count == 2
+    db_session.refresh(doc1)
+    db_session.refresh(doc2)
+    db_session.refresh(doc3)
+    assert doc1.review_status == "useful"
+    assert doc1.reviewed_at is not None
+    assert doc2.review_status == "useful"
+    assert doc3.review_status == "pending"
+
+
+def test_bulk_update_document_review_status_ignores_nonexistent_ids(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc1 = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Uno",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    updated_count = repository.bulk_update_document_review_status(db_session, [doc1.id, 999999], "not_useful")
+
+    assert updated_count == 1

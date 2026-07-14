@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -205,6 +205,17 @@ def update_document_review_status(db: Session, document_id: int, review_status: 
     db.commit()
     db.refresh(document)
     return document
+
+
+def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:
+    stmt = (
+        update(Document)
+        .where(Document.id.in_(document_ids))
+        .values(review_status=review_status, reviewed_at=datetime.now(timezone.utc))
+    )
+    result = db.execute(stmt)
+    db.commit()
+    return result.rowcount
 
 
 def get_document(db: Session, document_id: int) -> Optional[Document]:

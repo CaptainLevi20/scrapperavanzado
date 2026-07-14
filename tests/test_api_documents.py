@@ -125,3 +125,79 @@ def test_patch_document_review_status_rejects_invalid_value(api_client, api_key_
     )
 
     assert response.status_code == 422
+
+
+def test_bulk_patch_document_review_status_updates_multiple(api_client, api_key_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc1 = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Uno",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    doc2 = repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="Dos",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.patch(
+        "/documents/bulk-review",
+        json={"document_ids": [doc1.id, doc2.id], "review_status": "useful"},
+        headers=api_key_header,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"updated": 2}
+
+
+def test_bulk_patch_document_review_status_rejects_empty_list(api_client, api_key_header):
+    response = api_client.patch(
+        "/documents/bulk-review",
+        json={"document_ids": [], "review_status": "useful"},
+        headers=api_key_header,
+    )
+
+    assert response.status_code == 422
+
+
+def test_bulk_patch_document_review_status_rejects_invalid_value(api_client, api_key_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc1 = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Uno",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    response = api_client.patch(
+        "/documents/bulk-review",
+        json={"document_ids": [doc1.id], "review_status": "maybe"},
+        headers=api_key_header,
+    )
+
+    assert response.status_code == 422
+
+
+def test_bulk_patch_document_review_status_does_not_collide_with_single_patch_route(api_client, api_key_header, db_session):
+    # Regresión del orden de rutas: /documents/bulk-review no debe ser
+    # capturada por /documents/{document_id} (que intentaría parsear
+    # "bulk-review" como int y fallaría con un 422 distinto/incorrecto).
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc1 = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Uno",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    response = api_client.patch(
+        "/documents/bulk-review",
+        json={"document_ids": [doc1.id], "review_status": "useful"},
+        headers=api_key_header,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"updated": 1}
