@@ -39,6 +39,13 @@ const DOCUMENT = {
   downloaded_at: "2026-07-10T00:00:00Z",
 };
 
+const DOCUMENT_2 = {
+  ...DOCUMENT,
+  id: 2,
+  doc_id: "def",
+  title: "Sentencia C-002-26",
+};
+
 const SOURCE = { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true };
 const FAMILY = { key: "constitucional", display_name: "Corte Constitucional", description: null };
 
@@ -213,5 +220,87 @@ describe("DocumentsPage", () => {
 
     await user.selectOptions(screen.getByLabelText("Familia"), "constitucional");
     await waitFor(() => expect(lastUrl).toContain("family_key=constitucional"));
+  });
+
+  it("selects individual rows and shows the bulk action bar", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Seleccionar "Sentencia C-001-26"'));
+
+    expect(await screen.findByText("1 seleccionados")).toBeInTheDocument();
+  });
+
+  it("selects and deselects all visible rows with the header checkbox", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    const selectAll = screen.getByLabelText("Seleccionar todos los documentos visibles");
+
+    await user.click(selectAll);
+    expect(await screen.findByText("2 seleccionados")).toBeInTheDocument();
+
+    await user.click(selectAll);
+    expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument();
+  });
+
+  it("marks the selected documents as useful in bulk and clears the selection", async () => {
+    mockFilterEndpoints();
+    const user = userEvent.setup();
+    let bulkBody: unknown = null;
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
+      ),
+      http.patch(`${BASE_URL}/documents/bulk-review`, async ({ request }) => {
+        bulkBody = await request.json();
+        return HttpResponse.json({ updated: 2 });
+      })
+    );
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    await user.click(screen.getByLabelText("Seleccionar todos los documentos visibles"));
+    await screen.findByText("2 seleccionados");
+
+    await user.click(screen.getByText("Marcar como útil"));
+
+    await waitFor(() => expect(bulkBody).toEqual({ document_ids: [1, 2], review_status: "useful" }));
+    await waitFor(() => expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument());
+  });
+
+  it("clears the selection when a filter changes", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    await user.click(screen.getByLabelText('Seleccionar "Sentencia C-001-26"'));
+    await screen.findByText("1 seleccionados");
+
+    await user.type(screen.getByPlaceholderText(/buscar por t.tulo/i), "algo");
+
+    await waitFor(() => expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument());
   });
 });

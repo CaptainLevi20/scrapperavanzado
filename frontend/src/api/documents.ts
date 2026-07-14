@@ -26,6 +26,16 @@ export function updateDocumentReviewStatus(id: number, review_status: DocumentRe
   return apiFetch<Document>(`/documents/${id}`, { method: "PATCH", body: JSON.stringify({ review_status }) });
 }
 
+export function bulkUpdateDocumentReviewStatus(
+  documentIds: number[],
+  review_status: DocumentReviewStatus
+): Promise<{ updated: number }> {
+  return apiFetch<{ updated: number }>("/documents/bulk-review", {
+    method: "PATCH",
+    body: JSON.stringify({ document_ids: documentIds, review_status }),
+  });
+}
+
 const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
   "application/pdf": "pdf",
   "text/plain": "txt",

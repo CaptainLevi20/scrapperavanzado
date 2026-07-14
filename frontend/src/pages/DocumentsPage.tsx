@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocuments, updateDocumentReviewStatus } from "../api/documents";
+import {
+  buildDownloadFilename,
+  bulkUpdateDocumentReviewStatus,
+  downloadDocumentFile,
+  fetchDocuments,
+  updateDocumentReviewStatus,
+} from "../api/documents";
 import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
 import type { DocumentReviewStatus } from "../api/types";
@@ -16,6 +22,7 @@ export function DocumentsPage() {
   const [familyKey, setFamilyKey] = useState("");
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus | "">("");
   const [page, setPage] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const queryClient = useQueryClient();
 
@@ -53,6 +60,43 @@ export function DocumentsPage() {
     onError: () => setReviewError("Error al marcar el documento"),
   });
 
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const bulkReviewMutation = useMutation({
+    mutationFn: ({ ids, status }: { ids: number[]; status: DocumentReviewStatus }) =>
+      bulkUpdateDocumentReviewStatus(ids, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      setSelectedIds(new Set());
+    },
+    onError: () => setBulkError("Error al marcar los documentos seleccionados"),
+  });
+
+  function toggleSelected(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  const visibleIds = documentsQuery.data?.items.map((document) => document.id) ?? [];
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+
+  function toggleSelectAll() {
+    setSelectedIds((current) => {
+      if (allVisibleSelected) {
+        const next = new Set(current);
+        visibleIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      return new Set([...current, ...visibleIds]);
+    });
+  }
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Documentos</h1>
@@ -64,6 +108,7 @@ export function DocumentsPage() {
           onChange={(event) => {
             setTitle(event.target.value);
             setPage(0);
+            setSelectedIds(new Set());
           }}
           className="rounded border px-2 py-1"
         />
@@ -73,6 +118,7 @@ export function DocumentsPage() {
           onChange={(event) => {
             setTipo(event.target.value);
             setPage(0);
+            setSelectedIds(new Set());
           }}
           className="rounded border px-2 py-1"
         />
@@ -83,6 +129,7 @@ export function DocumentsPage() {
             onChange={(event) => {
               setSourceId(event.target.value);
               setPage(0);
+              setSelectedIds(new Set());
             }}
             className="rounded border px-2 py-1"
           >
@@ -101,6 +148,7 @@ export function DocumentsPage() {
             onChange={(event) => {
               setFamilyKey(event.target.value);
               setPage(0);
+              setSelectedIds(new Set());
             }}
             className="rounded border px-2 py-1"
           >
@@ -119,6 +167,7 @@ export function DocumentsPage() {
             onChange={(event) => {
               setReviewStatus(event.target.value as DocumentReviewStatus | "");
               setPage(0);
+              setSelectedIds(new Set());
             }}
             className="rounded border px-2 py-1"
           >
@@ -135,10 +184,37 @@ export function DocumentsPage() {
       )}
       {downloadError && <ErrorBanner message={downloadError} onRetry={() => setDownloadError(null)} />}
       {reviewError && <ErrorBanner message={reviewError} onRetry={() => setReviewError(null)} />}
+      {bulkError && <ErrorBanner message={bulkError} onRetry={() => setBulkError(null)} />}
+
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded border bg-gray-50 px-3 py-2">
+          <span className="text-sm">{selectedIds.size} seleccionados</span>
+          <button
+            onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "useful" })}
+            className="rounded border px-2 py-1 text-xs"
+          >
+            Marcar como útil
+          </button>
+          <button
+            onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "not_useful" })}
+            className="rounded border px-2 py-1 text-xs"
+          >
+            Marcar como no útil
+          </button>
+        </div>
+      )}
 
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b">
+            <th className="py-2">
+              <input
+                type="checkbox"
+                aria-label="Seleccionar todos los documentos visibles"
+                checked={allVisibleSelected}
+                onChange={toggleSelectAll}
+              />
+            </th>
             <th className="py-2">Título</th>
             <th className="py-2">Tipo</th>
             <th className="py-2">Sección</th>
@@ -153,6 +229,14 @@ export function DocumentsPage() {
         <tbody>
           {documentsQuery.data?.items.map((document) => (
             <tr key={document.id} className="border-b">
+              <td className="py-2">
+                <input
+                  type="checkbox"
+                  aria-label={`Seleccionar "${document.title}"`}
+                  checked={selectedIds.has(document.id)}
+                  onChange={() => toggleSelected(document.id)}
+                />
+              </td>
               <td className="py-2" title={document.detalle ?? undefined}>
                 {document.title}
                 {document.source_url && (
@@ -214,14 +298,20 @@ export function DocumentsPage() {
         <div className="flex gap-2">
           <button
             disabled={page === 0}
-            onClick={() => setPage((current) => current - 1)}
+            onClick={() => {
+              setPage((current) => current - 1);
+              setSelectedIds(new Set());
+            }}
             className="rounded border px-3 py-1 disabled:opacity-50"
           >
             Anterior
           </button>
           <button
             disabled={(documentsQuery.data?.items.length ?? 0) < PAGE_SIZE}
-            onClick={() => setPage((current) => current + 1)}
+            onClick={() => {
+              setPage((current) => current + 1);
+              setSelectedIds(new Set());
+            }}
             className="rounded border px-3 py-1 disabled:opacity-50"
           >
             Siguiente
