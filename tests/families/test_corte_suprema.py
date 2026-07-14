@@ -43,6 +43,7 @@ def test_scrap_returns_one_doc_per_tipo_within_range():
     assert len(docs) == 4  # uno por cada tipo: Tutelas, Laboral, Civil, Penal
     assert {d.tipo for d in docs} == {"Sentencia"}
     assert {d.title for d in docs} == {"Sentencia SC1234-2024"}
+    assert {d.f_public for d in docs} == {"2024-02-01"}
     save_path_suffixes = {d.save_path.split("/")[1] for d in docs}
     assert save_path_suffixes == {"SCT", "SCL", "SCC", "SCP"}
     assert docs[0].link == {

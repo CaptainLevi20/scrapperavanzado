@@ -56,6 +56,9 @@ class ScrapCorteSuprema(BaseScrapper):
         fecha_fin = datetime.fromisoformat(ffin).date()
 
         for tipo in self.tipos:
+            if stop_event is not None and stop_event.is_set():
+                return docs
+
             stop = False
             start = 0
             while not stop:
@@ -63,7 +66,7 @@ class ScrapCorteSuprema(BaseScrapper):
                     payload = {"query": _QUERY_TEMPLATE.format(tipo, start)}
                     headers = {"Content-Type": "application/json"}
 
-                    response = requests.post(self.url, json=payload, headers=headers)
+                    response = requests.post(self.url, json=payload, headers=headers, timeout=60)
 
                     if response.status_code != 200:
                         if response.status_code in (502, 503, 504):
@@ -91,7 +94,7 @@ class ScrapCorteSuprema(BaseScrapper):
                             stop = True
                             break
 
-                        fecha = fecha_obj.strftime("%Y%m%d")
+                        fecha = fecha_obj.strftime("%Y-%m-%d")
                         titulo = item["title"].split(".")[-2].strip()
 
                         doc = RawDocModel(
