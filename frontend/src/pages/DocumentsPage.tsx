@@ -177,6 +177,7 @@ export function DocumentsPage() {
                   <button
                     onClick={() => reviewMutation.mutate({ id: document.id, status: "useful" })}
                     aria-label={`Marcar "${document.title}" como útil`}
+                    aria-pressed={document.review_status === "useful"}
                     className={`rounded border px-2 py-1 text-xs ${
                       document.review_status === "useful" ? "bg-green-600 text-white" : ""
                     }`}
@@ -186,6 +187,7 @@ export function DocumentsPage() {
                   <button
                     onClick={() => reviewMutation.mutate({ id: document.id, status: "not_useful" })}
                     aria-label={`Marcar "${document.title}" como no útil`}
+                    aria-pressed={document.review_status === "not_useful"}
                     className={`rounded border px-2 py-1 text-xs ${
                       document.review_status === "not_useful" ? "bg-red-600 text-white" : ""
                     }`}
