@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createRun, fetchRuns } from "../api/runs";
-import { fetchSources } from "../api/sources";
+import { fetchAllActiveSources } from "../api/sources";
 import type { Source } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
@@ -97,7 +97,7 @@ export function RunsPage() {
 
   const activeSourcesQuery = useQuery({
     queryKey: ["sources", "active-for-new-run"],
-    queryFn: () => fetchSources({ active: true, limit: 100 }),
+    queryFn: fetchAllActiveSources,
   });
 
   const runsQuery = useQuery({

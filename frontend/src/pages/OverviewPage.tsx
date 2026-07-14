@@ -2,8 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { fetchDocuments } from "../api/documents";
 import { fetchRuns } from "../api/runs";
-import { fetchSources } from "../api/sources";
-import type { Source } from "../api/types";
+import { fetchAllActiveSources } from "../api/sources";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatDateTime } from "../lib/formatters";
 
@@ -12,18 +11,7 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 export function OverviewPage() {
   const activeSourcesQuery = useQuery({
     queryKey: ["sources", "active-count"],
-    queryFn: async () => {
-      const PAGE = 100;
-      let offset = 0;
-      const all: Source[] = [];
-      while (true) {
-        const page = await fetchSources({ active: true, limit: PAGE, offset });
-        all.push(...page);
-        if (page.length < PAGE) break;
-        offset += PAGE;
-      }
-      return all;
-    },
+    queryFn: fetchAllActiveSources,
   });
 
   const recentRunsQuery = useQuery({

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredApiKey } from "./client";
-import { createSource, fetchSources, updateSource } from "./sources";
+import { createSource, fetchAllActiveSources, fetchSources, updateSource } from "./sources";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -56,5 +56,36 @@ describe("sources API", () => {
 
     expect(method).toBe("PATCH");
     expect(result.active).toBe(false);
+  });
+});
+
+function makeSource(id: number) {
+  return { id, family_key: "constitucional", name: `Fuente ${id}`, family_params: {}, active: true };
+}
+
+describe("fetchAllActiveSources", () => {
+  it("returns a single page unchanged when it is not full", async () => {
+    server.use(http.get(`${BASE_URL}/sources`, () => HttpResponse.json([makeSource(1), makeSource(2)])));
+
+    const sources = await fetchAllActiveSources();
+
+    expect(sources).toHaveLength(2);
+  });
+
+  it("keeps paginating past 100 items instead of truncating the result", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, ({ request }) => {
+        const offset = Number(new URL(request.url).searchParams.get("offset") ?? "0");
+        if (offset === 0) {
+          return HttpResponse.json(Array.from({ length: 100 }, (_, index) => makeSource(index + 1)));
+        }
+        return HttpResponse.json([makeSource(101)]);
+      })
+    );
+
+    const sources = await fetchAllActiveSources();
+
+    expect(sources).toHaveLength(101);
+    expect(sources[100].id).toBe(101);
   });
 });

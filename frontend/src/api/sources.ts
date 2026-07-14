@@ -13,6 +13,20 @@ export function fetchSources(params: ListSourcesParams = {}): Promise<Source[]> 
   return apiFetch<Source[]>(`/sources${buildQuery(params)}`);
 }
 
+const ALL_SOURCES_PAGE_SIZE = 100;
+
+export async function fetchAllActiveSources(): Promise<Source[]> {
+  const all: Source[] = [];
+  let offset = 0;
+  while (true) {
+    const page = await fetchSources({ active: true, limit: ALL_SOURCES_PAGE_SIZE, offset });
+    all.push(...page);
+    if (page.length < ALL_SOURCES_PAGE_SIZE) break;
+    offset += ALL_SOURCES_PAGE_SIZE;
+  }
+  return all;
+}
+
 export function createSource(input: SourceCreateInput): Promise<Source> {
   return apiFetch<Source>("/sources", { method: "POST", body: JSON.stringify(input) });
 }

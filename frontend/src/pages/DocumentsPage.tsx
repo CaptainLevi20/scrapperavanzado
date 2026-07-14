@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { buildDownloadFilename, downloadDocumentFile, fetchDocuments } from "../api/documents";
 import { fetchSourceFamilies } from "../api/sourceFamilies";
-import { fetchSources } from "../api/sources";
+import { fetchAllActiveSources } from "../api/sources";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { formatBytes, formatDate } from "../lib/formatters";
 
@@ -17,7 +17,7 @@ export function DocumentsPage() {
 
   const sourcesQuery = useQuery({
     queryKey: ["sources", "for-documents-filter"],
-    queryFn: () => fetchSources({ active: true, limit: 100 }),
+    queryFn: fetchAllActiveSources,
   });
 
   const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
