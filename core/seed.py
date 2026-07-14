@@ -35,7 +35,7 @@ def seed_source_families_and_sources(db) -> None:
         if key not in existing_families:
             repository.create_source_family(db, key=key, display_name=display_name, description=description)
 
-    existing_sources = {s.name for s in repository.list_sources(db)}
+    existing_sources = {s.name for s in repository.list_sources(db, limit=10_000)}
 
     if "Corte Constitucional" not in existing_sources:
         repository.create_source(db, family_key="constitucional", name="Corte Constitucional", family_params={})

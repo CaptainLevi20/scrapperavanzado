@@ -19,7 +19,7 @@ Las 8 familias, y las fuentes (`Source` rows) que generan:
 | `anh` | Agencia Nacional de Hidrocarburos | 1 | Baja — HTML + regex de fechas |
 | `rama_judicial` | Tribunales Superiores + Juzgados | 39 (33 + 6) | Alta — fan-out paramétrico + `ThreadPoolExecutor` |
 
-**Total: 45 fuentes nuevas** (7 de fuente única + 39 de Rama Judicial — 33 Tribunales Superiores, incl. Bogotá D.C. como distrito propio, + 6 tipos de Juzgado), sumadas a las 29 (SAMAI) + 1 (Corte Constitucional) ya existentes.
+**Total: 46 fuentes nuevas** (7 de fuente única + 39 de Rama Judicial — 33 Tribunales Superiores, incl. Bogotá D.C. como distrito propio, + 6 tipos de Juzgado), sumadas a las 28 (SAMAI) + 1 (Corte Constitucional) ya existentes = 75 fuentes totales.
 
 Explícitamente fuera de alcance: cambios a `core/downloader.py` (las 8 familias solo usan métodos `GET`/`POST`, ya soportados), cambios al frontend (las fuentes nuevas aparecen automáticamente en `SourcesPage`/`RunsPage`/filtros de `DocumentsPage`, que ya consumen `/sources` y `/source-families` genéricamente), rate-limiting o reintentos nuevos más allá de los que cada scraper original ya trae.
 
