@@ -62,3 +62,62 @@ def test_touch_api_key_last_used_sets_timestamp(db_session):
 
     refreshed = repository.get_active_api_key_by_hash(db_session, "hash456")
     assert refreshed.last_used_at is not None
+
+
+def test_update_document_review_status_sets_status_and_timestamp(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-review-1",
+        source_id=source.id,
+        title="T-065/24",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2024-02-01/Sentencia/T-065-24.rtf",
+    )
+
+    assert document.review_status == "pending"
+    assert document.reviewed_at is None
+
+    updated = repository.update_document_review_status(db_session, document.id, "useful")
+
+    assert updated is not None
+    assert updated.review_status == "useful"
+    assert updated.reviewed_at is not None
+
+
+def test_update_document_review_status_returns_none_when_missing(db_session):
+    from core.db import repository
+
+    assert repository.update_document_review_status(db_session, 999999, "useful") is None
+
+
+def test_list_documents_filters_by_review_status(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    useful_doc = repository.insert_document(
+        db_session,
+        doc_id="doc-useful",
+        source_id=source.id,
+        title="Útil",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-pending",
+        source_id=source.id,
+        title="Pendiente",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+    )
+    repository.update_document_review_status(db_session, useful_doc.id, "useful")
+
+    items, total = repository.list_documents(db_session, review_status="useful")
+
+    assert total == 1
+    assert items[0].doc_id == "doc-useful"

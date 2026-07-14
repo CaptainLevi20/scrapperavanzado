@@ -168,6 +168,7 @@ def list_documents(
     source_id: Optional[int] = None,
     family_key: Optional[str] = None,
     tipo: Optional[str] = None,
+    review_status: Optional[str] = None,
     f_public_from: Optional[date] = None,
     f_public_to: Optional[date] = None,
     title_contains: Optional[str] = None,
@@ -181,6 +182,8 @@ def list_documents(
         stmt = stmt.join(Source, Source.id == Document.source_id).where(Source.family_key == family_key)
     if tipo is not None:
         stmt = stmt.where(Document.tipo == tipo)
+    if review_status is not None:
+        stmt = stmt.where(Document.review_status == review_status)
     if f_public_from is not None:
         stmt = stmt.where(Document.f_public >= f_public_from)
     if f_public_to is not None:
@@ -191,6 +194,17 @@ def list_documents(
     total = len(list(db.scalars(stmt).all()))
     stmt = stmt.order_by(Document.downloaded_at.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all()), total
+
+
+def update_document_review_status(db: Session, document_id: int, review_status: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.review_status = review_status
+    document.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(document)
+    return document
 
 
 def get_document(db: Session, document_id: int) -> Optional[Document]:

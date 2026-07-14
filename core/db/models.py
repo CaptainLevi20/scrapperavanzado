@@ -101,6 +101,8 @@ class Document(Base):
     file_size_bytes = Column(BigInteger, nullable=True)
     converted_format = Column(String, nullable=True)
     downloaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    review_status = Column(String, nullable=False, default="pending")
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class ApiKey(Base):
