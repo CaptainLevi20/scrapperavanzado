@@ -46,4 +46,4 @@ docker run --rm --env-file .env.production iurisync-api alembic upgrade head
 
 ## Alcance
 
-Este repo porta dos familias de scraping como prueba del modelo (`constitucional`, `samai`). Las demás familias de `WebScrapping_Fuentes` (Corte Suprema, JEP, CNDJ, Rama Judicial, ADR, ADRES, ANE, ANH) se portan siguiendo el mismo patrón de `core/scrapers/families/` + `@register_family(...)` como trabajo de seguimiento.
+Este repo porta las 10 familias de scraping de `WebScrapping_Fuentes` (`constitucional`, `samai`, `corte_suprema`, `jep`, `cndj`, `adr`, `adres`, `ane`, `anh`, `rama_judicial`), cada una siguiendo el patrón `core/scrapers/families/` + `@register_family(...)`.
