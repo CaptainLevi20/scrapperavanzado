@@ -108,7 +108,9 @@ class ScrapANE(BaseScrapper):
                 titulo = unicodedata.normalize("NFC", (it.get("Title") or "").strip())
 
                 if tipo_contenido != "Archivo":
-                    cola.append(it["ID"])
+                    node_id = it.get("ID")
+                    if node_id is not None:
+                        cola.append(node_id)
                     continue
 
                 if titulo.lower().startswith("normograma"):
