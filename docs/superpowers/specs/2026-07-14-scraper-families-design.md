@@ -17,9 +17,9 @@ Las 8 familias, y las fuentes (`Source` rows) que generan:
 | `adres` | ADRES | 1 | Media — HTML, dominio restringido |
 | `ane` | Agencia Nacional del Espectro | 1 | Media-alta — SharePoint REST recursivo |
 | `anh` | Agencia Nacional de Hidrocarburos | 1 | Baja — HTML + regex de fechas |
-| `rama_judicial` | Tribunales Superiores + Juzgados | 38 (32 + 6) | Alta — fan-out paramétrico + `ThreadPoolExecutor` |
+| `rama_judicial` | Tribunales Superiores + Juzgados | 39 (33 + 6) | Alta — fan-out paramétrico + `ThreadPoolExecutor` |
 
-**Total: 44 fuentes nuevas** (7 de fuente única + 38 de Rama Judicial), sumadas a las 29 (SAMAI) + 1 (Corte Constitucional) ya existentes.
+**Total: 45 fuentes nuevas** (7 de fuente única + 39 de Rama Judicial — 33 Tribunales Superiores, incl. Bogotá D.C. como distrito propio, + 6 tipos de Juzgado), sumadas a las 29 (SAMAI) + 1 (Corte Constitucional) ya existentes.
 
 Explícitamente fuera de alcance: cambios a `core/downloader.py` (las 8 familias solo usan métodos `GET`/`POST`, ya soportados), cambios al frontend (las fuentes nuevas aparecen automáticamente en `SourcesPage`/`RunsPage`/filtros de `DocumentsPage`, que ya consumen `/sources` y `/source-families` genéricamente), rate-limiting o reintentos nuevos más allá de los que cada scraper original ya trae.
 
@@ -54,13 +54,13 @@ Ajustando mecánicamente:
 
 ### Rama Judicial (fan-out)
 
-Sigue el mismo patrón que SAMAI: una sola clase `ScrapRamaJudicial(dept_code, dept_name, entidad_id)` parametrizada, con dos diccionarios de datos públicos exportados del módulo (`SUPERIORES_DEPTS`, `JUZGADOS_ENTIDADES` — 32 y 6 entradas respectivamente) que `core/seed.py` enumera para crear una `Source` por cada combinación, igual que `SAMAI_CORPS` hoy.
+Sigue el mismo patrón que SAMAI: una sola clase `ScrapRamaJudicial(dept_code, dept_name, entidad_id)` parametrizada, con dos diccionarios de datos públicos exportados del módulo (`SUPERIORES_DEPTS`, `JUZGADOS_ENTIDADES` — 33 y 6 entradas respectivamente; SUPERIORES_DEPTS cubre los 32 departamentos más Bogotá D.C. como distrito judicial propio) que `core/seed.py` enumera para crear una `Source` por cada combinación, igual que `SAMAI_CORPS` hoy.
 
 ## Cambios en `core/seed.py`
 
 - `_FAMILIES` gana 8 entradas nuevas (`family_key` → `(display_name, description)`).
 - Por cada una de las 7 familias de fuente única: un `create_source(family_key=..., name=..., family_params={})`, igual que Corte Constitucional.
-- Para `rama_judicial`: se importan `SUPERIORES_DEPTS`/`JUZGADOS_ENTIDADES` desde `core.scrapers.families.rama_judicial` y se itera creando las 38 `Source` con `family_params={"dept_code": ..., "dept_name": ..., "entidad_id": ...}` (o `{"dept_code": "", "dept_name": ..., "entidad_id": ...}` para los juzgados, que no llevan departamento) — todas `active=True` desde el arranque, igual que SAMAI.
+- Para `rama_judicial`: se importan `SUPERIORES_DEPTS`/`JUZGADOS_ENTIDADES` desde `core.scrapers.families.rama_judicial` y se itera creando las 39 `Source` con `family_params={"dept_code": ..., "dept_name": ..., "entidad_id": ...}` (o `{"dept_code": "", "dept_name": ..., "entidad_id": ...}` para los juzgados, que no llevan departamento) — todas `active=True` desde el arranque, igual que SAMAI.
 
 ## Testing y validación
 

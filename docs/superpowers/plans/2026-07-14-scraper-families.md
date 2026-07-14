@@ -2008,7 +2008,7 @@ git commit -m "feat: port Agencia Nacional de Hidrocarburos scraper family"
 
 **Interfaces:**
 - Consumes: igual que Task 1.
-- Produces: clase `ScrapRamaJudicial(dept_code="", dept_name="Rama Judicial", entidad_id="22")` registrada bajo `"rama_judicial"`, más los diccionarios públicos `SUPERIORES_DEPTS` (32 entradas, `dept_code -> dept_name`) y `JUZGADOS_ENTIDADES` (6 entradas, `entidad_id -> juz_name`). Usados por Task 9 para crear las 38 fuentes con fan-out (mismo patrón que `SAMAI_CORPS` en `core/scrapers/families/samai.py`).
+- Produces: clase `ScrapRamaJudicial(dept_code="", dept_name="Rama Judicial", entidad_id="22")` registrada bajo `"rama_judicial"`, más los diccionarios públicos `SUPERIORES_DEPTS` (33 entradas — 32 departamentos + Bogotá D.C. como tribunal propio, `dept_code -> dept_name`) y `JUZGADOS_ENTIDADES` (6 entradas, `entidad_id -> juz_name`). Usados por Task 9 para crear las 39 fuentes con fan-out (mismo patrón que `SAMAI_CORPS` en `core/scrapers/families/samai.py`).
 
 - [ ] **Step 1: Escribir el test**
 
@@ -2049,7 +2049,7 @@ _LISTING_HTML = """
 
 
 def test_superiores_depts_and_juzgados_entidades_counts():
-    assert len(SUPERIORES_DEPTS) == 32
+    assert len(SUPERIORES_DEPTS) == 33  # 32 departamentos + Bogotá D.C. como tribunal propio
     assert SUPERIORES_DEPTS["05"] == "Tribunal Superior de Antioquia"
     assert len(JUZGADOS_ENTIDADES) == 6
     assert JUZGADOS_ENTIDADES["31"] == "Juzgado de Circuito"
@@ -2100,6 +2100,36 @@ def test_scrap_builds_docs_from_listing_and_detail(monkeypatch):
     assert doc.save_path == (
         "Tribunal Superior de Antioquia/Civil/Juzgado 1 Civil del Circuito/2024-06-15/Sentencias/Auto_2024(extension)"
     )
+
+
+@responses.activate
+def test_scrap_accepts_already_iso_formatted_dates(monkeypatch):
+    # Live validation against the real site found it currently publishes
+    # "Fecha de Publicación: 2026-07-14" (already YYYY-MM-DD, no slashes),
+    # not "DD/MM/YYYY" as originally assumed. The parser must handle both.
+    listing_html = _LISTING_HTML.replace(
+        '<p class="publish-date">Fecha: 15/06/2024</p>',
+        '<p class="publish-date">Fecha de Publicación: 2026-07-14</p>',
+    )
+    responses.add(
+        responses.GET,
+        "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio",
+        body=listing_html,
+        status=200,
+    )
+
+    scraper = ScrapRamaJudicial(dept_code="05", dept_name="Tribunal Superior de Antioquia", entidad_id="22")
+    monkeypatch.setattr(scraper, "_get_instance_id", lambda session, headers: "XYZ")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_detail",
+        lambda headers, url: [("Auto_2024.pdf", _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123", "abc-123")],
+    )
+
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].f_public == "2026-07-14"
 
 
 def test_rama_judicial_is_registered_under_its_family_key():
@@ -2330,10 +2360,15 @@ class ScrapRamaJudicial(BaseScrapper):
                     if not fecha_p_tag:
                         continue
                     fecha_p_raw = fecha_p_tag.text.split(":")[-1].strip()
-                    # El sitio publica "DD/MM/YYYY"; el pipeline de este backend
-                    # (worker/tasks.py:_parse_date) exige "YYYY-MM-DD" estricto.
-                    dia, mes, anio = fecha_p_raw.split("/")
-                    fecha_p = f"{anio}-{mes}-{dia}"
+                    # El pipeline de este backend (worker/tasks.py:_parse_date) exige
+                    # "YYYY-MM-DD" estricto. El sitio ya publica ese formato hoy (ej.
+                    # "2026-07-14", confirmado en vivo), pero se tolera también
+                    # "DD/MM/YYYY" por si el formato varía o revierte.
+                    if "/" in fecha_p_raw:
+                        dia, mes, anio = fecha_p_raw.split("/")
+                        fecha_p = f"{anio}-{mes}-{dia}"
+                    else:
+                        fecha_p = fecha_p_raw
 
                     categorias = {}
                     for span in row.find_all("span", class_="categoria-ep"):
@@ -2429,7 +2464,7 @@ Run:
 ```
 .venv\Scripts\python -c "from core.scrapers.families.rama_judicial import ScrapRamaJudicial; docs = ScrapRamaJudicial(dept_code='05', dept_name='Tribunal Superior de Antioquia', entidad_id='22').scrap(fini='2026-07-01', ffin='2026-07-14', limit=5); print(len(docs)); print(docs[0].title if docs else 'sin resultados')"
 ```
-Se valida con un solo tribunal representativo (Antioquia), no los 38 — el resto comparte la misma clase e instance_id-resolution, así que si este funciona, el patrón funciona para todos. Reportar el conteo real.
+Se valida con un solo tribunal representativo (Antioquia), no los 39 — el resto comparte la misma clase e instance_id-resolution, así que si este funciona, el patrón funciona para todos. Reportar el conteo real.
 
 - [ ] **Step 7: Commit**
 
@@ -2449,7 +2484,7 @@ git commit -m "feat: port Rama Judicial scraper family (Tribunales Superiores + 
 
 **Interfaces:**
 - Consumes: `SUPERIORES_DEPTS`/`JUZGADOS_ENTIDADES` de `core/scrapers/families/rama_judicial.py` (Task 8), `SAMAI_CORPS` de `core/scrapers/families/samai.py` (ya existente) — todos los nombres de clase/función de las 8 familias ya están registrados vía `@register_family`, así que `core/seed.py` no necesita importar las clases de scraper directamente, solo los diccionarios de fan-out.
-- Produces: 74 `Source` rows totales (1 Corte Constitucional + 28 SAMAI + 7 de fuente única + 32 Tribunales Superiores + 6 Juzgados) y 10 `SourceFamily` rows, visibles de inmediato en `SourcesPage`/`RunsPage`/`DocumentsPage` del frontend sin cambios adicionales.
+- Produces: 75 `Source` rows totales (1 Corte Constitucional + 28 SAMAI + 7 de fuente única + 33 Tribunales Superiores + 6 Juzgados) y 10 `SourceFamily` rows, visibles de inmediato en `SourcesPage`/`RunsPage`/`DocumentsPage` del frontend sin cambios adicionales.
 
 - [ ] **Step 1: Actualizar el test de seed (va a fallar hasta que se actualice `seed.py`)**
 
@@ -2472,11 +2507,11 @@ def test_seed_populates_families_and_sources_and_is_idempotent(db_session):
 
     sources = repository.list_sources(db_session)
     # 1 (Corte Constitucional) + 28 (SAMAI) + 7 (fuente única: corte_suprema, jep, cndj,
-    # adr, adres, ane, anh) + 32 (Tribunales Superiores) + 6 (tipos de Juzgado) = 74
-    assert len(sources) == 1 + 28 + 7 + 32 + 6
+    # adr, adres, ane, anh) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 75
+    assert len(sources) == 1 + 28 + 7 + 33 + 6
 
     rama_judicial_sources = repository.list_sources(db_session, family_key="rama_judicial")
-    assert len(rama_judicial_sources) == 38
+    assert len(rama_judicial_sources) == 39
     assert any(s.family_params.get("dept_code") == "05" for s in rama_judicial_sources)
     assert any(
         s.family_params.get("entidad_id") == "31" and s.family_params.get("dept_code") == ""
@@ -2629,14 +2664,14 @@ Expected: PASS — todos los tests (los preexistentes + los 8 archivos nuevos de
 
 ```bash
 git add core/seed.py tests/test_seed.py README.md
-git commit -m "feat: seed the 8 newly-ported scraper families (74 sources total)"
+git commit -m "feat: seed the 8 newly-ported scraper families (75 sources total)"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** las 8 familias de la tabla del spec tienen su propia tarea (1-8); el seeding (incluido el fan-out de 38 fuentes de Rama Judicial) y la actualización del README están cubiertos en la Tarea 9; la validación en vivo por familia está en el Step 6 de cada tarea 1-8, con el ajuste explícito para CNDJ (chequeo ligero de estructura, no el `.scrap()` completo) justificado por el volumen de peticiones que implicaría iterar todos los magistrados. `core/downloader.py` y el frontend no se tocan en ninguna tarea, como exige el spec.
+**Spec coverage:** las 8 familias de la tabla del spec tienen su propia tarea (1-8); el seeding (incluido el fan-out de 39 fuentes de Rama Judicial) y la actualización del README están cubiertos en la Tarea 9; la validación en vivo por familia está en el Step 6 de cada tarea 1-8, con el ajuste explícito para CNDJ (chequeo ligero de estructura, no el `.scrap()` completo) justificado por el volumen de peticiones que implicaría iterar todos los magistrados. `core/downloader.py` y el frontend no se tocan en ninguna tarea, como exige el spec.
 
 **Placeholder scan:** ningún paso usa "TBD"/"agregar validación apropiada"/"similar a la tarea N" — cada tarea trae el código completo, sin abreviar.
 
