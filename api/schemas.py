@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -70,13 +70,23 @@ class DocumentOut(BaseModel):
     title: str
     tipo: Optional[str] = None
     seccion: Optional[str] = None
+    especialidad: Optional[str] = None
+    magistrado: Optional[str] = None
+    detalle: Optional[str] = None
     f_public: Optional[date] = None
     f_providencia: Optional[date] = None
+    source_url: Optional[str] = None
     storage_bucket: str
     storage_key: str
     content_type: Optional[str] = None
     file_size_bytes: Optional[int] = None
+    review_status: str
+    reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
+
+
+class DocumentReviewUpdate(BaseModel):
+    review_status: Literal["pending", "useful", "not_useful"]
 
 
 class PaginatedDocuments(BaseModel):
