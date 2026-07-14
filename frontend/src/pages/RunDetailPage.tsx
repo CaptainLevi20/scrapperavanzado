@@ -26,7 +26,8 @@ export function RunDetailPage() {
     refetchInterval: (query) => {
       const items = query.state.data;
       const hasActive = items?.some((runSource) => runSource.status === "pending" || runSource.status === "running");
-      return hasActive ? POLL_INTERVAL_MS : false;
+      const runInProgress = runQuery.data?.status !== "completed";
+      return hasActive || runInProgress ? POLL_INTERVAL_MS : false;
     },
     enabled: !Number.isNaN(id),
   });

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -81,6 +81,33 @@ describe("RunDetailPage", () => {
     await user.click(await screen.findByText("Cancelar run"));
 
     expect(await screen.findByText("Cancelación solicitada")).toBeInTheDocument();
+  });
+
+  it("keeps polling run_sources even when the first response is an empty array", async () => {
+    // Real bug found by running the app end-to-end: orchestrate_run is queued as a
+    // separate Celery task, so GET /runs/:id/sources can return [] before any
+    // RunSource rows exist yet. If polling stopped on "no active items" without
+    // also checking whether the run itself is still in progress, an empty first
+    // response would permanently freeze the table even after real rows appear.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let sourcesCallCount = 0;
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "running" })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => {
+        sourcesCallCount += 1;
+        if (sourcesCallCount === 1) return HttpResponse.json([]);
+        return HttpResponse.json([RUN_SOURCE]);
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(sourcesCallCount).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(4100);
+    await waitFor(() => expect(sourcesCallCount).toBeGreaterThan(1));
+
+    expect(await screen.findByText("timeout")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("does not fire queries when runId is not a valid number", async () => {
