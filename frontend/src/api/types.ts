@@ -55,6 +55,8 @@ export interface RunSource {
   error_message: string | null;
 }
 
+export type DocumentReviewStatus = "pending" | "useful" | "not_useful";
+
 export interface Document {
   id: number;
   doc_id: string;
@@ -62,12 +64,18 @@ export interface Document {
   title: string;
   tipo: string | null;
   seccion: string | null;
+  especialidad: string | null;
+  magistrado: string | null;
+  detalle: string | null;
   f_public: string | null;
   f_providencia: string | null;
+  source_url: string | null;
   storage_bucket: string;
   storage_key: string;
   content_type: string | null;
   file_size_bytes: number | null;
+  review_status: DocumentReviewStatus;
+  reviewed_at: string | null;
   downloaded_at: string;
 }
 

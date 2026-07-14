@@ -1,5 +1,5 @@
 import { apiFetch, buildQuery, getStoredApiKey } from "./client";
-import type { Document, PaginatedDocuments } from "./types";
+import type { Document, DocumentReviewStatus, PaginatedDocuments } from "./types";
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -8,6 +8,7 @@ export interface ListDocumentsParams {
   family_key?: string;
   tipo?: string;
   title?: string;
+  review_status?: DocumentReviewStatus;
   limit?: number;
   offset?: number;
   [key: string]: string | number | boolean | undefined;
@@ -19,6 +20,10 @@ export function fetchDocuments(params: ListDocumentsParams = {}): Promise<Pagina
 
 export function fetchDocument(id: number): Promise<Document> {
   return apiFetch<Document>(`/documents/${id}`);
+}
+
+export function updateDocumentReviewStatus(id: number, review_status: DocumentReviewStatus): Promise<Document> {
+  return apiFetch<Document>(`/documents/${id}`, { method: "PATCH", body: JSON.stringify({ review_status }) });
 }
 
 const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {

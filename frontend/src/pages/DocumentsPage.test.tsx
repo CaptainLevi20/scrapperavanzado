@@ -24,12 +24,18 @@ const DOCUMENT = {
   title: "Sentencia C-001-26",
   tipo: "sentencia",
   seccion: null,
+  especialidad: null,
+  magistrado: null,
+  detalle: null,
   f_public: null,
   f_providencia: "2026-01-15",
+  source_url: null,
   storage_bucket: "iurisync-documents",
   storage_key: "abc.pdf",
   content_type: "application/pdf",
   file_size_bytes: 204800,
+  review_status: "pending",
+  reviewed_at: null,
   downloaded_at: "2026-07-10T00:00:00Z",
 };
 
@@ -99,6 +105,93 @@ describe("DocumentsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Sala Plena")).toBeInTheDocument();
+  });
+
+  it("renders the Especialidad and Magistrado columns", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({
+          items: [{ ...DOCUMENT, especialidad: "Civil", magistrado: "Juan Pérez" }],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        })
+      )
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Civil")).toBeInTheDocument();
+    expect(screen.getByText("Juan Pérez")).toBeInTheDocument();
+  });
+
+  it("shows detalle as a tooltip on the title and a link to source_url when present", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({
+          items: [{ ...DOCUMENT, detalle: "Resumen del fallo", source_url: "https://example.com/original" }],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        })
+      )
+    );
+
+    renderPage();
+
+    expect(await screen.findByTitle("Resumen del fallo")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /ver original/i });
+    expect(link).toHaveAttribute("href", "https://example.com/original");
+  });
+
+  it("does not render a 'Ver original' link when source_url is null", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
+    );
+
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    expect(screen.queryByRole("link", { name: /ver original/i })).not.toBeInTheDocument();
+  });
+
+  it("marks a document as useful and refetches the list", async () => {
+    mockFilterEndpoints();
+    const user = userEvent.setup();
+    let patchBody: unknown = null;
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })),
+      http.patch(`${BASE_URL}/documents/1`, async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json({ ...DOCUMENT, review_status: "useful" });
+      })
+    );
+    renderPage();
+
+    await user.click(await screen.findByLabelText(/marcar .* como útil/i));
+
+    await waitFor(() => expect(patchBody).toEqual({ review_status: "useful" }));
+  });
+
+  it("refetches with the review status filter applied", async () => {
+    mockFilterEndpoints();
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(lastUrl).toContain("/documents"));
+    await user.selectOptions(screen.getByLabelText("Revisión"), "useful");
+
+    await waitFor(() => expect(lastUrl).toContain("review_status=useful"));
   });
 
   it("refetches with the source and family filters applied", async () => {
