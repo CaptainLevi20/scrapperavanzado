@@ -1,3 +1,5 @@
+import responses
+
 from core.scrapers.families.adres import ScrapADRES
 from core.scrapers.registry import FAMILY_REGISTRY
 
@@ -43,3 +45,54 @@ def test_adres_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 
     assert FAMILY_REGISTRY["adres"] is ScrapADRES
+
+
+@responses.activate
+def test_scrap_aggregates_across_categories():
+    page1_html = """
+    <table>
+    <tr><td>Fecha</td><td>Documento</td><td>Descripción</td></tr>
+    <tr><td>15/01/2024</td><td><a href="/normativa/resolucion-1.pdf">Resolución 1</a></td><td>Detalle 1</td></tr>
+    </table>
+    <script>RefreshPageTo(event, "/normativa/resoluciones?page=2");</script>
+    """
+    page2_html = """
+    <table>
+    <tr><td>Fecha</td><td>Documento</td><td>Descripción</td></tr>
+    <tr><td>10/01/2024</td><td><a href="/normativa/resolucion-2.pdf">Resolución 2</a></td><td>Detalle 2</td></tr>
+    </table>
+    """
+    empty_html = "<p>No hay documentos disponibles.</p>"
+
+    responses.add(
+        responses.GET,
+        "https://www.adres.gov.co/normativa/resoluciones",
+        body=page1_html,
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://www.adres.gov.co/normativa/resoluciones?page=2",
+        body=page2_html,
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://www.adres.gov.co/normativa/circulares",
+        body=empty_html,
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://www.adres.gov.co/normativa/acuerdos",
+        body=empty_html,
+        status=200,
+    )
+
+    scraper = ScrapADRES()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
+
+    assert len(docs) == 2
+    titulos = {d.title for d in docs}
+    assert titulos == {"Resolución 1", "Resolución 2"}
+    assert all(d.tipo == "Resolución" for d in docs)

@@ -136,12 +136,6 @@ class ScrapADRES(BaseScrapper):
                 if len(docs) >= limit:
                     return docs[:limit]
 
-                # las filas vienen ordenadas por fecha descendente; si ya pasamos
-                # el inicio del rango en esta página, no vale la pena seguir esa
-                # cadena de paginación (solo vamos a encontrar fechas más viejas)
-                if fechas and min(fechas) < fini:
-                    continue
-
                 for next_url in self._extraer_next_links(resp.text):
                     if next_url not in visitadas:
                         queue.append(next_url)
