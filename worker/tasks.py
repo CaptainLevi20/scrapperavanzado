@@ -1,7 +1,7 @@
 import logging
 import tempfile
 from datetime import date, datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from core.db import repository
 from core.db.session import SessionLocal
@@ -172,7 +172,11 @@ def generate_document_preview_pdf(document_id: int) -> str:
             finally:
                 converter.quit()
 
-            base_key = document.storage_key.rsplit(".", 1)[0] if "." in document.storage_key else document.storage_key
+            # storage_key is an S3-style key (always "/"-delimited), not an OS filesystem path,
+            # so PurePosixPath is used here (rather than Path) to strip only the filename
+            # component's own extension without the host OS's native separator leaking into
+            # the reconstructed key on Windows.
+            base_key = str(PurePosixPath(document.storage_key).with_suffix(""))
             preview_key = f"{base_key}.preview.pdf"
             upload_file(pdf_path, preview_key, bucket=document.storage_bucket, content_type="application/pdf")
 

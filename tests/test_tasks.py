@@ -1,3 +1,4 @@
+import pytest
 import responses
 from sqlalchemy.orm import sessionmaker
 
@@ -67,7 +68,6 @@ def _settings_with_test_bucket():
 
 
 def test_generate_document_preview_pdf_converts_and_saves_the_key(db_session, test_engine, monkeypatch):
-    from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
     from core.db import repository
@@ -156,3 +156,55 @@ def test_generate_document_preview_pdf_is_idempotent_when_already_generated(db_s
     result = generate_document_preview_pdf(document.id)
 
     assert result == "already/cached.preview.pdf"
+
+
+def test_generate_document_preview_pdf_propagates_conversion_failure_without_saving_a_key(db_session, test_engine, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from core.db import repository
+    from worker.tasks import generate_document_preview_pdf
+
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-preview-conversion-fails",
+        source_id=source.id,
+        title="T-205/26",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2026-06-30/Tutela/T-205-26.rtf",
+        content_type="application/rtf",
+    )
+
+    from core.storage import upload_file
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rtf_path = Path(tmp) / "T-205-26.rtf"
+        rtf_path.write_text("contenido rtf de prueba")
+        upload_file(rtf_path, document.storage_key, bucket="iurisync-test")
+
+    class _FailingWordConverter:
+        def convert(self, input_path, target_format):
+            raise RuntimeError("Word no pudo convertir el archivo")
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr("worker.tasks.WordConverter", _FailingWordConverter)
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    with pytest.raises(RuntimeError, match="Word no pudo convertir el archivo"):
+        generate_document_preview_pdf(document.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_document(assertion_session, document.id)
+        assert refreshed.preview_storage_key is None
+    finally:
+        assertion_session.close()
