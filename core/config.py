@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     api_key_header: str = "X-API-Key"
     cors_origins: str = "http://localhost:5173"
+    registration_code: str = "changeme"
 
 
 @lru_cache
