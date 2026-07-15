@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -324,5 +324,24 @@ describe("DocumentsPage", () => {
     await user.type(screen.getByPlaceholderText(/buscar por t.tulo/i), "algo");
 
     await waitFor(() => expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument());
+  });
+
+  it("opens the preview dialog with the correct document when Previsualizar is clicked", async () => {
+    mockFilterEndpoints();
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
+      ),
+      http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse("x", { headers: { "Content-Type": "application/pdf" } }))
+    );
+    renderPage();
+
+    await screen.findByText("Sentencia C-002-26");
+    const row = screen.getByText("Sentencia C-002-26").closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: /previsualizar/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Sentencia C-002-26")).toBeInTheDocument();
   });
 });

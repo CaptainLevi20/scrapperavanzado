@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileStack, Search } from "lucide-react";
+import { Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import {
   buildDownloadFilename,
   bulkUpdateDocumentReviewStatus,
@@ -30,6 +31,7 @@ export function DocumentsPage() {
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus | "">("");
   const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -255,11 +257,11 @@ export function DocumentsPage() {
               <th className={`${TH} whitespace-nowrap`}>Fecha providencia</th>
               <th className={TH}>Tamaño</th>
               <th className={`${TH} whitespace-nowrap`}>Revisión</th>
-              <th className={TH}>Descargar</th>
+              <th className={TH}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {documentsQuery.data?.items.map((document) => (
+            {documentsQuery.data?.items.map((document, index) => (
               <tr key={document.id} className={TBODY_ROW}>
                 <td className={TD}>
                   <input
@@ -319,14 +321,20 @@ export function DocumentsPage() {
                   </div>
                 </td>
                 <td className={TD}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => downloadMutation.mutate({ id: document.id, filename: buildDownloadFilename(document) })}
-                  >
-                    <Download className="size-3.5" aria-hidden="true" />
-                    Descargar
-                  </Button>
+                  <div className="flex gap-1.5">
+                    <Button variant="outline" size="sm" onClick={() => setPreviewIndex(index)}>
+                      <Eye className="size-3.5" aria-hidden="true" />
+                      Previsualizar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadMutation.mutate({ id: document.id, filename: buildDownloadFilename(document) })}
+                    >
+                      <Download className="size-3.5" aria-hidden="true" />
+                      Descargar
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -365,6 +373,17 @@ export function DocumentsPage() {
           </button>
         </div>
       </div>
+
+      {previewIndex !== null && documentsQuery.data && (
+        <DocumentPreviewDialog
+          documents={documentsQuery.data.items}
+          initialIndex={previewIndex}
+          open={previewIndex !== null}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setPreviewIndex(null);
+          }}
+        />
+      )}
     </div>
   );
 }
