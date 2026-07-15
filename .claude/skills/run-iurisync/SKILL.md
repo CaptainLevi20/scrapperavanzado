@@ -1,15 +1,15 @@
 ---
 name: run-iurisync
-description: Build, run, and drive IURISYNC (FastAPI backend + Celery worker + Vite/React frontend). Use when asked to start the backend or frontend, run the test suites, seed sources, create an API key, or interact with the running app end-to-end (login, trigger a scrape run, watch progress, browse/download documents, screenshot the UI).
+description: Build, run, and drive IURISYNC (FastAPI backend + Celery worker + Vite/React frontend). Use when asked to start the backend or frontend, run the test suites, seed sources, register a user, or interact with the running app end-to-end (login, trigger a scrape run, watch progress, browse/download documents, screenshot the UI).
 ---
 
 IURISYNC is a Python/FastAPI + Celery backend (repo root) paired with a
 Vite/React frontend (`frontend/`). It's driven end-to-end with a small
-Playwright script, `.claude/skills/run-iurisync/driver.mjs`, that logs in
-with an API key, triggers a real scrape run against a live source, polls
-the run to completion, and downloads a resulting document — the same path
-a human user takes through the UI. All paths below are relative to the
-repo root.
+Playwright script, `.claude/skills/run-iurisync/driver.mjs`, that registers
+(or logs in) with a username and password, triggers a real scrape run
+against a live source, polls the run to completion, and downloads a
+resulting document — the same path a human user takes through the UI. All
+paths below are relative to the repo root.
 
 **Verified on:** native Windows (Git Bash + PowerShell), not a Linux
 container — commands below use that shell. Docker Desktop must be running
@@ -40,12 +40,15 @@ docker compose up -d                       # Postgres, Redis, MinIO
 docker compose exec postgres psql -U iurisync -d iurisync -c "CREATE DATABASE iurisync_test;"
 .venv/Scripts/alembic upgrade head
 .venv/Scripts/python -m core.seed          # populates source_families/sources
-.venv/Scripts/python -m core.manage create-api-key --name "smoke-test"
+curl -s -X POST http://localhost:8000/auth/register -H "Content-Type: application/json" -d '{"username":"smoke-test","password":"SmokeTest123","invite_code":"changeme"}'
 ```
 
-The last command prints a raw API key — copy it, it's only shown once.
-The frontend's `frontend/.env` needs `VITE_API_BASE_URL=http://localhost:8000`
-(already the checked-in default).
+The last command registers a `smoke-test` user with password `SmokeTest123`
+(using the default invite code, `REGISTRATION_CODE=changeme` in
+`.env.example`/`core/config.py`) — only needs running once; if the user
+already exists, just log in instead in the driver. The frontend's
+`frontend/.env` needs `VITE_API_BASE_URL=http://localhost:8000` (already
+the checked-in default).
 
 ## Build
 
@@ -77,7 +80,7 @@ isn't involved — this is a plain script, run directly):
 
 ```bash
 cd .claude/skills/run-iurisync
-node driver.mjs flow "<api-key-from-create-api-key>" "Corte Constitucional" "2024-01-01" "2024-01-31"
+node driver.mjs flow "smoke-test" "SmokeTest123" "Corte Constitucional" "2024-01-01" "2024-01-31"
 ```
 
 This performs the full user flow in one shot: log in → open "Nuevo run" →
@@ -89,9 +92,9 @@ Console errors from the page (if any) print inline as `[console error] …`.
 
 | command | what it does |
 |---|---|
-| `node driver.mjs login <api-key>` | Log in only, screenshot the dashboard |
+| `node driver.mjs login <username> <password>` | Log in only, screenshot the dashboard |
 | `node driver.mjs screenshot <path> <name>` | Navigate to a frontend route and screenshot it (e.g. `/sources sources-page`) |
-| `node driver.mjs flow <api-key> [sourceName] [fini] [ffin]` | Full login → trigger run → watch → documents flow (defaults: `Corte Constitucional`, `2024-01-01`..`2024-01-31`) |
+| `node driver.mjs flow <username> <password> [sourceName] [fini] [ffin]` | Full login → trigger run → watch → documents flow (defaults: `Corte Constitucional`, `2024-01-01`..`2024-01-31`) |
 
 Pick `sourceName` from whatever's seeded and active — `Corte Constitucional`
 is a good default: single source, fast real scrape, known-reliable.
@@ -100,7 +103,8 @@ is a good default: single source, fast real scrape, known-reliable.
 
 `uvicorn --reload` on :8000, `celery worker` in its own terminal, `npm run
 dev` on :5173 (prints the URL). Ctrl-C each to stop. Log in at
-`http://localhost:5173/login` with a key from `create-api-key`.
+`http://localhost:5173/login` with the username/password registered above,
+or register a new account at `/register`.
 
 ## Test
 

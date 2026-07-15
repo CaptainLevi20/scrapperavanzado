@@ -77,6 +77,28 @@ describe("apiFetch", () => {
     });
     expect(notified).toBe(false);
   });
+
+  it("does not clear the token or notify on a 401 when skipUnauthorizedHandling is set (e.g. change-password with a wrong current password)", async () => {
+    setStoredToken("existing-token");
+    let notified = false;
+    registerUnauthorizedHandler(() => {
+      notified = true;
+    });
+    server.use(
+      http.post(`${BASE_URL}/auth/change-password`, () =>
+        HttpResponse.json({ detail: "La contraseña actual no es correcta" }, { status: 401 })
+      )
+    );
+
+    await expect(
+      apiFetch("/auth/change-password", { method: "POST", body: "{}" }, { skipUnauthorizedHandling: true })
+    ).rejects.toMatchObject({
+      status: 401,
+      message: "La contraseña actual no es correcta",
+    });
+    expect(getStoredToken()).toBe("existing-token");
+    expect(notified).toBe(false);
+  });
 });
 
 describe("buildQuery", () => {

@@ -39,7 +39,11 @@ export function buildQuery(params: Record<string, string | number | boolean | un
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  { skipUnauthorizedHandling = false }: { skipUnauthorizedHandling?: boolean } = {}
+): Promise<T> {
   const token = getStoredToken();
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -47,7 +51,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
-  if (response.status === 401 && token) {
+  if (response.status === 401 && token && !skipUnauthorizedHandling) {
     // Había una sesión guardada y el backend la rechazó (expiró o fue
     // revocada en otro lugar) — se limpia y se notifica para volver al
     // login. Un 401 de un intento de login/registro (sin token todavía)

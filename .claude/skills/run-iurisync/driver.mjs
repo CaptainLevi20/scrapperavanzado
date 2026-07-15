@@ -3,9 +3,9 @@
 // Usage: node driver.mjs <command> [args...]
 //
 // Commands:
-//   flow <apiKey> [sourceName] [fini] [ffin]   Full login -> trigger run -> watch -> documents flow
-//   login <apiKey>                              Log in only, screenshot the dashboard
-//   screenshot <path> <name>                     Navigate to a frontend path and screenshot it
+//   flow <username> <password> [sourceName] [fini] [ffin]   Full login -> trigger run -> watch -> documents flow
+//   login <username> <password>                              Log in only, screenshot the dashboard
+//   screenshot <path> <name>                                 Navigate to a frontend path and screenshot it
 //
 // Screenshots land in .claude/skills/run-iurisync/screenshots/<name>.png
 // Requires the frontend dev server (default http://localhost:5173) and the
@@ -35,9 +35,10 @@ function logConsoleErrors(page) {
   page.on("pageerror", (err) => console.log(`[page error] ${err.message}`));
 }
 
-async function login(page, apiKey) {
+async function login(page, username, password) {
   await page.goto(`${FRONTEND_URL}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill('input[type="password"]', apiKey);
+  await page.fill('input[placeholder="Usuario"]', username);
+  await page.fill('input[placeholder="Contraseña"]', password);
   await page.click('button[type="submit"]');
   await page.waitForURL(`${FRONTEND_URL}/`, { timeout: 10_000 });
 }
@@ -118,16 +119,16 @@ async function main() {
 
   try {
     if (command === "login") {
-      const [apiKey] = args;
-      await login(page, apiKey);
+      const [username, password] = args;
+      await login(page, username, password);
       await shot(page, "01-dashboard-after-login");
     } else if (command === "screenshot") {
       const [urlPath, name] = args;
       await page.goto(`${FRONTEND_URL}${urlPath}`, { waitUntil: "domcontentloaded" });
       await shot(page, name);
     } else if (command === "flow") {
-      const [apiKey, sourceName = "Corte Constitucional", fini = "2024-01-01", ffin = "2024-01-31"] = args;
-      await login(page, apiKey);
+      const [username, password, sourceName = "Corte Constitucional", fini = "2024-01-01", ffin = "2024-01-31"] = args;
+      await login(page, username, password);
       await shot(page, "01-dashboard-after-login");
       const runId = await triggerRun(page, sourceName, fini, ffin);
       await watchRun(page, runId);

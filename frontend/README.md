@@ -22,4 +22,4 @@ Panel interno para gestionar fuentes de scraping, disparar/monitorear runs y bus
 
 ## Login
 
-No hay registro de usuarios: pega una API key creada con `python -m core.manage create-api-key --name "..."` (ver README del backend) en la pantalla de login.
+Regístrate en `/register` con un usuario, una contraseña (mínimo 8 caracteres) y el código de invitación configurado en `REGISTRATION_CODE` (backend), o inicia sesión en `/login` si ya tienes una cuenta.

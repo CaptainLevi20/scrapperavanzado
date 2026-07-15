@@ -103,4 +103,27 @@ describe("Sidebar", () => {
     expect(await screen.findByText("Las contraseñas no coinciden")).toBeInTheDocument();
     expect(called).toBe(false);
   });
+
+  it("shows the backend's error and keeps the session when the current password is wrong", async () => {
+    setStoredToken("existing-token");
+    server.use(
+      http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "ana" })),
+      http.post(`${BASE_URL}/auth/change-password`, () =>
+        HttpResponse.json({ detail: "La contraseña actual no es correcta" }, { status: 401 })
+      )
+    );
+    const user = userEvent.setup();
+    renderSidebar();
+    await screen.findByText("ana");
+
+    await user.click(screen.getByText("Cambiar contraseña"));
+    await user.type(screen.getByLabelText("Contraseña actual"), "WrongPassword1");
+    await user.type(screen.getByLabelText("Nueva contraseña"), "NewPassword2");
+    await user.type(screen.getByLabelText("Confirmar nueva contraseña"), "NewPassword2");
+    await user.click(screen.getByText("Guardar"));
+
+    expect(await screen.findByText("La contraseña actual no es correcta")).toBeInTheDocument();
+    expect(getStoredToken()).toBe("existing-token");
+    expect(screen.getByText("ana")).toBeInTheDocument();
+  });
 });
