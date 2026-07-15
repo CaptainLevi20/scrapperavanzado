@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocuments } from "./documents";
+import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocumentBlob, fetchDocuments } from "./documents";
 import type { Document } from "./types";
 
 const BASE_URL = "http://localhost:8000";
@@ -80,6 +80,25 @@ describe("downloadDocumentFile", () => {
     server.use(http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse(null, { status: 404 })));
 
     await expect(downloadDocumentFile(2, "x.pdf")).rejects.toThrow();
+  });
+});
+
+describe("fetchDocumentBlob", () => {
+  it("fetches the raw file content as a Blob", async () => {
+    server.use(
+      http.get(`${BASE_URL}/documents/5/download`, () => new HttpResponse("contenido", { headers: { "Content-Type": "application/pdf" } }))
+    );
+
+    const blob = await fetchDocumentBlob(5);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(await blob.text()).toBe("contenido");
+  });
+
+  it("throws when the request fails", async () => {
+    server.use(http.get(`${BASE_URL}/documents/6/download`, () => new HttpResponse(null, { status: 404 })));
+
+    await expect(fetchDocumentBlob(6)).rejects.toThrow();
   });
 });
 

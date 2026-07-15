@@ -92,17 +92,20 @@ export function buildDownloadFilename(document: Document): string {
   return ext ? `${sanitizedTitle}.${ext}` : sanitizedTitle;
 }
 
-export async function downloadDocumentFile(id: number, filename: string): Promise<void> {
+export async function fetchDocumentBlob(id: number): Promise<Blob> {
   const token = getStoredToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${BASE_URL}/documents/${id}/download`, { headers });
   if (!response.ok) {
-    throw new Error("No se pudo descargar el documento");
+    throw new Error("No se pudo cargar el documento");
   }
+  return response.blob();
+}
 
-  const blob = await response.blob();
+export async function downloadDocumentFile(id: number, filename: string): Promise<void> {
+  const blob = await fetchDocumentBlob(id);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
