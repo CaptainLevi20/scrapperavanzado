@@ -184,20 +184,32 @@ export function DocumentsPage() {
       )}
       {downloadError && <ErrorBanner message={downloadError} onRetry={() => setDownloadError(null)} />}
       {reviewError && <ErrorBanner message={reviewError} onRetry={() => setReviewError(null)} />}
-      {bulkError && <ErrorBanner message={bulkError} onRetry={() => setBulkError(null)} />}
+      {bulkError && (
+        <ErrorBanner
+          message={bulkError}
+          onRetry={() => {
+            setBulkError(null);
+            if (bulkReviewMutation.variables) {
+              bulkReviewMutation.mutate(bulkReviewMutation.variables);
+            }
+          }}
+        />
+      )}
 
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 rounded border bg-gray-50 px-3 py-2">
           <span className="text-sm">{selectedIds.size} seleccionados</span>
           <button
+            disabled={bulkReviewMutation.isPending}
             onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "useful" })}
-            className="rounded border px-2 py-1 text-xs"
+            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
           >
             Marcar como útil
           </button>
           <button
+            disabled={bulkReviewMutation.isPending}
             onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "not_useful" })}
-            className="rounded border px-2 py-1 text-xs"
+            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
           >
             Marcar como no útil
           </button>
