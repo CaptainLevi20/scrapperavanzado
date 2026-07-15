@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { PlayCircle } from "lucide-react";
 import { createRun, fetchRuns } from "../api/runs";
 import { fetchAllActiveSources } from "../api/sources";
 import type { Source } from "../api/types";
+import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { NativeSelect } from "../components/ui/native-select";
+import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { formatDate, formatDateTime } from "../lib/formatters";
 
 const PAGE_SIZE = 20;
@@ -51,19 +55,23 @@ function NewRunDialog({ sources }: { sources: Source[] }) {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nuevo run</DialogTitle>
+          <DialogTitle className="font-display">Nuevo run</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div>
+          <div className="space-y-1.5">
             <Label>Fuentes (vacío = todas las activas)</Label>
-            <div className="max-h-40 space-y-1 overflow-y-auto rounded border p-2">
+            <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border-[1.5px] border-input bg-card p-2">
               {sources.map((source) => (
-                <label key={source.id} className="flex items-center gap-2 text-sm">
+                <label
+                  key={source.id}
+                  className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary/60"
+                >
                   <input
                     type="checkbox"
                     aria-label={source.name}
                     checked={selectedIds.includes(source.id)}
                     onChange={() => toggleSource(source.id)}
+                    className="size-4 accent-sello"
                   />
                   {source.name}
                 </label>
@@ -71,11 +79,11 @@ function NewRunDialog({ sources }: { sources: Source[] }) {
             </div>
           </div>
           <div className="flex gap-2">
-            <div>
+            <div className="space-y-1.5">
               <Label htmlFor="run-fini">Desde</Label>
               <Input id="run-fini" type="date" value={fini} onChange={(event) => setFini(event.target.value)} />
             </div>
-            <div>
+            <div className="space-y-1.5">
               <Label htmlFor="run-ffin">Hasta</Label>
               <Input id="run-ffin" type="date" value={ffin} onChange={(event) => setFfin(event.target.value)} />
             </div>
@@ -116,74 +124,88 @@ export function RunsPage() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Runs</h1>
+        <div>
+          <p className="flex items-center gap-1.5 text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
+            <PlayCircle className="size-3.5" aria-hidden="true" />
+            Bitácora de corridas
+          </p>
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Runs</h1>
+        </div>
         <NewRunDialog sources={activeSourcesQuery.data ?? []} />
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-center gap-2 text-sm text-muted-foreground">
         Estado
-        <select
+        <NativeSelect
           aria-label="Estado del run"
           value={statusFilter}
           onChange={(event) => {
             setStatusFilter(event.target.value);
             setPage(0);
           }}
-          className="rounded border px-2 py-1"
+          className="w-40"
         >
           <option value="">Todos</option>
           <option value="pending">Pendiente</option>
           <option value="running">En curso</option>
           <option value="completed">Completado</option>
-        </select>
+        </NativeSelect>
       </label>
 
       {runsQuery.isError && (
         <ErrorBanner message="No se pudieron cargar los runs." onRetry={() => runsQuery.refetch()} />
       )}
 
-      <table className="w-full border-collapse text-left">
-        <thead>
-          <tr className="border-b">
-            <th className="py-2">ID</th>
-            <th className="py-2">Disparado por</th>
-            <th className="py-2">Estado</th>
-            <th className="py-2">Desde</th>
-            <th className="py-2">Hasta</th>
-            <th className="py-2">Creado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {runsQuery.data?.map((run) => (
-            <tr key={run.id} className="border-b">
-              <td className="py-2">{run.id}</td>
-              <td className="py-2">{run.triggered_by}</td>
-              <td className="py-2"><StatusBadge status={run.status} /></td>
-              <td className="py-2">{formatDate(run.fini)}</td>
-              <td className="py-2">{formatDate(run.ffin)}</td>
-              <td className="py-2">{formatDateTime(run.created_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className={TABLE_SHELL}>
+        <div className={TABLE_SCROLL}>
+          <table className={TABLE}>
+            <thead>
+              <tr className={THEAD_ROW}>
+                <th className={TH}>ID</th>
+                <th className={TH}>Disparado por</th>
+                <th className={TH}>Estado</th>
+                <th className={TH}>Desde</th>
+                <th className={TH}>Hasta</th>
+                <th className={TH}>Creado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runsQuery.data?.map((run) => (
+                <tr key={run.id} className={TBODY_ROW}>
+                  <td className={TD_MONO}>
+                    <Link to={`/runs/${run.id}`} className="font-semibold text-sello-ink hover:underline">
+                      #{run.id}
+                    </Link>
+                  </td>
+                  <td className={TD}>{run.triggered_by}</td>
+                  <td className={TD}>
+                    <StatusBadge status={run.status} />
+                  </td>
+                  <td className={TD_MONO}>{formatDate(run.fini)}</td>
+                  <td className={TD_MONO}>{formatDate(run.ffin)}</td>
+                  <td className={TD_MONO}>{formatDateTime(run.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {(runsQuery.data?.length ?? 0) === 0 && <EmptyState message="No hay runs que coincidan con este filtro." />}
+      </div>
 
       <div className="flex justify-end gap-2">
-        <button
-          disabled={page === 0}
-          onClick={() => setPage((current) => current - 1)}
-          className="rounded border px-3 py-1 disabled:opacity-50"
-        >
+        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>
           Anterior
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           disabled={(runsQuery.data?.length ?? 0) < PAGE_SIZE}
           onClick={() => setPage((current) => current + 1)}
-          className="rounded border px-3 py-1 disabled:opacity-50"
         >
           Siguiente
-        </button>
+        </Button>
       </div>
     </div>
   );

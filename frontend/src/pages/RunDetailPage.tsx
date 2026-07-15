@@ -1,12 +1,23 @@
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cancelRun, fetchRun, fetchRunSources } from "../api/runs";
+import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
+import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { formatDate, formatDateTime } from "../lib/formatters";
 
 const POLL_INTERVAL_MS = 4000;
+
+function InfoField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
+      <dd className="font-mono-num text-sm text-foreground">{value}</dd>
+    </div>
+  );
+}
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -41,26 +52,22 @@ export function RunDetailPage() {
   if (runQuery.isError) {
     return <ErrorBanner message="No se pudo cargar el run." onRetry={() => runQuery.refetch()} />;
   }
-  if (!runQuery.data) return <p>Cargando…</p>;
+  if (!runQuery.data) return <p className="text-sm text-muted-foreground">Cargando…</p>;
   const run = runQuery.data;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Run #{run.id}</h1>
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Run #{run.id}</h1>
         <StatusBadge status={run.status} />
       </div>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-        <dt className="font-medium">Disparado por</dt>
-        <dd>{run.triggered_by}</dd>
-        <dt className="font-medium">Desde</dt>
-        <dd>{formatDate(run.fini)}</dd>
-        <dt className="font-medium">Hasta</dt>
-        <dd>{formatDate(run.ffin)}</dd>
-        <dt className="font-medium">Iniciado</dt>
-        <dd>{formatDateTime(run.started_at)}</dd>
-        <dt className="font-medium">Finalizado</dt>
-        <dd>{formatDateTime(run.finished_at)}</dd>
+
+      <dl className="grid grid-cols-5 gap-4 rounded-lg border border-border bg-card p-5 shadow-sm">
+        <InfoField label="Disparado por" value={run.triggered_by} />
+        <InfoField label="Desde" value={formatDate(run.fini)} />
+        <InfoField label="Hasta" value={formatDate(run.ffin)} />
+        <InfoField label="Iniciado" value={formatDateTime(run.started_at)} />
+        <InfoField label="Finalizado" value={formatDateTime(run.finished_at)} />
       </dl>
 
       {run.status !== "completed" && (
@@ -73,28 +80,35 @@ export function RunDetailPage() {
         </Button>
       )}
 
-      <table className="w-full border-collapse text-left">
-        <thead>
-          <tr className="border-b">
-            <th className="py-2">Fuente (id)</th>
-            <th className="py-2">Estado</th>
-            <th className="py-2">Docs nuevos</th>
-            <th className="py-2">Docs con error</th>
-            <th className="py-2">Error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sourcesQuery.data?.map((runSource) => (
-            <tr key={runSource.id} className="border-b">
-              <td className="py-2">{runSource.source_id}</td>
-              <td className="py-2"><StatusBadge status={runSource.status} /></td>
-              <td className="py-2">{runSource.docs_new}</td>
-              <td className="py-2">{runSource.docs_errors}</td>
-              <td className="py-2 text-red-600">{runSource.error_message ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className={TABLE_SHELL}>
+        <div className={TABLE_SCROLL}>
+          <table className={TABLE}>
+            <thead>
+              <tr className={THEAD_ROW}>
+                <th className={TH}>Fuente (id)</th>
+                <th className={TH}>Estado</th>
+                <th className={TH}>Docs nuevos</th>
+                <th className={TH}>Docs con error</th>
+                <th className={TH}>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sourcesQuery.data?.map((runSource) => (
+                <tr key={runSource.id} className={TBODY_ROW}>
+                  <td className={TD_MONO}>{runSource.source_id}</td>
+                  <td className={TD}>
+                    <StatusBadge status={runSource.status} />
+                  </td>
+                  <td className={TD_MONO}>{runSource.docs_new}</td>
+                  <td className={TD_MONO}>{runSource.docs_errors}</td>
+                  <td className={`${TD} text-rojo`}>{runSource.error_message ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {(sourcesQuery.data?.length ?? 0) === 0 && <EmptyState message="Todavía no hay fuentes procesadas en este run." />}
+      </div>
     </div>
   );
 }

@@ -12,13 +12,6 @@ export interface Source {
   active: boolean;
 }
 
-export interface SourceCreateInput {
-  family_key: string;
-  name: string;
-  family_params: Record<string, unknown>;
-  active: boolean;
-}
-
 export interface SourceUpdateInput {
   active?: boolean;
   family_params?: Record<string, unknown>;

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, FileStack, Search } from "lucide-react";
+import { Button } from "../components/ui/button";
 import {
   buildDownloadFilename,
   bulkUpdateDocumentReviewStatus,
@@ -10,10 +12,15 @@ import {
 import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
 import type { DocumentReviewStatus } from "../api/types";
+import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { NativeSelect } from "../components/ui/native-select";
+import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { formatBytes, formatDate } from "../lib/formatters";
 
 const PAGE_SIZE = 50;
+
+const REVIEW_BUTTON_BASE = "rounded-md border-[1.5px] px-2 py-1 text-xs font-semibold transition-colors";
 
 export function DocumentsPage() {
   const [title, setTitle] = useState("");
@@ -98,20 +105,29 @@ export function DocumentsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Documentos</h1>
+    <div className="space-y-6">
+      <div>
+        <p className="flex items-center gap-1.5 text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
+          <FileStack className="size-3.5" aria-hidden="true" />
+          Archivo de expedientes
+        </p>
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Documentos</h1>
+      </div>
 
-      <div className="flex gap-3">
-        <input
-          placeholder="Buscar por título"
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value);
-            setPage(0);
-            setSelectedIds(new Set());
-          }}
-          className="rounded border px-2 py-1"
-        />
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-3 shadow-sm">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            placeholder="Buscar por título"
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              setPage(0);
+              setSelectedIds(new Set());
+            }}
+            className="h-9 w-56 rounded-md border-[1.5px] border-input bg-background py-1 pr-3 pl-8 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          />
+        </div>
         <input
           placeholder="Tipo"
           value={tipo}
@@ -120,18 +136,18 @@ export function DocumentsPage() {
             setPage(0);
             setSelectedIds(new Set());
           }}
-          className="rounded border px-2 py-1"
+          className="h-9 w-32 rounded-md border-[1.5px] border-input bg-background px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
           Fuente
-          <select
+          <NativeSelect
             value={sourceId}
             onChange={(event) => {
               setSourceId(event.target.value);
               setPage(0);
               setSelectedIds(new Set());
             }}
-            className="rounded border px-2 py-1"
+            className="w-40"
           >
             <option value="">Todas</option>
             {sourcesQuery.data?.map((source) => (
@@ -139,18 +155,18 @@ export function DocumentsPage() {
                 {source.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
           Familia
-          <select
+          <NativeSelect
             value={familyKey}
             onChange={(event) => {
               setFamilyKey(event.target.value);
               setPage(0);
               setSelectedIds(new Set());
             }}
-            className="rounded border px-2 py-1"
+            className="w-40"
           >
             <option value="">Todas</option>
             {familiesQuery.data?.map((family) => (
@@ -158,24 +174,24 @@ export function DocumentsPage() {
                 {family.display_name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
           Revisión
-          <select
+          <NativeSelect
             value={reviewStatus}
             onChange={(event) => {
               setReviewStatus(event.target.value as DocumentReviewStatus | "");
               setPage(0);
               setSelectedIds(new Set());
             }}
-            className="rounded border px-2 py-1"
+            className="w-32"
           >
             <option value="">Todos</option>
             <option value="pending">Sin revisar</option>
             <option value="useful">Útil</option>
             <option value="not_useful">No útil</option>
-          </select>
+          </NativeSelect>
         </label>
       </div>
 
@@ -197,116 +213,133 @@ export function DocumentsPage() {
       )}
 
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded border bg-gray-50 px-3 py-2">
-          <span className="text-sm">{selectedIds.size} seleccionados</span>
+        <div className="flex items-center gap-3 rounded-lg border-[1.5px] border-sello/40 bg-sello/10 px-4 py-2.5">
+          <span className="text-sm font-semibold text-sello-ink">{selectedIds.size} seleccionados</span>
           <button
             disabled={bulkReviewMutation.isPending}
             onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "useful" })}
-            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+            className={`${REVIEW_BUTTON_BASE} border-verde/50 bg-card text-verde hover:bg-verde-bg disabled:opacity-50`}
           >
             Marcar como útil
           </button>
           <button
             disabled={bulkReviewMutation.isPending}
             onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "not_useful" })}
-            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+            className={`${REVIEW_BUTTON_BASE} border-rojo/50 bg-card text-rojo hover:bg-rojo-bg disabled:opacity-50`}
           >
             Marcar como no útil
           </button>
         </div>
       )}
 
-      <table className="w-full border-collapse text-left">
-        <thead>
-          <tr className="border-b">
-            <th className="py-2">
-              <input
-                type="checkbox"
-                aria-label="Seleccionar todos los documentos visibles"
-                checked={allVisibleSelected}
-                onChange={toggleSelectAll}
-              />
-            </th>
-            <th className="py-2">Título</th>
-            <th className="py-2">Tipo</th>
-            <th className="py-2">Sección</th>
-            <th className="py-2">Especialidad</th>
-            <th className="py-2">Magistrado</th>
-            <th className="py-2">Fecha providencia</th>
-            <th className="py-2">Tamaño</th>
-            <th className="py-2">Revisión</th>
-            <th className="py-2">Descargar</th>
-          </tr>
-        </thead>
-        <tbody>
-          {documentsQuery.data?.items.map((document) => (
-            <tr key={document.id} className="border-b">
-              <td className="py-2">
+      <div className={TABLE_SHELL}>
+        <div className={TABLE_SCROLL}>
+          <table className={`${TABLE} min-w-[1240px]`}>
+          <thead>
+            <tr className={THEAD_ROW}>
+              <th className={TH}>
                 <input
                   type="checkbox"
-                  aria-label={`Seleccionar "${document.title}"`}
-                  checked={selectedIds.has(document.id)}
-                  onChange={() => toggleSelected(document.id)}
+                  aria-label="Seleccionar todos los documentos visibles"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAll}
+                  className="size-4 accent-sello"
                 />
-              </td>
-              <td className="py-2" title={document.detalle ?? undefined}>
-                {document.title}
-                {document.source_url && (
-                  <a
-                    href={document.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ml-2 text-xs text-blue-600 underline"
-                  >
-                    Ver original ↗
-                  </a>
-                )}
-              </td>
-              <td className="py-2">{document.tipo ?? "—"}</td>
-              <td className="py-2">{document.seccion ?? "—"}</td>
-              <td className="py-2">{document.especialidad ?? "—"}</td>
-              <td className="py-2">{document.magistrado ?? "—"}</td>
-              <td className="py-2">{formatDate(document.f_providencia)}</td>
-              <td className="py-2">{formatBytes(document.file_size_bytes)}</td>
-              <td className="py-2">
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => reviewMutation.mutate({ id: document.id, status: "useful" })}
-                    aria-label={`Marcar "${document.title}" como útil`}
-                    aria-pressed={document.review_status === "useful"}
-                    className={`rounded border px-2 py-1 text-xs ${
-                      document.review_status === "useful" ? "bg-green-600 text-white" : ""
-                    }`}
-                  >
-                    Útil
-                  </button>
-                  <button
-                    onClick={() => reviewMutation.mutate({ id: document.id, status: "not_useful" })}
-                    aria-label={`Marcar "${document.title}" como no útil`}
-                    aria-pressed={document.review_status === "not_useful"}
-                    className={`rounded border px-2 py-1 text-xs ${
-                      document.review_status === "not_useful" ? "bg-red-600 text-white" : ""
-                    }`}
-                  >
-                    No útil
-                  </button>
-                </div>
-              </td>
-              <td className="py-2">
-                <button
-                  onClick={() => downloadMutation.mutate({ id: document.id, filename: buildDownloadFilename(document) })}
-                  className="text-sm text-blue-600 underline"
-                >
-                  Descargar
-                </button>
-              </td>
+              </th>
+              <th className={`${TH} min-w-[260px]`}>Título</th>
+              <th className={TH}>Tipo</th>
+              <th className={TH}>Sección</th>
+              <th className={TH}>Especialidad</th>
+              <th className={TH}>Magistrado</th>
+              <th className={`${TH} whitespace-nowrap`}>Fecha providencia</th>
+              <th className={TH}>Tamaño</th>
+              <th className={`${TH} whitespace-nowrap`}>Revisión</th>
+              <th className={TH}>Descargar</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {documentsQuery.data?.items.map((document) => (
+              <tr key={document.id} className={TBODY_ROW}>
+                <td className={TD}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Seleccionar "${document.title}"`}
+                    checked={selectedIds.has(document.id)}
+                    onChange={() => toggleSelected(document.id)}
+                    className="size-4 accent-sello"
+                  />
+                </td>
+                <td className={`${TD} font-medium whitespace-nowrap text-foreground`} title={document.detalle ?? undefined}>
+                  {document.title}
+                  {document.source_url && (
+                    <a
+                      href={document.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 text-xs font-normal text-sello-ink underline-offset-2 hover:underline"
+                    >
+                      Ver original ↗
+                    </a>
+                  )}
+                </td>
+                <td className={`${TD} whitespace-nowrap`}>{document.tipo ?? "—"}</td>
+                <td className={`${TD} whitespace-nowrap`}>{document.seccion ?? "—"}</td>
+                <td className={`${TD} whitespace-nowrap`}>{document.especialidad ?? "—"}</td>
+                <td className={`${TD} whitespace-nowrap`}>{document.magistrado ?? "—"}</td>
+                <td className={`${TD_MONO} whitespace-nowrap`}>{formatDate(document.f_providencia)}</td>
+                <td className={`${TD_MONO} whitespace-nowrap`}>{formatBytes(document.file_size_bytes)}</td>
+                <td className={TD}>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => reviewMutation.mutate({ id: document.id, status: "useful" })}
+                      aria-label={`Marcar "${document.title}" como útil`}
+                      aria-pressed={document.review_status === "useful"}
+                      className={`${REVIEW_BUTTON_BASE} ${
+                        document.review_status === "useful"
+                          ? "border-verde bg-verde text-white"
+                          : "border-border bg-card text-muted-foreground hover:border-verde/50 hover:text-verde"
+                      }`}
+                    >
+                      Útil
+                    </button>
+                    <button
+                      onClick={() => reviewMutation.mutate({ id: document.id, status: "not_useful" })}
+                      aria-label={`Marcar "${document.title}" como no útil`}
+                      aria-pressed={document.review_status === "not_useful"}
+                      className={`${REVIEW_BUTTON_BASE} ${
+                        document.review_status === "not_useful"
+                          ? "border-rojo bg-rojo text-white"
+                          : "border-border bg-card text-muted-foreground hover:border-rojo/50 hover:text-rojo"
+                      }`}
+                    >
+                      No útil
+                    </button>
+                  </div>
+                </td>
+                <td className={TD}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadMutation.mutate({ id: document.id, filename: buildDownloadFilename(document) })}
+                  >
+                    <Download className="size-3.5" aria-hidden="true" />
+                    Descargar
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          </table>
+        </div>
+        {(documentsQuery.data?.items.length ?? 0) === 0 && (
+          <EmptyState message="No hay documentos que coincidan con estos filtros." />
+        )}
+      </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Total: {documentsQuery.data?.total ?? 0}</p>
+        <p className="text-sm text-muted-foreground">
+          Total: <span className="font-mono-num font-semibold text-foreground">{documentsQuery.data?.total ?? 0}</span>
+        </p>
         <div className="flex gap-2">
           <button
             disabled={page === 0}
@@ -314,7 +347,7 @@ export function DocumentsPage() {
               setPage((current) => current - 1);
               setSelectedIds(new Set());
             }}
-            className="rounded border px-3 py-1 disabled:opacity-50"
+            className="rounded-md border-[1.5px] border-input bg-card px-3 py-1 text-sm font-medium shadow-xs disabled:opacity-50"
           >
             Anterior
           </button>
@@ -324,7 +357,7 @@ export function DocumentsPage() {
               setPage((current) => current + 1);
               setSelectedIds(new Set());
             }}
-            className="rounded border px-3 py-1 disabled:opacity-50"
+            className="rounded-md border-[1.5px] border-input bg-card px-3 py-1 text-sm font-medium shadow-xs disabled:opacity-50"
           >
             Siguiente
           </button>

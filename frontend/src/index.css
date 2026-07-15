@@ -5,6 +5,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Fraunces", ui-serif, Georgia, serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
@@ -43,75 +47,103 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+
+    /* Signature palette — named tokens used directly by the "stamp" and
+       masthead treatments, outside the generic shadcn slot system above. */
+    --color-tinta: var(--tinta);
+    --color-tinta-2: var(--tinta-2);
+    --color-papel: var(--papel);
+    --color-papel-2: var(--papel-2);
+    --color-sello: var(--sello);
+    --color-sello-ink: var(--sello-ink);
+    --color-verde: var(--verde);
+    --color-verde-bg: var(--verde-bg);
+    --color-rojo: var(--rojo);
+    --color-rojo-bg: var(--rojo-bg);
+    --color-grafito: var(--grafito);
 }
 
 :root {
-    --radius: 0.625rem;
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --radius: 0.5rem;
+
+    /* Ink / paper / seal — the core palette this product is built from. */
+    --tinta: #14181f;
+    --tinta-2: #1c212b;
+    --papel: #f6f3ea;
+    --papel-2: #ece6d6;
+    --sello: #c08a2e;
+    --sello-ink: #8a5f1e;
+    --verde: #3f6e52;
+    --verde-bg: #e3ece5;
+    --rojo: #a23b2e;
+    --rojo-bg: #f3e3df;
+    --grafito: #5b6270;
+
+    --background: var(--papel);
+    --foreground: var(--tinta);
+    --card: #fffdf7;
+    --card-foreground: var(--tinta);
+    --popover: #fffdf7;
+    --popover-foreground: var(--tinta);
+    --primary: var(--sello);
+    --primary-foreground: #1c1206;
+    --secondary: var(--papel-2);
+    --secondary-foreground: var(--tinta);
+    --muted: var(--papel-2);
+    --muted-foreground: var(--grafito);
+    --accent: var(--papel-2);
+    --accent-foreground: var(--tinta);
+    --destructive: var(--rojo);
+    --border: #ddd4bd;
+    --input: #ddd4bd;
+    --ring: var(--sello);
+    --chart-1: var(--sello);
+    --chart-2: var(--verde);
+    --chart-3: var(--rojo);
+    --chart-4: var(--grafito);
+    --chart-5: var(--tinta);
+    --sidebar: var(--tinta);
+    --sidebar-foreground: #f2ede0;
+    --sidebar-primary: var(--sello);
+    --sidebar-primary-foreground: #1c1206;
+    --sidebar-accent: var(--tinta-2);
+    --sidebar-accent-foreground: #f2ede0;
+    --sidebar-border: oklch(1 0 0 / 8%);
+    --sidebar-ring: var(--sello);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
+    --background: var(--tinta);
+    --foreground: #f2ede0;
+    --card: var(--tinta-2);
+    --card-foreground: #f2ede0;
+    --popover: var(--tinta-2);
+    --popover-foreground: #f2ede0;
+    --primary: var(--sello);
+    --primary-foreground: #1c1206;
+    --secondary: var(--tinta-2);
+    --secondary-foreground: #f2ede0;
+    --muted: var(--tinta-2);
+    --muted-foreground: #a2a8b4;
+    --accent: var(--tinta-2);
+    --accent-foreground: #f2ede0;
+    --destructive: var(--rojo);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --ring: var(--sello);
+    --chart-1: var(--sello);
+    --chart-2: var(--verde);
+    --chart-3: var(--rojo);
+    --chart-4: var(--grafito);
+    --chart-5: #f2ede0;
+    --sidebar: var(--tinta);
+    --sidebar-foreground: #f2ede0;
+    --sidebar-primary: var(--sello);
+    --sidebar-primary-foreground: #1c1206;
+    --sidebar-accent: var(--tinta-2);
+    --sidebar-accent-foreground: #f2ede0;
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-ring: var(--sello);
 }
 
 @layer base {
@@ -120,5 +152,65 @@
     }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
     }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+  .font-mono-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+  }
+}
+
+/* Live "monitoring" pulse used by the masthead's active-run indicator. */
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--sello) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--sello) 0%, transparent);
+  }
+}
+
+.pulse-dot {
+  animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+
+/* The "stamp" — this product's signature element. A slightly rotated,
+   ink-textured badge used for both run status and document review status,
+   evoking a clerk's stamp on an incoming dossier. */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  border-width: 1.5px;
+  border-style: solid;
+  padding: 0.1875rem 0.625rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transform: rotate(-1.5deg);
+  white-space: nowrap;
+}
+
+.stamp-dot {
+  display: inline-block;
+  height: 0.375rem;
+  width: 0.375rem;
+  border-radius: 9999px;
+  background-color: currentColor;
 }

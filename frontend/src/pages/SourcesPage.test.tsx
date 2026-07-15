@@ -63,30 +63,7 @@ describe("SourcesPage", () => {
   });
 });
 
-describe("SourcesPage — create and edit", () => {
-  it("creates a source and refreshes the list", async () => {
-    let createdBody: unknown;
-    server.use(
-      http.get(`${BASE_URL}/source-families`, () =>
-        HttpResponse.json([{ key: "constitucional", display_name: "Corte Constitucional", description: null }])
-      ),
-      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
-      http.post(`${BASE_URL}/sources`, async ({ request }) => {
-        createdBody = await request.json();
-        return HttpResponse.json({ id: 2, ...(createdBody as object) }, { status: 201 });
-      })
-    );
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByText("Nueva fuente"));
-    await user.selectOptions(screen.getByLabelText("Familia de la fuente"), "constitucional");
-    await user.type(screen.getByLabelText(/nombre/i), "Corte Constitucional");
-    await user.click(screen.getByText("Crear"));
-
-    await waitFor(() => expect(createdBody).toMatchObject({ family_key: "constitucional", name: "Corte Constitucional" }));
-  });
-
+describe("SourcesPage — toggle active state", () => {
   it("toggles a source's active state", async () => {
     let patchedBody: unknown;
     server.use(
@@ -105,68 +82,5 @@ describe("SourcesPage — create and edit", () => {
     await user.click(await screen.findByText("Desactivar"));
 
     await waitFor(() => expect(patchedBody).toMatchObject({ active: false }));
-  });
-
-  it("edits a source's family_params via the inline dialog", async () => {
-    let patchedBody: unknown;
-    server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
-      http.get(`${BASE_URL}/sources`, () =>
-        HttpResponse.json([
-          { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: { foo: "bar" }, active: true },
-        ])
-      ),
-      http.patch(`${BASE_URL}/sources/1`, async ({ request }) => {
-        patchedBody = await request.json();
-        return HttpResponse.json({
-          id: 1,
-          family_key: "constitucional",
-          name: "Corte Constitucional",
-          family_params: { foo: "baz" },
-          active: true,
-        });
-      })
-    );
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByText("Editar parámetros"));
-
-    const textarea = screen.getByLabelText(/parámetros \(json\)/i);
-    expect(textarea).toHaveValue(JSON.stringify({ foo: "bar" }, null, 2));
-
-    await user.clear(textarea);
-    await user.type(textarea, '{{"foo": "baz"}');
-    await user.click(screen.getByText("Guardar"));
-
-    await waitFor(() => expect(patchedBody).toMatchObject({ family_params: { foo: "baz" } }));
-  });
-
-  it("shows a validation error and does not call the API when the edited params are invalid JSON", async () => {
-    let patchCalled = false;
-    server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
-      http.get(`${BASE_URL}/sources`, () =>
-        HttpResponse.json([
-          { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: { foo: "bar" }, active: true },
-        ])
-      ),
-      http.patch(`${BASE_URL}/sources/1`, () => {
-        patchCalled = true;
-        return HttpResponse.json({ id: 1 });
-      })
-    );
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByText("Editar parámetros"));
-
-    const textarea = screen.getByLabelText(/parámetros \(json\)/i);
-    await user.clear(textarea);
-    await user.type(textarea, "{{not valid json");
-    await user.click(screen.getByText("Guardar"));
-
-    expect(await screen.findByText("Los parámetros deben ser JSON válido")).toBeInTheDocument();
-    expect(patchCalled).toBe(false);
   });
 });

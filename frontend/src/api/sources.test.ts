@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredApiKey } from "./client";
-import { createSource, fetchAllActiveSources, fetchSources, updateSource } from "./sources";
+import { fetchAllActiveSources, fetchSources, updateSource } from "./sources";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -22,25 +22,6 @@ describe("sources API", () => {
 
     expect(receivedUrl).toContain("family_key=constitucional");
     expect(receivedUrl).toContain("active=true");
-  });
-
-  it("createSource posts the payload and returns the created source", async () => {
-    server.use(
-      http.post(`${BASE_URL}/sources`, async ({ request }) => {
-        const body = await request.json();
-        return HttpResponse.json({ id: 1, ...(body as object) }, { status: 201 });
-      })
-    );
-
-    const result = await createSource({
-      family_key: "constitucional",
-      name: "Corte Constitucional",
-      family_params: {},
-      active: true,
-    });
-
-    expect(result.id).toBe(1);
-    expect(result.name).toBe("Corte Constitucional");
   });
 
   it("updateSource sends a PATCH to the source's id", async () => {

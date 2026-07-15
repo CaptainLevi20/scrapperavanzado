@@ -1,5 +1,5 @@
 import { apiFetch, buildQuery } from "./client";
-import type { Source, SourceCreateInput, SourceUpdateInput } from "./types";
+import type { Source, SourceUpdateInput } from "./types";
 
 export interface ListSourcesParams {
   family_key?: string;
@@ -25,10 +25,6 @@ export async function fetchAllActiveSources(): Promise<Source[]> {
     offset += ALL_SOURCES_PAGE_SIZE;
   }
   return all;
-}
-
-export function createSource(input: SourceCreateInput): Promise<Source> {
-  return apiFetch<Source>("/sources", { method: "POST", body: JSON.stringify(input) });
 }
 
 export function updateSource(id: number, input: SourceUpdateInput): Promise<Source> {
