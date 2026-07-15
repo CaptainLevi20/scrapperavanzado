@@ -105,17 +105,6 @@ class Document(Base):
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
 
-class ApiKey(Base):
-    __tablename__ = "api_keys"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    key_hash = Column(String, nullable=False, unique=True)
-    active = Column(Boolean, nullable=False, default=True)
-    last_used_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
-
-
 class User(Base):
     __tablename__ = "users"
 

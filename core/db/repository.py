@@ -5,7 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from core.db.models import ApiKey, Document, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import Document, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -220,25 +220,6 @@ def bulk_update_document_review_status(db: Session, document_ids: list[int], rev
 
 def get_document(db: Session, document_id: int) -> Optional[Document]:
     return db.get(Document, document_id)
-
-
-def create_api_key(db: Session, name: str, key_hash: str) -> ApiKey:
-    api_key = ApiKey(name=name, key_hash=key_hash, active=True)
-    db.add(api_key)
-    db.commit()
-    db.refresh(api_key)
-    return api_key
-
-
-def get_active_api_key_by_hash(db: Session, key_hash: str) -> Optional[ApiKey]:
-    stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.active.is_(True))
-    return db.scalars(stmt).first()
-
-
-def touch_api_key_last_used(db: Session, api_key_id: int) -> None:
-    api_key = db.get(ApiKey, api_key_id)
-    api_key.last_used_at = datetime.now(timezone.utc)
-    db.commit()
 
 
 SESSION_TTL = timedelta(days=30)

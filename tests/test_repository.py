@@ -46,24 +46,6 @@ def test_insert_document_is_idempotent_on_doc_id(db_session):
     assert repository.document_exists(db_session, "abc123") is True
 
 
-def test_api_key_create_and_lookup_by_hash(db_session):
-    repository.create_api_key(db_session, name="tests", key_hash="hash123")
-    found = repository.get_active_api_key_by_hash(db_session, "hash123")
-    assert found is not None
-    assert found.name == "tests"
-    assert repository.get_active_api_key_by_hash(db_session, "missing") is None
-
-
-def test_touch_api_key_last_used_sets_timestamp(db_session):
-    api_key = repository.create_api_key(db_session, name="tests", key_hash="hash456")
-    assert api_key.last_used_at is None
-
-    repository.touch_api_key_last_used(db_session, api_key.id)
-
-    refreshed = repository.get_active_api_key_by_hash(db_session, "hash456")
-    assert refreshed.last_used_at is not None
-
-
 def test_update_document_review_status_sets_status_and_timestamp(db_session):
     from core.db import repository
 

@@ -4,7 +4,6 @@ from core.config import Settings, get_settings
 def test_settings_have_expected_defaults():
     settings = Settings(_env_file=None)
     assert settings.s3_bucket == "iurisync-documents"
-    assert settings.api_key_header == "X-API-Key"
     assert settings.registration_code == "changeme"
 
 

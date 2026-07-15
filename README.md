@@ -10,7 +10,7 @@ Backend SaaS de scraping de fuentes jurídicas/administrativas colombianas. Reut
 4. `docker compose exec postgres psql -U iurisync -d iurisync -c "CREATE DATABASE iurisync_test;"`
 5. `.venv\Scripts\alembic upgrade head`
 6. `.venv\Scripts\python -m core.seed` (puebla `source_families`/`sources`)
-7. `.venv\Scripts\python -m core.manage create-api-key --name "mi-equipo"` (guarda la key impresa)
+7. Registra tu primer usuario desde el frontend (`/register`) con el código de invitación configurado en `REGISTRATION_CODE`, o directamente vía `POST /auth/register`.
 
 ## Correr los servicios
 

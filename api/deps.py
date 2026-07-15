@@ -6,18 +6,7 @@ from sqlalchemy.orm import Session
 from core.db import repository
 from core.db.models import User
 from core.db.session import get_db
-from core.security import hash_api_key, hash_session_token
-
-
-def require_api_key(
-    x_api_key: str = Header(..., alias="X-API-Key"),
-    db: Session = Depends(get_db),
-):
-    api_key = repository.get_active_api_key_by_hash(db, hash_api_key(x_api_key))
-    if api_key is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key inválida")
-    repository.touch_api_key_last_used(db, api_key.id)
-    return api_key
+from core.security import hash_session_token
 
 
 def require_session(
