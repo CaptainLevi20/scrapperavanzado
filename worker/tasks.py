@@ -5,10 +5,10 @@ from pathlib import Path
 
 from core.db import repository
 from core.db.session import SessionLocal
-from core.downloader import Downloader
+from core.downloader import Downloader, WordConverter
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
-from core.storage import upload_file
+from core.storage import download_file, upload_file
 from core.utils import compute_doc_id
 from worker.celery_app import celery_app
 
@@ -146,5 +146,37 @@ def _finalize_run(run_id: int):
     db = SessionLocal()
     try:
         repository.set_run_status(db, run_id, "completed", finished_at=datetime.now(timezone.utc))
+    finally:
+        db.close()
+
+
+@celery_app.task(name="worker.generate_document_preview_pdf")
+def generate_document_preview_pdf(document_id: int) -> str:
+    db = SessionLocal()
+    try:
+        document = repository.get_document(db, document_id)
+        if document is None:
+            raise ValueError(f"Documento {document_id} no encontrado")
+        if document.preview_storage_key:
+            return document.preview_storage_key
+
+        with tempfile.TemporaryDirectory(prefix=f"preview_{document_id}_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            extension = Path(document.storage_key).suffix
+            local_path = tmp_path / f"original{extension}"
+            download_file(document.storage_bucket, document.storage_key, local_path)
+
+            converter = WordConverter()
+            try:
+                pdf_path = converter.convert(local_path, "pdf")
+            finally:
+                converter.quit()
+
+            base_key = document.storage_key.rsplit(".", 1)[0] if "." in document.storage_key else document.storage_key
+            preview_key = f"{base_key}.preview.pdf"
+            upload_file(pdf_path, preview_key, bucket=document.storage_bucket, content_type="application/pdf")
+
+        repository.set_document_preview_key(db, document_id, preview_key)
+        return preview_key
     finally:
         db.close()

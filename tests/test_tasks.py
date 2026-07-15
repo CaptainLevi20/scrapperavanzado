@@ -5,7 +5,7 @@ from core.db import repository
 from core.models import RawDocModel
 from tests.conftest import DummyFamilyScraper, TEST_S3_BUCKET
 from worker.celery_app import celery_app
-from worker.tasks import scrape_source_task
+from worker.tasks import scrape_source_task, generate_document_preview_pdf
 
 
 @responses.activate
@@ -64,3 +64,95 @@ def _settings_with_test_bucket():
     settings = get_settings()
     settings.s3_bucket = TEST_S3_BUCKET
     return settings
+
+
+def test_generate_document_preview_pdf_converts_and_saves_the_key(db_session, test_engine, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from core.db import repository
+    from worker.tasks import generate_document_preview_pdf
+
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-preview-2",
+        source_id=source.id,
+        title="T-200/26",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2026-06-30/Tutela/T-200-26.rtf",
+        content_type="application/rtf",
+    )
+
+    from core.storage import upload_file
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rtf_path = Path(tmp) / "T-200-26.rtf"
+        rtf_path.write_text("contenido rtf de prueba")
+        upload_file(rtf_path, document.storage_key, bucket="iurisync-test")
+
+    class _FakeWordConverter:
+        def convert(self, input_path, target_format):
+            assert target_format == "pdf"
+            output_path = input_path.with_suffix(".pdf")
+            output_path.write_bytes(b"%PDF-1.4 contenido convertido")
+            return output_path
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr("worker.tasks.WordConverter", _FakeWordConverter)
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    result = generate_document_preview_pdf(document.id)
+
+    assert result == "Corte Constitucional/2026-06-30/Tutela/T-200-26.preview.pdf"
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_document(assertion_session, document.id)
+        assert refreshed.preview_storage_key == "Corte Constitucional/2026-06-30/Tutela/T-200-26.preview.pdf"
+    finally:
+        assertion_session.close()
+
+
+def test_generate_document_preview_pdf_is_idempotent_when_already_generated(db_session, test_engine, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from core.db import repository
+    from worker.tasks import generate_document_preview_pdf
+
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-preview-3",
+        source_id=source.id,
+        title="T-201/26",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2026-06-30/Tutela/T-201-26.rtf",
+        content_type="application/rtf",
+    )
+    repository.set_document_preview_key(db_session, document.id, "already/cached.preview.pdf")
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    def _fail_if_called(*_args, **_kwargs):
+        raise AssertionError("no debería intentar convertir de nuevo si ya existe preview_storage_key")
+
+    monkeypatch.setattr("worker.tasks.download_file", _fail_if_called)
+
+    result = generate_document_preview_pdf(document.id)
+
+    assert result == "already/cached.preview.pdf"
