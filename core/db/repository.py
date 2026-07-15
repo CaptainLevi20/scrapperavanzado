@@ -281,3 +281,13 @@ def touch_user_last_login(db: Session, user_id: int) -> None:
     user = db.get(User, user_id)
     user.last_login_at = datetime.now(timezone.utc)
     db.commit()
+
+
+def set_document_preview_key(db: Session, document_id: int, preview_storage_key: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.preview_storage_key = preview_storage_key
+    db.commit()
+    db.refresh(document)
+    return document

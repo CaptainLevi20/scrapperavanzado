@@ -226,3 +226,32 @@ def test_touch_user_last_login_sets_timestamp(db_session):
 
     refreshed = repository.get_user_by_username(db_session, "ana")
     assert refreshed.last_login_at is not None
+
+
+def test_set_document_preview_key_updates_the_column(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-preview-1",
+        source_id=source.id,
+        title="T-200/26",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2026-06-30/Tutela/T-200-26.rtf",
+        content_type="application/rtf",
+    )
+    assert document.preview_storage_key is None
+
+    updated = repository.set_document_preview_key(
+        db_session, document.id, "Corte Constitucional/2026-06-30/Tutela/T-200-26.preview.pdf"
+    )
+
+    assert updated.preview_storage_key == "Corte Constitucional/2026-06-30/Tutela/T-200-26.preview.pdf"
+
+
+def test_set_document_preview_key_returns_none_when_document_missing(db_session):
+    from core.db import repository
+
+    assert repository.set_document_preview_key(db_session, 999999, "some/key.pdf") is None

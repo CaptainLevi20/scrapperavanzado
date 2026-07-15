@@ -100,6 +100,7 @@ class Document(Base):
     file_extension = Column(String, nullable=True)
     file_size_bytes = Column(BigInteger, nullable=True)
     converted_format = Column(String, nullable=True)
+    preview_storage_key = Column(Text, nullable=True)
     downloaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     review_status = Column(String, nullable=False, default="pending", server_default="pending")
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
