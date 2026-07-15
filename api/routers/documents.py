@@ -1,5 +1,6 @@
 from typing import Optional
 
+from celery.exceptions import TimeoutError as CeleryTimeoutError
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -8,8 +9,18 @@ from api.deps import get_db, require_session
 from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpdate, PaginatedDocuments
 from core.db import repository
 from core.storage import presigned_url
+from worker.tasks import generate_document_preview_pdf
 
 router = APIRouter(dependencies=[Depends(require_session)])
+
+# Tipos que requieren conversión bajo demanda (application/pdf se maneja aparte,
+# como passthrough directo, antes de siquiera consultar este set).
+CONVERTIBLE_CONTENT_TYPES = {
+    "application/rtf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+PREVIEW_TASK_TIMEOUT_SECONDS = 30
 
 
 @router.get("/documents", response_model=PaginatedDocuments)
@@ -64,4 +75,34 @@ def download_document(document_id: int, db: Session = Depends(get_db)):
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     url = presigned_url(document.storage_bucket, document.storage_key)
+    return RedirectResponse(url)
+
+
+@router.get("/documents/{document_id}/preview")
+def preview_document(document_id: int, db: Session = Depends(get_db)):
+    document = repository.get_document(db, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    if document.content_type == "application/pdf":
+        url = presigned_url(document.storage_bucket, document.storage_key)
+        return RedirectResponse(url)
+
+    if document.content_type not in CONVERTIBLE_CONTENT_TYPES:
+        raise HTTPException(status_code=404, detail="Vista previa no disponible para este tipo de archivo")
+
+    if document.preview_storage_key:
+        url = presigned_url(document.storage_bucket, document.preview_storage_key)
+        return RedirectResponse(url)
+
+    try:
+        preview_key = generate_document_preview_pdf.delay(document_id).get(timeout=PREVIEW_TASK_TIMEOUT_SECONDS)
+    except CeleryTimeoutError:
+        raise HTTPException(
+            status_code=504, detail="La vista previa está tardando más de lo esperado, intenta de nuevo"
+        )
+    except Exception:
+        raise HTTPException(status_code=502, detail="No se pudo generar la vista previa")
+
+    url = presigned_url(document.storage_bucket, preview_key)
     return RedirectResponse(url)
