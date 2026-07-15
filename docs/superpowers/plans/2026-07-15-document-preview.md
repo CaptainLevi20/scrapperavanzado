@@ -16,6 +16,7 @@
 - "Siguiente" avanza sin marcar (no llama a la mutación de revisión); "Anterior" retrocede uno. Ambos se deshabilitan en los extremos de la lista (Anterior en el primer documento, Siguiente en el último).
 - El modal opera únicamente sobre los documentos ya cargados en la página actual de la tabla (`documentsQuery.data.items`) — no dispara ningún fetch de página siguiente.
 - Cada `Object URL` creado para el `<iframe>` debe liberarse (`URL.revokeObjectURL`) al cambiar de documento o al desmontar, para no acumular blobs en memoria.
+- **Gotcha de MSW verificado en este entorno:** pasar un `Blob` directamente como body de `new HttpResponse(new Blob([...]))` corrompe el contenido en esta combinación de MSW/Vitest/jsdom — el fetch resultante devuelve la cadena literal `"[object Blob]"` en vez de los bytes reales. En todos los mocks de descarga/preview de este plan, el body debe pasarse como **string plano** con un header `Content-Type` explícito: `new HttpResponse("contenido", { headers: { "Content-Type": "application/pdf" } })` — nunca `new HttpResponse(new Blob([...]))`.
 
 ---
 
@@ -36,7 +37,7 @@ En `frontend/src/api/documents.test.ts`, agregar (después del `describe("downlo
 describe("fetchDocumentBlob", () => {
   it("fetches the raw file content as a Blob", async () => {
     server.use(
-      http.get(`${BASE_URL}/documents/5/download`, () => new HttpResponse(new Blob(["contenido"], { type: "application/pdf" })))
+      http.get(`${BASE_URL}/documents/5/download`, () => new HttpResponse("contenido", { headers: { "Content-Type": "application/pdf" } }))
     );
 
     const blob = await fetchDocumentBlob(5);
@@ -178,7 +179,7 @@ function renderDialog(documents: Document[], initialIndex: number, onOpenChange 
 
 function mockBlob(id: number, content = "contenido") {
   server.use(
-    http.get(`${BASE_URL}/documents/${id}/download`, () => new HttpResponse(new Blob([content], { type: "application/pdf" })))
+    http.get(`${BASE_URL}/documents/${id}/download`, () => new HttpResponse(content, { headers: { "Content-Type": "application/pdf" } }))
   );
 }
 
@@ -295,7 +296,7 @@ describe("DocumentPreviewDialog", () => {
       http.get(`${BASE_URL}/documents/1/download`, () => {
         attempts += 1;
         if (attempts === 1) return new HttpResponse(null, { status: 500 });
-        return new HttpResponse(new Blob(["contenido"], { type: "application/pdf" }));
+        return new HttpResponse("contenido", { headers: { "Content-Type": "application/pdf" } });
       })
     );
     const user = userEvent.setup();
@@ -526,7 +527,7 @@ Y agregar este test al final del `describe("DocumentsPage", ...)`, antes del cie
       http.get(`${BASE_URL}/documents`, () =>
         HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
       ),
-      http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse(new Blob(["x"], { type: "application/pdf" })))
+      http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse("x", { headers: { "Content-Type": "application/pdf" } }))
     );
     renderPage();
 
