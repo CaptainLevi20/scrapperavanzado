@@ -92,16 +92,24 @@ export function buildDownloadFilename(document: Document): string {
   return ext ? `${sanitizedTitle}.${ext}` : sanitizedTitle;
 }
 
-export async function fetchDocumentBlob(id: number): Promise<Blob> {
+async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> {
   const token = getStoredToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${BASE_URL}/documents/${id}/download`, { headers });
+  const response = await fetch(`${BASE_URL}${path}`, { headers });
   if (!response.ok) {
-    throw new Error("No se pudo cargar el documento");
+    throw new Error(errorMessage);
   }
   return response.blob();
+}
+
+export function fetchDocumentBlob(id: number): Promise<Blob> {
+  return fetchBlobFrom(`/documents/${id}/download`, "No se pudo cargar el documento");
+}
+
+export function fetchDocumentPreviewBlob(id: number): Promise<Blob> {
+  return fetchBlobFrom(`/documents/${id}/preview`, "No se pudo cargar la vista previa");
 }
 
 export async function downloadDocumentFile(id: number, filename: string): Promise<void> {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocumentBlob, fetchDocuments } from "./documents";
+import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocumentBlob, fetchDocumentPreviewBlob, fetchDocuments } from "./documents";
 import type { Document } from "./types";
 
 const BASE_URL = "http://localhost:8000";
@@ -99,6 +99,25 @@ describe("fetchDocumentBlob", () => {
     server.use(http.get(`${BASE_URL}/documents/6/download`, () => new HttpResponse(null, { status: 404 })));
 
     await expect(fetchDocumentBlob(6)).rejects.toThrow();
+  });
+});
+
+describe("fetchDocumentPreviewBlob", () => {
+  it("fetches the preview content as a Blob", async () => {
+    server.use(
+      http.get(`${BASE_URL}/documents/7/preview`, () => new HttpResponse("contenido pdf", { headers: { "Content-Type": "application/pdf" } }))
+    );
+
+    const blob = await fetchDocumentPreviewBlob(7);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(await blob.text()).toBe("contenido pdf");
+  });
+
+  it("throws when the preview request fails", async () => {
+    server.use(http.get(`${BASE_URL}/documents/8/preview`, () => new HttpResponse(null, { status: 502 })));
+
+    await expect(fetchDocumentPreviewBlob(8)).rejects.toThrow();
   });
 });
 

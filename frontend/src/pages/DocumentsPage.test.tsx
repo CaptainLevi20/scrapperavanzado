@@ -333,7 +333,7 @@ describe("DocumentsPage", () => {
       http.get(`${BASE_URL}/documents`, () =>
         HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
       ),
-      http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse("x", { headers: { "Content-Type": "application/pdf" } }))
+      http.get(`${BASE_URL}/documents/2/preview`, () => new HttpResponse("x", { headers: { "Content-Type": "application/pdf" } }))
     );
     renderPage();
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download } from "lucide-react";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocumentBlob, updateDocumentReviewStatus } from "../api/documents";
+import { buildDownloadFilename, downloadDocumentFile, fetchDocumentPreviewBlob, updateDocumentReviewStatus } from "../api/documents";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { formatDate } from "../lib/formatters";
 import { ErrorBanner } from "./ErrorBanner";
@@ -14,6 +14,13 @@ interface DocumentPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+const PREVIEWABLE_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "application/rtf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenChange }: DocumentPreviewDialogProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -36,14 +43,14 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
   }, [currentIndex]);
 
   const currentDocument = documentsSnapshot[currentIndex];
-  const isPdf = currentDocument?.content_type === "application/pdf";
+  const isPreviewable = !!currentDocument && PREVIEWABLE_CONTENT_TYPES.has(currentDocument.content_type ?? "");
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === documentsSnapshot.length - 1;
 
   const blobQuery = useQuery({
-    queryKey: ["document-blob", currentDocument?.id],
-    queryFn: () => fetchDocumentBlob(currentDocument!.id),
-    enabled: open && !!currentDocument && isPdf,
+    queryKey: ["document-preview-blob", currentDocument?.id],
+    queryFn: () => fetchDocumentPreviewBlob(currentDocument!.id),
+    enabled: open && !!currentDocument && isPreviewable,
   });
 
   useEffect(() => {
@@ -90,7 +97,7 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden rounded-md border border-border bg-secondary">
-          {isPdf ? (
+          {isPreviewable ? (
             blobQuery.isError ? (
               <div className="flex h-full items-center justify-center p-6">
                 <ErrorBanner message="No se pudo cargar la vista previa" onRetry={() => blobQuery.refetch()} />

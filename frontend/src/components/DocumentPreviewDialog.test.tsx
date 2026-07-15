@@ -47,7 +47,7 @@ function renderDialog(documents: Document[], initialIndex: number, onOpenChange 
 
 function mockBlob(id: number, content = "contenido") {
   server.use(
-    http.get(`${BASE_URL}/documents/${id}/download`, () => new HttpResponse(content, { headers: { "Content-Type": "application/pdf" } }))
+    http.get(`${BASE_URL}/documents/${id}/preview`, () => new HttpResponse(content, { headers: { "Content-Type": "application/pdf" } }))
   );
 }
 
@@ -63,8 +63,8 @@ describe("DocumentPreviewDialog", () => {
     expect(await screen.findByTitle("Vista previa de Doc PDF")).toBeInTheDocument();
   });
 
-  it("shows a fallback message and download button for a non-PDF document", async () => {
-    const documents = [makeDocument({ id: 2, title: "Doc Word", content_type: "application/msword" })];
+  it("shows a fallback message and download button for a non-previewable document", async () => {
+    const documents = [makeDocument({ id: 2, title: "Doc Binario", content_type: "application/octet-stream" })];
 
     renderDialog(documents, 0);
 
@@ -217,7 +217,7 @@ describe("DocumentPreviewDialog", () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" })];
     let attempts = 0;
     server.use(
-      http.get(`${BASE_URL}/documents/1/download`, () => {
+      http.get(`${BASE_URL}/documents/1/preview`, () => {
         attempts += 1;
         if (attempts === 1) return new HttpResponse(null, { status: 500 });
         return new HttpResponse("contenido", { headers: { "Content-Type": "application/pdf" } });
@@ -231,5 +231,22 @@ describe("DocumentPreviewDialog", () => {
     await user.click(screen.getByText("Reintentar"));
 
     await screen.findByTitle("Vista previa de Doc 1");
+  });
+
+  it("renders an iframe for a previewable RTF document (via /preview, not /download)", async () => {
+    const documents = [makeDocument({ id: 9, title: "Doc RTF", content_type: "application/rtf" })];
+    mockBlob(9);
+
+    renderDialog(documents, 0);
+
+    expect(await screen.findByTitle("Vista previa de Doc RTF")).toBeInTheDocument();
+  });
+
+  it("still shows the fallback message for a genuinely non-previewable type", async () => {
+    const documents = [makeDocument({ id: 10, title: "Doc Texto", content_type: "text/plain" })];
+
+    renderDialog(documents, 0);
+
+    expect(await screen.findByText("Vista previa no disponible para este tipo de archivo.")).toBeInTheDocument();
   });
 });
