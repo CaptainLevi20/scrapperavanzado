@@ -1,10 +1,10 @@
-def test_get_sources_requires_api_key(api_client):
+def test_get_sources_requires_authentication(api_client):
     response = api_client.get("/sources")
-    assert response.status_code == 422  # missing required X-API-Key header
+    assert response.status_code == 401
 
 
-def test_get_sources_rejects_invalid_key(api_client):
-    response = api_client.get("/sources", headers={"X-API-Key": "wrong"})
+def test_get_sources_rejects_invalid_token(api_client):
+    response = api_client.get("/sources", headers={"Authorization": "Bearer wrong-token"})
     assert response.status_code == 401
 
 
@@ -60,16 +60,16 @@ def test_get_sources_respects_limit_and_offset(api_client, auth_header, db_sessi
     assert len(response.json()) == 1
 
 
-def test_authenticated_request_updates_api_key_last_used_at(api_client, auth_header, db_session):
+def test_authenticated_request_updates_session_last_used_at(api_client, auth_header, db_session):
     from core.db import repository
-    from core.security import hash_api_key
+    from core.security import hash_session_token
 
-    raw_key = auth_header["X-API-Key"]
-    before = repository.get_active_api_key_by_hash(db_session, hash_api_key(raw_key))
+    raw_token = auth_header["Authorization"].removeprefix("Bearer ")
+    before = repository.get_valid_session_by_token_hash(db_session, hash_session_token(raw_token))
     assert before.last_used_at is None
 
     response = api_client.get("/sources", headers=auth_header)
     assert response.status_code == 200
 
-    after = repository.get_active_api_key_by_hash(db_session, hash_api_key(raw_key))
+    after = repository.get_valid_session_by_token_hash(db_session, hash_session_token(raw_token))
     assert after.last_used_at is not None
