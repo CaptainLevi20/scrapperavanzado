@@ -26,3 +26,16 @@ def test_presigned_url_response_allows_cross_origin_read(tmp_path):
 
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") in ("*", "http://localhost:5173")
+
+
+def test_download_file_writes_the_object_to_the_given_path(tmp_path):
+    from core.storage import download_file
+
+    local_file = tmp_path / "original.txt"
+    local_file.write_text("contenido original")
+    bucket, key = upload_file(local_file, "test/download-roundtrip.txt", bucket=TEST_S3_BUCKET, content_type="text/plain")
+
+    destination = tmp_path / "downloaded.txt"
+    download_file(bucket, key, destination)
+
+    assert destination.read_text() == "contenido original"

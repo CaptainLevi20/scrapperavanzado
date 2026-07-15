@@ -43,3 +43,8 @@ def presigned_url(bucket: str, key: str, expires_in: int = 3600) -> str:
     return client.generate_presigned_url(
         "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires_in
     )
+
+
+def download_file(bucket: str, key: str, local_path: Path) -> None:
+    client = _client()
+    client.download_file(bucket, key, str(local_path))
