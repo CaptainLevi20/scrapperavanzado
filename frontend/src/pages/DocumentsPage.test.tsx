@@ -114,6 +114,28 @@ describe("DocumentsPage", () => {
     expect(await screen.findByText("Sala Plena")).toBeInTheDocument();
   });
 
+  it("renders the Fecha de publicación column separately from Fecha providencia", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({
+          items: [{ ...DOCUMENT, f_public: "2026-01-15", f_providencia: "2026-07-20" }],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        })
+      )
+    );
+
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    // Distinct months (Jan vs Jul) so this doesn't depend on the exact day
+    // number, which shifts by a day depending on the runner's timezone.
+    expect(screen.getByText(/ene/i)).toBeInTheDocument();
+    expect(screen.getByText(/jul/i)).toBeInTheDocument();
+  });
+
   it("renders the Especialidad and Magistrado columns", async () => {
     mockFilterEndpoints();
     server.use(

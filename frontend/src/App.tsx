@@ -4,7 +4,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppLayout } from "./components/layout/AppLayout";
 import { LoginPage } from "./pages/LoginPage";
-import { OverviewPage } from "./pages/OverviewPage";
+import { DashboardPage } from "./pages/DashboardPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { RunsPage } from "./pages/RunsPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
@@ -21,7 +21,7 @@ export function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
-                <Route path="/" element={<OverviewPage />} />
+                <Route path="/" element={<DashboardPage />} />
                 <Route path="/sources" element={<SourcesPage />} />
                 <Route path="/runs" element={<RunsPage />} />
                 <Route path="/runs/:runId" element={<RunDetailPage />} />

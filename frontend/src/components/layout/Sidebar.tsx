@@ -3,7 +3,7 @@ import { FileStack, Gauge, LogOut, PlayCircle, Radar } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 
 const LINKS = [
-  { to: "/", label: "Resumen", end: true, icon: Gauge },
+  { to: "/", label: "Dashboard", end: true, icon: Gauge },
   { to: "/sources", label: "Fuentes", end: false, icon: Radar },
   { to: "/runs", label: "Runs", end: false, icon: PlayCircle },
   { to: "/documents", label: "Documentos", end: false, icon: FileStack },

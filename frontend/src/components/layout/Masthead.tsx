@@ -8,7 +8,7 @@ const TODAY_LABEL = new Date().toLocaleDateString("es-CO", {
 });
 
 export function Masthead() {
-  // Same query key OverviewPage uses for its "Fuentes activas" stat — when both
+  // Same query key DashboardPage uses for its "Fuentes activas" stat — when both
   // are mounted together, React Query dedupes this into a single network call.
   const activeSourcesQuery = useQuery({
     queryKey: ["sources", "active-count"],

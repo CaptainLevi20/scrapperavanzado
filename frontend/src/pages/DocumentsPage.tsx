@@ -234,7 +234,7 @@ export function DocumentsPage() {
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
-          <table className={`${TABLE} min-w-[1240px]`}>
+          <table className={`${TABLE} min-w-[1380px]`}>
           <thead>
             <tr className={THEAD_ROW}>
               <th className={TH}>
@@ -251,6 +251,7 @@ export function DocumentsPage() {
               <th className={TH}>Sección</th>
               <th className={TH}>Especialidad</th>
               <th className={TH}>Magistrado</th>
+              <th className={`${TH} whitespace-nowrap`}>Fecha de publicación</th>
               <th className={`${TH} whitespace-nowrap`}>Fecha providencia</th>
               <th className={TH}>Tamaño</th>
               <th className={`${TH} whitespace-nowrap`}>Revisión</th>
@@ -286,6 +287,7 @@ export function DocumentsPage() {
                 <td className={`${TD} whitespace-nowrap`}>{document.seccion ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.especialidad ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.magistrado ?? "—"}</td>
+                <td className={`${TD_MONO} whitespace-nowrap`}>{formatDate(document.f_public)}</td>
                 <td className={`${TD_MONO} whitespace-nowrap`}>{formatDate(document.f_providencia)}</td>
                 <td className={`${TD_MONO} whitespace-nowrap`}>{formatBytes(document.file_size_bytes)}</td>
                 <td className={TD}>

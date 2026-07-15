@@ -14,9 +14,9 @@ describe("App", () => {
     expect(screen.getByPlaceholderText("API key")).toBeInTheDocument();
   });
 
-  it("renders the Overview page when an API key is already stored", () => {
+  it("renders the Dashboard page when an API key is already stored", () => {
     localStorage.setItem("iurisync_api_key", "existing-key");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 });

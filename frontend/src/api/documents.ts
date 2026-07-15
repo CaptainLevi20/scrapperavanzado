@@ -18,6 +18,39 @@ export function fetchDocuments(params: ListDocumentsParams = {}): Promise<Pagina
   return apiFetch<PaginatedDocuments>(`/documents${buildQuery(params)}`);
 }
 
+const STATS_PAGE_SIZE = 200;
+const STATS_FETCH_CAP = 1000;
+
+export interface DocumentStats {
+  items: Document[];
+  total: number;
+  /** True when the archive holds more documents than STATS_FETCH_CAP — charts
+   *  are then based on the most recent STATS_FETCH_CAP documents (the API's
+   *  own sort order), not the full history. */
+  capped: boolean;
+}
+
+// There's no aggregation endpoint on the backend (no "count grouped by tipo"),
+// so dashboard charts page through the same /documents data DocumentsPage
+// shows row-by-row and group it client-side. Documents already come sorted
+// by downloaded_at desc, so this doubles as "most recent N" for the
+// Dashboard's novedades table.
+export async function fetchDocumentsForStats(): Promise<DocumentStats> {
+  const first = await fetchDocuments({ limit: STATS_PAGE_SIZE, offset: 0 });
+  const targetCount = Math.min(first.total, STATS_FETCH_CAP);
+  const items = [...first.items];
+
+  let offset = STATS_PAGE_SIZE;
+  while (items.length < targetCount) {
+    const page = await fetchDocuments({ limit: STATS_PAGE_SIZE, offset });
+    if (page.items.length === 0) break;
+    items.push(...page.items);
+    offset += STATS_PAGE_SIZE;
+  }
+
+  return { items, total: first.total, capped: first.total > STATS_FETCH_CAP };
+}
+
 export function fetchDocument(id: number): Promise<Document> {
   return apiFetch<Document>(`/documents/${id}`);
 }
