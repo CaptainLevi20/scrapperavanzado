@@ -1,22 +1,29 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { clearStoredApiKey } from "./api/client";
+import { http, HttpResponse } from "msw";
+import { server } from "./test/server";
+import { clearStoredToken, setStoredToken } from "./api/client";
 import { App } from "./App";
+
+const BASE_URL = "http://localhost:8000";
 
 describe("App", () => {
   beforeEach(() => {
-    clearStoredApiKey();
+    clearStoredToken();
     window.history.pushState({}, "", "/");
   });
 
-  it("redirects to the login page when there is no stored API key", () => {
+  it("redirects to the login page when there is no stored session", async () => {
     render(<App />);
-    expect(screen.getByPlaceholderText("API key")).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("Usuario")).toBeInTheDocument();
   });
 
-  it("renders the Dashboard page when an API key is already stored", () => {
-    localStorage.setItem("iurisync_api_key", "existing-key");
+  it("renders the Dashboard page when a valid session is already stored", async () => {
+    setStoredToken("existing-token");
+    server.use(http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "ana" })));
+
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 });
