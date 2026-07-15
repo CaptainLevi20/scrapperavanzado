@@ -161,6 +161,10 @@ class Downloader:
         with response as r:
             r.raise_for_status()
             content_type = r.headers.get("Content-Type", "")
+            if content_type.lower().startswith("text/html"):
+                raise FileNotFoundError(
+                    f"El servidor devolvió una página HTML en vez del archivo: {doc.link['url']}"
+                )
             disposition = r.headers.get("Content-Disposition", "")
 
             filename = extract_filename(disposition, content_type, doc.link["url"], doc.title)

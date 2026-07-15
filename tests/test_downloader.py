@@ -88,6 +88,23 @@ def test_download_jwt_indirect_raises_file_not_found_when_blob_missing(tmp_path)
 
 
 @responses.activate
+def test_download_raises_file_not_found_when_server_returns_html_instead_of_the_file(tmp_path):
+    """Some sites answer a not-yet-published document link with HTTP 200 and their
+    own app-shell HTML (a "soft 404") instead of a real 404 status. Without this
+    check, that HTML gets silently stored as if it were the actual document."""
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body="<!DOCTYPE html><html><body>App shell</body></html>",
+        headers={"Content-Type": "text/html; charset=utf-8"},
+        status=200,
+    )
+    downloader = Downloader()
+    with pytest.raises(FileNotFoundError):
+        downloader.download(_doc(), tmp_path)
+
+
+@responses.activate
 def test_download_retries_on_timeout_then_succeeds(tmp_path):
     calls = {"count": 0}
 
