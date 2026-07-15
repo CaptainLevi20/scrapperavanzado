@@ -20,20 +20,25 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [markError, setMarkError] = useState<string | null>(null);
   const [lastMarkAttempt, setLastMarkAttempt] = useState<DocumentReviewStatus | null>(null);
+  const [documentsSnapshot, setDocumentsSnapshot] = useState(documents);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (open) setCurrentIndex(initialIndex);
+    if (open) {
+      setCurrentIndex(initialIndex);
+      setDocumentsSnapshot(documents);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialIndex]);
 
   useEffect(() => {
     setMarkError(null);
   }, [currentIndex]);
 
-  const currentDocument = documents[currentIndex];
+  const currentDocument = documentsSnapshot[currentIndex];
   const isPdf = currentDocument?.content_type === "application/pdf";
   const isFirst = currentIndex === 0;
-  const isLast = currentIndex === documents.length - 1;
+  const isLast = currentIndex === documentsSnapshot.length - 1;
 
   const blobQuery = useQuery({
     queryKey: ["document-blob", currentDocument?.id],

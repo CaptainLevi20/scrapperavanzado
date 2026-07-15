@@ -174,6 +174,45 @@ describe("DocumentPreviewDialog", () => {
     expect(screen.getByRole("button", { name: "Anterior" })).toBeEnabled();
   });
 
+  it("keeps navigating the originally-opened list even if the documents prop changes after a mark (e.g. a parent refetch under a review_status filter)", async () => {
+    const documents = [
+      makeDocument({ id: 1, title: "Doc A" }),
+      makeDocument({ id: 2, title: "Doc B" }),
+      makeDocument({ id: 3, title: "Doc C" }),
+    ];
+    mockBlob(1);
+    mockBlob(2);
+    server.use(
+      http.patch(`${BASE_URL}/documents/1`, () => HttpResponse.json({ ...documents[0], review_status: "useful" }))
+    );
+    const onOpenChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <DocumentPreviewDialog documents={documents} initialIndex={0} open onOpenChange={onOpenChange} />
+      </QueryClientProvider>
+    );
+    await screen.findByTitle("Vista previa de Doc A");
+
+    await user.click(screen.getByRole("button", { name: "Útil" }));
+
+    // Simulate the parent's list shrinking after the invalidation-triggered refetch
+    // (Doc A no longer matches a "pending" filter, so it drops out and later
+    // documents shift down by one index). The dialog must NOT be affected by this —
+    // it should still be showing Doc B (the document it actually advanced to),
+    // not Doc C (which is what a naive documents[currentIndex] read would show).
+    const refetchedDocuments = [documents[1], documents[2]];
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <DocumentPreviewDialog documents={refetchedDocuments} initialIndex={0} open onOpenChange={onOpenChange} />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByTitle("Vista previa de Doc B")).toBeInTheDocument();
+  });
+
   it("shows a retry option when loading the preview fails, and retrying refetches it", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" })];
     let attempts = 0;
