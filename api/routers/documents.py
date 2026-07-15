@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from celery.exceptions import TimeoutError as CeleryTimeoutError
@@ -10,6 +11,8 @@ from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpd
 from core.db import repository
 from core.storage import presigned_url
 from worker.tasks import generate_document_preview_pdf
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require_session)])
 
@@ -102,6 +105,7 @@ def preview_document(document_id: int, db: Session = Depends(get_db)):
             status_code=504, detail="La vista previa está tardando más de lo esperado, intenta de nuevo"
         )
     except Exception:
+        logger.exception("Falló la generación de la vista previa para el documento %s", document_id)
         raise HTTPException(status_code=502, detail="No se pudo generar la vista previa")
 
     url = presigned_url(document.storage_bucket, preview_key)
