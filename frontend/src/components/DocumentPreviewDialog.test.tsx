@@ -95,6 +95,23 @@ describe("DocumentPreviewDialog", () => {
     expect(patchedId).toBe(1);
   });
 
+  it("does not advance or close the dialog when the mark mutation fails", async () => {
+    const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
+    mockBlob(1);
+    mockBlob(2);
+    server.use(http.patch(`${BASE_URL}/documents/1`, () => new HttpResponse(null, { status: 500 })));
+    const user = userEvent.setup();
+
+    const { onOpenChange } = renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc 1");
+
+    await user.click(screen.getByRole("button", { name: "Útil" }));
+
+    await screen.findByText("Error al marcar el documento");
+    expect(screen.getByTitle("Vista previa de Doc 1")).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("marking the last document closes the dialog", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" })];
     mockBlob(1);
