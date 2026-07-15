@@ -99,3 +99,28 @@ class PaginatedDocuments(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str = Field(min_length=8)
+    invite_code: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class AuthResponse(BaseModel):
+    token: str
+    username: str
+
+
+class MeResponse(BaseModel):
+    username: str

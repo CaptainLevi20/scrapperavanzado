@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from api.deps import get_db, require_api_key
+from api.deps import get_db, require_session
 from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpdate, PaginatedDocuments
 from core.db import repository
 from core.storage import presigned_url
 
-router = APIRouter(dependencies=[Depends(require_api_key)])
+router = APIRouter(dependencies=[Depends(require_session)])
 
 
 @router.get("/documents", response_model=PaginatedDocuments)

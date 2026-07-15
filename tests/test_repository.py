@@ -46,24 +46,6 @@ def test_insert_document_is_idempotent_on_doc_id(db_session):
     assert repository.document_exists(db_session, "abc123") is True
 
 
-def test_api_key_create_and_lookup_by_hash(db_session):
-    repository.create_api_key(db_session, name="tests", key_hash="hash123")
-    found = repository.get_active_api_key_by_hash(db_session, "hash123")
-    assert found is not None
-    assert found.name == "tests"
-    assert repository.get_active_api_key_by_hash(db_session, "missing") is None
-
-
-def test_touch_api_key_last_used_sets_timestamp(db_session):
-    api_key = repository.create_api_key(db_session, name="tests", key_hash="hash456")
-    assert api_key.last_used_at is None
-
-    repository.touch_api_key_last_used(db_session, api_key.id)
-
-    refreshed = repository.get_active_api_key_by_hash(db_session, "hash456")
-    assert refreshed.last_used_at is not None
-
-
 def test_update_document_review_status_sets_status_and_timestamp(db_session):
     from core.db import repository
 
@@ -166,3 +148,81 @@ def test_bulk_update_document_review_status_ignores_nonexistent_ids(db_session):
     updated_count = repository.bulk_update_document_review_status(db_session, [doc1.id, 999999], "not_useful")
 
     assert updated_count == 1
+
+
+def test_create_user_and_lookup_by_username(db_session):
+    repository.create_user(db_session, username="ana", password_hash="hashed")
+
+    found = repository.get_user_by_username(db_session, "ana")
+    assert found is not None
+    assert found.password_hash == "hashed"
+    assert found.active is True
+    assert repository.get_user_by_username(db_session, "missing") is None
+
+
+def test_create_and_validate_session(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+
+    session = repository.create_session(db_session, user_id=user.id, token_hash="tokhash")
+
+    found = repository.get_valid_session_by_token_hash(db_session, "tokhash")
+    assert found is not None
+    assert found.id == session.id
+    assert repository.get_valid_session_by_token_hash(db_session, "missing") is None
+
+
+def test_get_valid_session_by_token_hash_excludes_expired_sessions(db_session):
+    from datetime import datetime, timedelta, timezone
+
+    from core.db.models import UserSession
+
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    expired = UserSession(
+        user_id=user.id,
+        token_hash="expired-hash",
+        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    db_session.add(expired)
+    db_session.commit()
+
+    assert repository.get_valid_session_by_token_hash(db_session, "expired-hash") is None
+
+
+def test_touch_session_extends_expiration(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    session = repository.create_session(db_session, user_id=user.id, token_hash="tokhash")
+    original_expiry = session.expires_at
+
+    repository.touch_session(db_session, session.id)
+
+    refreshed = repository.get_valid_session_by_token_hash(db_session, "tokhash")
+    assert refreshed.last_used_at is not None
+    assert refreshed.expires_at > original_expiry
+
+
+def test_delete_session_removes_it(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    repository.create_session(db_session, user_id=user.id, token_hash="tokhash")
+
+    repository.delete_session(db_session, "tokhash")
+
+    assert repository.get_valid_session_by_token_hash(db_session, "tokhash") is None
+
+
+def test_update_user_password_changes_the_hash(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="old-hash")
+
+    repository.update_user_password(db_session, user.id, "new-hash")
+
+    refreshed = repository.get_user_by_username(db_session, "ana")
+    assert refreshed.password_hash == "new-hash"
+
+
+def test_touch_user_last_login_sets_timestamp(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    assert user.last_login_at is None
+
+    repository.touch_user_last_login(db_session, user.id)
+
+    refreshed = repository.get_user_by_username(db_session, "ana")
+    assert refreshed.last_login_at is not None

@@ -1,15 +1,15 @@
-const API_KEY_STORAGE_KEY = "iurisync_api_key";
+const SESSION_TOKEN_STORAGE_KEY = "iurisync_session_token";
 
-export function getStoredApiKey(): string | null {
-  return localStorage.getItem(API_KEY_STORAGE_KEY);
+export function getStoredToken(): string | null {
+  return localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
 }
 
-export function setStoredApiKey(key: string): void {
-  localStorage.setItem(API_KEY_STORAGE_KEY, key);
+export function setStoredToken(token: string): void {
+  localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, token);
 }
 
-export function clearStoredApiKey(): void {
-  localStorage.removeItem(API_KEY_STORAGE_KEY);
+export function clearStoredToken(): void {
+  localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
 }
 
 export class ApiError extends Error {
@@ -39,18 +39,28 @@ export function buildQuery(params: Record<string, string | number | boolean | un
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const apiKey = getStoredApiKey();
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  { skipUnauthorizedHandling = false }: { skipUnauthorizedHandling?: boolean } = {}
+): Promise<T> {
+  const token = getStoredToken();
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
-  if (apiKey) headers.set("X-API-Key", apiKey);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
-  if (response.status === 401) {
-    clearStoredApiKey();
+  if (response.status === 401 && token && !skipUnauthorizedHandling) {
+    // Había una sesión guardada y el backend la rechazó (expiró o fue
+    // revocada en otro lugar) — se limpia y se notifica para volver al
+    // login. Un 401 de un intento de login/registro (sin token todavía)
+    // no entra aquí: cae al manejo genérico de abajo, que preserva el
+    // detail real que mandó el backend (ej. "Usuario o contraseña
+    // incorrectos").
+    clearStoredToken();
     unauthorizedHandler?.();
-    throw new ApiError(401, "API key inválida o expirada");
+    throw new ApiError(401, "Sesión inválida o expirada");
   }
 
   if (!response.ok) {

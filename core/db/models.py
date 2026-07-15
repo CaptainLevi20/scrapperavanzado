@@ -105,12 +105,23 @@ class Document(Base):
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
 
-class ApiKey(Base):
-    __tablename__ = "api_keys"
+class User(Base):
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    key_hash = Column(String, nullable=False, unique=True)
+    username = Column(String, nullable=False, unique=True)
+    password_hash = Column(String, nullable=False)
     active = Column(Boolean, nullable=False, default=True)
-    last_used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class UserSession(Base):
+    __tablename__ = "sessions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)

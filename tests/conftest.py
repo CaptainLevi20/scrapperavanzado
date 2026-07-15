@@ -68,10 +68,13 @@ def api_client(db_session):
 
 
 @pytest.fixture()
-def api_key_header(db_session):
-    from core.db import repository
-    from core.security import hash_api_key
+def auth_header(db_session):
+    import secrets
 
-    raw_key = "test-key-12345"
-    repository.create_api_key(db_session, name="tests", key_hash=hash_api_key(raw_key))
-    return {"X-API-Key": raw_key}
+    from core.db import repository
+    from core.security import hash_password, hash_session_token
+
+    user = repository.create_user(db_session, username="tester", password_hash=hash_password("Password123"))
+    raw_token = secrets.token_urlsafe(32)
+    repository.create_session(db_session, user_id=user.id, token_hash=hash_session_token(raw_token))
+    return {"Authorization": f"Bearer {raw_token}"}

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { clearStoredApiKey, getStoredApiKey } from "../api/client";
+import { clearStoredToken, getStoredToken } from "../api/client";
 import { AuthProvider } from "../auth/AuthContext";
 import { LoginPage } from "./LoginPage";
 
@@ -21,29 +21,37 @@ function renderLoginPage() {
 }
 
 describe("LoginPage", () => {
-  beforeEach(() => clearStoredApiKey());
+  beforeEach(() => clearStoredToken());
 
-  it("stores the key and clears the error on a valid key", async () => {
+  it("logs in with valid credentials and stores the returned session", async () => {
     const user = userEvent.setup();
-    server.use(http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])));
+    server.use(
+      http.post(`${BASE_URL}/auth/login`, () => HttpResponse.json({ token: "new-token", username: "ana" }))
+    );
     renderLoginPage();
 
-    await user.type(screen.getByPlaceholderText("API key"), "good-key");
+    await user.type(screen.getByPlaceholderText("Usuario"), "ana");
+    await user.type(screen.getByPlaceholderText("Contraseña"), "Password123");
     await user.click(screen.getByRole("button", { name: /entrar/i }));
 
     expect(await screen.findByRole("button", { name: /entrar/i })).toBeEnabled();
-    expect(getStoredApiKey()).toBe("good-key");
+    expect(getStoredToken()).toBe("new-token");
   });
 
-  it("shows an error and does not store the key on an invalid key", async () => {
+  it("shows an error and does not store a session on invalid credentials", async () => {
     const user = userEvent.setup();
-    server.use(http.get(`${BASE_URL}/source-families`, () => new HttpResponse(null, { status: 401 })));
+    server.use(
+      http.post(`${BASE_URL}/auth/login`, () =>
+        HttpResponse.json({ detail: "Usuario o contraseña incorrectos" }, { status: 401 })
+      )
+    );
     renderLoginPage();
 
-    await user.type(screen.getByPlaceholderText("API key"), "bad-key");
+    await user.type(screen.getByPlaceholderText("Usuario"), "ana");
+    await user.type(screen.getByPlaceholderText("Contraseña"), "wrong-password");
     await user.click(screen.getByRole("button", { name: /entrar/i }));
 
-    expect(await screen.findByText("API key inválida")).toBeInTheDocument();
-    expect(getStoredApiKey()).toBeNull();
+    expect(await screen.findByText("Usuario o contraseña incorrectos")).toBeInTheDocument();
+    expect(getStoredToken()).toBeNull();
   });
 });

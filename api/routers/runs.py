@@ -3,12 +3,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from api.deps import get_db, require_api_key
+from api.deps import get_db, require_session
 from api.schemas import RunCreate, RunOut, RunSourceOut
 from core.db import repository
 from worker.tasks import orchestrate_run
 
-router = APIRouter(dependencies=[Depends(require_api_key)])
+router = APIRouter(dependencies=[Depends(require_session)])
 
 
 @router.post("/runs", response_model=RunOut, status_code=status.HTTP_202_ACCEPTED)

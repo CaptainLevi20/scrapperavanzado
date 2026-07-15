@@ -4,7 +4,7 @@ def test_options_preflight_allows_configured_frontend_origin(api_client):
         headers={
             "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "x-api-key",
+            "Access-Control-Request-Headers": "authorization",
         },
     )
     assert response.status_code == 200

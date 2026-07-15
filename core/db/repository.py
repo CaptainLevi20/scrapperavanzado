@@ -1,11 +1,11 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from core.db.models import ApiKey, Document, Run, RunError, RunSource, Source, SourceFamily
+from core.db.models import Document, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -222,20 +222,62 @@ def get_document(db: Session, document_id: int) -> Optional[Document]:
     return db.get(Document, document_id)
 
 
-def create_api_key(db: Session, name: str, key_hash: str) -> ApiKey:
-    api_key = ApiKey(name=name, key_hash=key_hash, active=True)
-    db.add(api_key)
+SESSION_TTL = timedelta(days=30)
+
+
+def create_user(db: Session, username: str, password_hash: str) -> User:
+    user = User(username=username, password_hash=password_hash, active=True)
+    db.add(user)
     db.commit()
-    db.refresh(api_key)
-    return api_key
+    db.refresh(user)
+    return user
 
 
-def get_active_api_key_by_hash(db: Session, key_hash: str) -> Optional[ApiKey]:
-    stmt = select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.active.is_(True))
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
+    stmt = select(User).where(User.username == username)
     return db.scalars(stmt).first()
 
 
-def touch_api_key_last_used(db: Session, api_key_id: int) -> None:
-    api_key = db.get(ApiKey, api_key_id)
-    api_key.last_used_at = datetime.now(timezone.utc)
+def create_session(db: Session, user_id: int, token_hash: str) -> UserSession:
+    now = datetime.now(timezone.utc)
+    session = UserSession(user_id=user_id, token_hash=token_hash, expires_at=now + SESSION_TTL)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def get_valid_session_by_token_hash(db: Session, token_hash: str) -> Optional[UserSession]:
+    stmt = select(UserSession).where(
+        UserSession.token_hash == token_hash,
+        UserSession.expires_at > datetime.now(timezone.utc),
+    )
+    return db.scalars(stmt).first()
+
+
+def touch_session(db: Session, session_id: int) -> None:
+    session = db.get(UserSession, session_id)
+    now = datetime.now(timezone.utc)
+    session.last_used_at = now
+    session.expires_at = now + SESSION_TTL
+    db.commit()
+
+
+def delete_session(db: Session, token_hash: str) -> None:
+    stmt = select(UserSession).where(UserSession.token_hash == token_hash)
+    session = db.scalars(stmt).first()
+    if session is not None:
+        db.delete(session)
+        db.commit()
+
+
+def update_user_password(db: Session, user_id: int, password_hash: str) -> None:
+    user = db.get(User, user_id)
+    user.password_hash = password_hash
+    db.commit()
+
+
+def touch_user_last_login(db: Session, user_id: int) -> None:
+    user = db.get(User, user_id)
+    user.last_login_at = datetime.now(timezone.utc)
     db.commit()

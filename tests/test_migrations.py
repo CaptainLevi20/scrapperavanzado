@@ -12,7 +12,8 @@ EXPECTED_TABLES = {
     "run_sources",
     "run_errors",
     "documents",
-    "api_keys",
+    "users",
+    "sessions",
 }
 
 

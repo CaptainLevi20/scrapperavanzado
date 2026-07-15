@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { FileStack, Gauge, LogOut, PlayCircle, Radar } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
 const LINKS = [
   { to: "/", label: "Dashboard", end: true, icon: Gauge },
@@ -10,7 +11,7 @@ const LINKS = [
 ];
 
 export function Sidebar() {
-  const { logout } = useAuth();
+  const { username, logout } = useAuth();
 
   return (
     <nav className="flex h-screen w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
@@ -45,9 +46,15 @@ export function Sidebar() {
         })}
       </ul>
 
-      <div className="border-t border-sidebar-border px-3 py-3">
+      <div className="space-y-1 border-t border-sidebar-border px-3 py-3">
+        {username && (
+          <p className="truncate px-3 pb-1 text-xs text-sidebar-foreground/50" title={username}>
+            {username}
+          </p>
+        )}
+        <ChangePasswordDialog />
         <button
-          onClick={logout}
+          onClick={() => logout()}
           className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
           <LogOut className="size-4 shrink-0" aria-hidden="true" />

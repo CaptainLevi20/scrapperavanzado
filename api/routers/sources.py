@@ -3,11 +3,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from api.deps import get_db, require_api_key
+from api.deps import get_db, require_session
 from api.schemas import SourceCreate, SourceFamilyOut, SourceOut, SourceUpdate
 from core.db import repository
 
-router = APIRouter(dependencies=[Depends(require_api_key)])
+router = APIRouter(dependencies=[Depends(require_session)])
 
 
 @router.get("/source-families", response_model=list[SourceFamilyOut])
