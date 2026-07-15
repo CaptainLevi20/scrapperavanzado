@@ -1,4 +1,4 @@
-import { apiFetch, buildQuery, getStoredApiKey } from "./client";
+import { apiFetch, buildQuery, getStoredToken } from "./client";
 import type { Document, DocumentReviewStatus, PaginatedDocuments } from "./types";
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -93,9 +93,9 @@ export function buildDownloadFilename(document: Document): string {
 }
 
 export async function downloadDocumentFile(id: number, filename: string): Promise<void> {
-  const apiKey = getStoredApiKey();
+  const token = getStoredToken();
   const headers = new Headers();
-  if (apiKey) headers.set("X-API-Key", apiKey);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${BASE_URL}/documents/${id}/download`, { headers });
   if (!response.ok) {

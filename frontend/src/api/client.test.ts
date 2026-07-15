@@ -5,33 +5,33 @@ import {
   ApiError,
   apiFetch,
   buildQuery,
-  clearStoredApiKey,
-  getStoredApiKey,
+  clearStoredToken,
+  getStoredToken,
   registerUnauthorizedHandler,
-  setStoredApiKey,
+  setStoredToken,
 } from "./client";
 
 const BASE_URL = "http://localhost:8000";
 
 describe("apiFetch", () => {
   beforeEach(() => {
-    clearStoredApiKey();
+    clearStoredToken();
     registerUnauthorizedHandler(() => {});
   });
 
-  it("sends the stored API key as the X-API-Key header", async () => {
-    setStoredApiKey("test-key");
+  it("sends the stored session token as a Bearer Authorization header", async () => {
+    setStoredToken("test-token");
     let receivedHeader: string | null = null;
     server.use(
       http.get(`${BASE_URL}/source-families`, ({ request }) => {
-        receivedHeader = request.headers.get("x-api-key");
+        receivedHeader = request.headers.get("authorization");
         return HttpResponse.json([]);
       })
     );
 
     await apiFetch("/source-families");
 
-    expect(receivedHeader).toBe("test-key");
+    expect(receivedHeader).toBe("Bearer test-token");
   });
 
   it("throws ApiError with the backend's detail message on a 4xx response", async () => {
@@ -47,8 +47,8 @@ describe("apiFetch", () => {
     });
   });
 
-  it("clears the stored key and notifies the unauthorized handler on a 401", async () => {
-    setStoredApiKey("bad-key");
+  it("clears the stored token and notifies the unauthorized handler on a 401 when a token was sent", async () => {
+    setStoredToken("bad-token");
     let notified = false;
     registerUnauthorizedHandler(() => {
       notified = true;
@@ -56,8 +56,26 @@ describe("apiFetch", () => {
     server.use(http.get(`${BASE_URL}/source-families`, () => new HttpResponse(null, { status: 401 })));
 
     await expect(apiFetch("/source-families")).rejects.toBeInstanceOf(ApiError);
-    expect(getStoredApiKey()).toBeNull();
+    expect(getStoredToken()).toBeNull();
     expect(notified).toBe(true);
+  });
+
+  it("does not clear session state on a 401 when no token was sent (e.g. a failed login attempt)", async () => {
+    let notified = false;
+    registerUnauthorizedHandler(() => {
+      notified = true;
+    });
+    server.use(
+      http.post(`${BASE_URL}/auth/login`, () =>
+        HttpResponse.json({ detail: "Usuario o contraseña incorrectos" }, { status: 401 })
+      )
+    );
+
+    await expect(apiFetch("/auth/login", { method: "POST", body: "{}" })).rejects.toMatchObject({
+      status: 401,
+      message: "Usuario o contraseña incorrectos",
+    });
+    expect(notified).toBe(false);
   });
 });
 

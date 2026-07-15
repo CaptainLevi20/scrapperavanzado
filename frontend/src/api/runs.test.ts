@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { clearStoredApiKey } from "./client";
+import { clearStoredToken } from "./client";
 import { cancelRun, createRun, fetchRun, fetchRunSources, fetchRuns } from "./runs";
 
 const BASE_URL = "http://localhost:8000";
 
 describe("runs API", () => {
-  beforeEach(() => clearStoredApiKey());
+  beforeEach(() => clearStoredToken());
 
   it("fetchRuns sends the status filter as a query param", async () => {
     let receivedUrl = "";

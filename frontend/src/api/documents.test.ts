@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { clearStoredApiKey } from "./client";
+import { clearStoredToken } from "./client";
 import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocuments } from "./documents";
 import type { Document } from "./types";
 
 const BASE_URL = "http://localhost:8000";
 
 describe("documents API", () => {
-  beforeEach(() => clearStoredApiKey());
+  beforeEach(() => clearStoredToken());
 
   it("fetchDocuments sends filters and returns the paginated envelope", async () => {
     let receivedUrl = "";

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { clearStoredApiKey } from "./client";
+import { clearStoredToken } from "./client";
 import { fetchAllActiveSources, fetchSources, updateSource } from "./sources";
 
 const BASE_URL = "http://localhost:8000";
 
 describe("sources API", () => {
-  beforeEach(() => clearStoredApiKey());
+  beforeEach(() => clearStoredToken());
 
   it("fetchSources sends filters as query params", async () => {
     let receivedUrl = "";
