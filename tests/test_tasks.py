@@ -440,6 +440,41 @@ def test_build_bulk_download_zip_skips_a_document_that_fails_to_download(db_sess
         assertion_session.close()
 
 
+def test_build_bulk_download_zip_fails_when_every_document_fails_to_download(db_session, test_engine, monkeypatch):
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    # Ambos documentos apuntan a claves que nunca se subieron — download_file
+    # fallará para los dos, dejando `downloaded` vacío.
+    repository.insert_document(
+        db_session, doc_id="doc-missing-1", source_id=source.id, title="Missing 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/no-existe-1.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-missing-2", source_id=source.id, title="Missing 2", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/no-existe-2.pdf",
+    )
+
+    bulk_download = repository.create_bulk_download(db_session)
+
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "failed"
+        assert refreshed.error_message == "No se pudo leer ninguno de los 2 documentos útiles"
+    finally:
+        assertion_session.close()
+
+
 def test_build_bulk_download_zip_fails_when_there_are_no_useful_documents(db_session, test_engine, monkeypatch):
     from worker.tasks import build_bulk_download_zip
 
