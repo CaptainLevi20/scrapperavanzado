@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { FileStack, Gauge, LogOut, PlayCircle, Radar } from "lucide-react";
+import { Archive, FileStack, Gauge, LogOut, PlayCircle, Radar } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
@@ -8,6 +8,7 @@ const LINKS = [
   { to: "/sources", label: "Fuentes", end: false, icon: Radar },
   { to: "/runs", label: "Runs", end: false, icon: PlayCircle },
   { to: "/documents", label: "Documentos", end: false, icon: FileStack },
+  { to: "/bulk-downloads", label: "Descargas masivas", end: false, icon: Archive },
 ];
 
 export function Sidebar() {

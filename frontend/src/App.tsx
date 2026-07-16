@@ -10,6 +10,7 @@ import { SourcesPage } from "./pages/SourcesPage";
 import { RunsPage } from "./pages/RunsPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
+import { BulkDownloadsPage } from "./pages/BulkDownloadsPage";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ export function App() {
                 <Route path="/runs" element={<RunsPage />} />
                 <Route path="/runs/:runId" element={<RunDetailPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
+                <Route path="/bulk-downloads" element={<BulkDownloadsPage />} />
               </Route>
             </Route>
           </Routes>
