@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocumentBlob, fetchDocumentPreviewBlob, fetchDocuments } from "./documents";
+import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocumentBlob, fetchDocumentPreviewBlob, fetchDocumentTipos, fetchDocuments } from "./documents";
 import type { Document } from "./types";
 
 const BASE_URL = "http://localhost:8000";
@@ -23,6 +23,14 @@ describe("documents API", () => {
 
     expect(receivedUrl).toContain("title=sentencia");
     expect(result.total).toBe(0);
+  });
+
+  it("fetchDocumentTipos fetches the distinct list of tipos", async () => {
+    server.use(http.get(`${BASE_URL}/documents/tipos`, () => HttpResponse.json(["Auto", "Sentencia"])));
+
+    const tipos = await fetchDocumentTipos();
+
+    expect(tipos).toEqual(["Auto", "Sentencia"]);
   });
 
   it("fetchDocument fetches a single document by id", async () => {

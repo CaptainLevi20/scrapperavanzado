@@ -163,6 +163,11 @@ def insert_document(db: Session, **fields) -> Optional[Document]:
     return db.scalars(select(Document).where(Document.doc_id == fields["doc_id"])).first()
 
 
+def list_distinct_document_tipos(db: Session) -> list[str]:
+    stmt = select(Document.tipo).distinct().where(Document.tipo.is_not(None)).order_by(Document.tipo)
+    return list(db.scalars(stmt).all())
+
+
 def list_documents(
     db: Session,
     source_id: Optional[int] = None,

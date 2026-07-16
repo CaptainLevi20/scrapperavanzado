@@ -18,6 +18,10 @@ export function fetchDocuments(params: ListDocumentsParams = {}): Promise<Pagina
   return apiFetch<PaginatedDocuments>(`/documents${buildQuery(params)}`);
 }
 
+export function fetchDocumentTipos(): Promise<string[]> {
+  return apiFetch<string[]>("/documents/tipos");
+}
+
 const STATS_PAGE_SIZE = 200;
 const STATS_FETCH_CAP = 1000;
 

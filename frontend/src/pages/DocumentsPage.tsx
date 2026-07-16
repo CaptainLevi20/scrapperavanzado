@@ -8,6 +8,7 @@ import {
   bulkUpdateDocumentReviewStatus,
   downloadDocumentFile,
   fetchDocuments,
+  fetchDocumentTipos,
   updateDocumentReviewStatus,
 } from "../api/documents";
 import { fetchSourceFamilies } from "../api/sourceFamilies";
@@ -41,6 +42,8 @@ export function DocumentsPage() {
   });
 
   const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
+
+  const tiposQuery = useQuery({ queryKey: ["documents", "tipos"], queryFn: fetchDocumentTipos });
 
   const documentsQuery = useQuery({
     queryKey: ["documents", title, tipo, sourceId, familyKey, reviewStatus, page],
@@ -130,16 +133,25 @@ export function DocumentsPage() {
             className="h-9 w-56 rounded-md border-[1.5px] border-input bg-background py-1 pr-3 pl-8 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           />
         </div>
-        <input
-          placeholder="Tipo"
-          value={tipo}
-          onChange={(event) => {
-            setTipo(event.target.value);
-            setPage(0);
-            setSelectedIds(new Set());
-          }}
-          className="h-9 w-32 rounded-md border-[1.5px] border-input bg-background px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        />
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Tipo
+          <NativeSelect
+            value={tipo}
+            onChange={(event) => {
+              setTipo(event.target.value);
+              setPage(0);
+              setSelectedIds(new Set());
+            }}
+            className="w-32"
+          >
+            <option value="">Todos</option>
+            {tiposQuery.data?.map((tipoOption) => (
+              <option key={tipoOption} value={tipoOption}>
+                {tipoOption}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           Fuente
           <NativeSelect

@@ -19,6 +19,26 @@ def test_list_documents_paginates_and_filters(api_client, auth_header, db_sessio
     assert body["items"][0]["doc_id"] == "doc-1"
 
 
+def test_get_document_tipos_returns_sorted_distinct_values(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", tipo="Sentencia",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", tipo="Auto",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get("/documents/tipos", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json() == ["Auto", "Sentencia"]
+
+
 def test_get_document_returns_404_when_missing(api_client, auth_header):
     response = api_client.get("/documents/999999", headers=auth_header)
     assert response.status_code == 404

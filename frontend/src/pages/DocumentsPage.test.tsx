@@ -52,7 +52,8 @@ const FAMILY = { key: "constitucional", display_name: "Corte Constitucional", de
 function mockFilterEndpoints() {
   server.use(
     http.get(`${BASE_URL}/sources`, () => HttpResponse.json([SOURCE])),
-    http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([FAMILY]))
+    http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([FAMILY])),
+    http.get(`${BASE_URL}/documents/tipos`, () => HttpResponse.json(["Auto", "Sentencia"]))
   );
 }
 
@@ -242,6 +243,25 @@ describe("DocumentsPage", () => {
 
     await user.selectOptions(screen.getByLabelText("Familia"), "constitucional");
     await waitFor(() => expect(lastUrl).toContain("family_key=constitucional"));
+  });
+
+  it("refetches with the tipo filter applied, using a dropdown populated from the API", async () => {
+    mockFilterEndpoints();
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("Tipo")).toHaveTextContent("Auto"));
+    expect(screen.getByLabelText("Tipo")).toHaveTextContent("Sentencia");
+
+    await user.selectOptions(screen.getByLabelText("Tipo"), "Sentencia");
+    await waitFor(() => expect(lastUrl).toContain("tipo=Sentencia"));
   });
 
   it("selects individual rows and shows the bulk action bar", async () => {

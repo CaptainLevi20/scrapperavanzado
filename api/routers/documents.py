@@ -50,6 +50,11 @@ def get_documents(
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
+@router.get("/documents/tipos", response_model=list[str])
+def get_document_tipos(db: Session = Depends(get_db)):
+    return repository.list_distinct_document_tipos(db)
+
+
 @router.get("/documents/{document_id}", response_model=DocumentOut)
 def get_document(document_id: int, db: Session = Depends(get_db)):
     document = repository.get_document(db, document_id)
