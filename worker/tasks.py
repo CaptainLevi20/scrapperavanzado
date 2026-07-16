@@ -1,5 +1,6 @@
 import logging
 import tempfile
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -213,5 +214,76 @@ def generate_document_preview_pdf(document_id: int) -> str:
 
         repository.set_document_preview_key(db, document_id, preview_key)
         return preview_key
+    finally:
+        db.close()
+
+
+@celery_app.task(name="worker.build_bulk_download_zip")
+def build_bulk_download_zip(bulk_download_id: int) -> None:
+    db = SessionLocal()
+    try:
+        repository.set_bulk_download_status(
+            db, bulk_download_id, "running", started_at=datetime.now(timezone.utc)
+        )
+
+        documents = repository.list_useful_documents(db)
+        if not documents:
+            repository.set_bulk_download_status(
+                db,
+                bulk_download_id,
+                "failed",
+                error_message="No hay documentos marcados como Útil para descargar",
+                finished_at=datetime.now(timezone.utc),
+            )
+            return
+
+        with tempfile.TemporaryDirectory(prefix=f"bulk_download_{bulk_download_id}_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            downloads_dir = tmp_path / "files"
+            downloads_dir.mkdir()
+
+            downloaded: list[tuple[str, Path]] = []
+            failed_count = 0
+            for document in documents:
+                local_path = downloads_dir / document.storage_key
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    download_file(document.storage_bucket, document.storage_key, local_path)
+                    downloaded.append((document.storage_key, local_path))
+                except Exception as exc:
+                    logger.warning("No se pudo incluir %s en la descarga masiva: %s", document.storage_key, exc)
+                    failed_count += 1
+
+            if not downloaded:
+                repository.set_bulk_download_status(
+                    db,
+                    bulk_download_id,
+                    "failed",
+                    error_message=f"No se pudo leer ninguno de los {len(documents)} documentos útiles",
+                    finished_at=datetime.now(timezone.utc),
+                )
+                return
+
+            zip_path = tmp_path / "bulk_download.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for storage_key, local_path in downloaded:
+                    zf.write(local_path, arcname=storage_key)
+
+            zip_key = f"bulk-downloads/{bulk_download_id}.zip"
+            upload_file(zip_path, zip_key, content_type="application/zip")
+
+        repository.set_bulk_download_status(
+            db,
+            bulk_download_id,
+            "completed",
+            document_count=len(downloaded),
+            failed_count=failed_count,
+            zip_storage_key=zip_key,
+            finished_at=datetime.now(timezone.utc),
+        )
+    except Exception as exc:
+        repository.set_bulk_download_status(
+            db, bulk_download_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)
+        )
     finally:
         db.close()

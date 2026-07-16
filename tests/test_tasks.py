@@ -328,3 +328,133 @@ def test_generate_document_preview_pdf_propagates_conversion_failure_without_sav
         assert refreshed.preview_storage_key is None
     finally:
         assertion_session.close()
+
+
+def test_build_bulk_download_zip_uploads_zip_preserving_storage_key_hierarchy(db_session, test_engine, monkeypatch):
+    from pathlib import Path
+    import zipfile
+
+    from core.storage import presigned_url, upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    # Sube dos "documentos" reales al bucket de prueba, con la jerarquía que
+    # ya usan los scrapers (fuente/fecha/tipo/archivo), y los marca "useful".
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        doc1_local = Path(tmp) / "doc1.pdf"
+        doc1_local.write_bytes(b"contenido uno")
+        upload_file(doc1_local, "JEP/2026-06-01/Auto/doc1.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+        doc2_local = Path(tmp) / "doc2.pdf"
+        doc2_local.write_bytes(b"contenido dos")
+        upload_file(doc2_local, "JEP/2026-06-02/Sentencia/doc2.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc1.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="Doc 2", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-02/Sentencia/doc2.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-3", source_id=source.id, title="Doc 3",  # not useful — must be excluded
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-03/Auto/doc3.pdf",
+    )
+
+    bulk_download = repository.create_bulk_download(db_session)
+
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"
+        assert refreshed.document_count == 2
+        assert refreshed.failed_count == 0
+        assert refreshed.zip_storage_key == f"bulk-downloads/{bulk_download.id}.zip"
+
+        url = presigned_url(TEST_S3_BUCKET, refreshed.zip_storage_key)
+        import requests
+        response = requests.get(url, timeout=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "result.zip"
+            zip_path.write_bytes(response.content)
+            with zipfile.ZipFile(zip_path) as zf:
+                names = set(zf.namelist())
+                assert names == {"JEP/2026-06-01/Auto/doc1.pdf", "JEP/2026-06-02/Sentencia/doc2.pdf"}
+                assert zf.read("JEP/2026-06-01/Auto/doc1.pdf") == b"contenido uno"
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_skips_a_document_that_fails_to_download(db_session, test_engine, monkeypatch):
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        doc_local = Path(tmp) / "doc.pdf"
+        doc_local.write_bytes(b"contenido real")
+        upload_file(doc_local, "JEP/2026-06-01/Auto/doc.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    repository.insert_document(
+        db_session, doc_id="doc-real", source_id=source.id, title="Real", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc.pdf",
+    )
+    # Apunta a una clave que nunca se subió — download_file fallará para este documento.
+    repository.insert_document(
+        db_session, doc_id="doc-missing", source_id=source.id, title="Missing", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/no-existe.pdf",
+    )
+
+    bulk_download = repository.create_bulk_download(db_session)
+
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"
+        assert refreshed.document_count == 1
+        assert refreshed.failed_count == 1
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_fails_when_there_are_no_useful_documents(db_session, test_engine, monkeypatch):
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    bulk_download = repository.create_bulk_download(db_session)
+
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "failed"
+        assert refreshed.error_message == "No hay documentos marcados como Útil para descargar"
+    finally:
+        assertion_session.close()
