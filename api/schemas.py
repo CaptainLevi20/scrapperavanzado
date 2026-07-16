@@ -9,6 +9,7 @@ class SourceFamilyOut(BaseModel):
     key: str
     display_name: str
     description: Optional[str] = None
+    filters_by_publication_date: bool = False
 
 
 class SourceOut(BaseModel):

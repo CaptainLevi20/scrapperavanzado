@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { PlayCircle } from "lucide-react";
 import { createRun, fetchRuns } from "../api/runs";
+import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
 import type { Source } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
@@ -26,6 +27,16 @@ function NewRunDialog({ sources }: { sources: Source[] }) {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [fini, setFini] = useState("");
   const [ffin, setFfin] = useState("");
+
+  const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
+  const filtersByPublicationDateByFamily = useMemo(
+    () => new Map((familiesQuery.data ?? []).map((family) => [family.key, family.filters_by_publication_date])),
+    [familiesQuery.data]
+  );
+
+  function dateFieldLabelFor(source: Source): string {
+    return filtersByPublicationDateByFamily.get(source.family_key) ? "fecha de publicación" : "fecha de providencia";
+  }
 
   const mutation = useMutation({
     mutationFn: createRun,
@@ -64,16 +75,19 @@ function NewRunDialog({ sources }: { sources: Source[] }) {
               {sources.map((source) => (
                 <label
                   key={source.id}
-                  className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary/60"
+                  className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary/60"
                 >
-                  <input
-                    type="checkbox"
-                    aria-label={source.name}
-                    checked={selectedIds.includes(source.id)}
-                    onChange={() => toggleSource(source.id)}
-                    className="size-4 accent-sello"
-                  />
-                  {source.name}
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      aria-label={source.name}
+                      checked={selectedIds.includes(source.id)}
+                      onChange={() => toggleSource(source.id)}
+                      className="size-4 accent-sello"
+                    />
+                    {source.name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">Filtra por {dateFieldLabelFor(source)}</span>
                 </label>
               ))}
             </div>
@@ -88,6 +102,9 @@ function NewRunDialog({ sources }: { sources: Source[] }) {
               <Input id="run-ffin" type="date" value={ffin} onChange={(event) => setFfin(event.target.value)} />
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            El rango "Desde"/"Hasta" se aplica según el criterio de cada fuente, indicado arriba.
+          </p>
         </div>
         <DialogFooter>
           <Button onClick={handleSubmit} disabled={mutation.isPending}>

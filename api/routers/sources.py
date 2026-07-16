@@ -6,13 +6,25 @@ from sqlalchemy.orm import Session
 from api.deps import get_db, require_session
 from api.schemas import SourceCreate, SourceFamilyOut, SourceOut, SourceUpdate
 from core.db import repository
+from core.scrapers import families  # noqa: F401 — ensures FAMILY_REGISTRY is populated
+from core.scrapers.registry import FAMILY_REGISTRY
 
 router = APIRouter(dependencies=[Depends(require_session)])
 
 
 @router.get("/source-families", response_model=list[SourceFamilyOut])
 def get_source_families(db: Session = Depends(get_db)):
-    return repository.list_source_families(db)
+    return [
+        {
+            "key": family.key,
+            "display_name": family.display_name,
+            "description": family.description,
+            "filters_by_publication_date": getattr(
+                FAMILY_REGISTRY.get(family.key), "filters_by_publication_date", False
+            ),
+        }
+        for family in repository.list_source_families(db)
+    ]
 
 
 @router.get("/sources", response_model=list[SourceOut])

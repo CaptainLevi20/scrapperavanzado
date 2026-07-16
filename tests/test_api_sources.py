@@ -30,6 +30,23 @@ def test_create_and_list_source(api_client, auth_header, db_session):
     assert patch_response.json()["active"] is False
 
 
+def test_get_source_families_reports_which_filter_by_publication_date(api_client, auth_header, db_session):
+    """The 'Nuevo run' UI needs to tell the user, per source, whether the fini/ffin
+    range will be matched against fecha de publicación or fecha de providencia —
+    this is what it reads to decide."""
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+
+    response = api_client.get("/source-families", headers=auth_header)
+
+    assert response.status_code == 200
+    by_key = {family["key"]: family for family in response.json()}
+    assert by_key["jep"]["filters_by_publication_date"] is True
+    assert by_key["constitucional"]["filters_by_publication_date"] is False
+
+
 def test_patch_unknown_source_returns_404(api_client, auth_header):
     response = api_client.patch("/sources/999999", json={"active": False}, headers=auth_header)
     assert response.status_code == 404

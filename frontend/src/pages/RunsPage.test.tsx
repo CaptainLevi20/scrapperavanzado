@@ -35,6 +35,7 @@ describe("RunsPage", () => {
   it("renders the fetched runs with a status badge", async () => {
     server.use(
       http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/runs`, () => HttpResponse.json([RUN]))
     );
 
@@ -48,6 +49,7 @@ describe("RunsPage", () => {
     let callCount = 0;
     server.use(
       http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/runs`, () => {
         callCount += 1;
         return HttpResponse.json([{ ...RUN, status: callCount >= 2 ? "completed" : "running" }]);
@@ -68,9 +70,21 @@ describe("RunsPage", () => {
 });
 
 describe("RunsPage — new run", () => {
+  function mockSourceFamilies() {
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () =>
+        HttpResponse.json([
+          { key: "jep", display_name: "JEP", description: null, filters_by_publication_date: true },
+          { key: "constitucional", display_name: "Corte Constitucional", description: null, filters_by_publication_date: false },
+        ])
+      )
+    );
+  }
+
   it("creates a run with the selected sources and navigates to its detail page", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     let createdBody: unknown;
+    mockSourceFamilies();
     server.use(
       http.get(`${BASE_URL}/sources`, () =>
         HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
@@ -89,5 +103,30 @@ describe("RunsPage — new run", () => {
     await user.click(screen.getByText("Iniciar run"));
 
     await waitFor(() => expect(createdBody).toMatchObject({ source_ids: [1] }));
+  });
+
+  it("indicates whether each source filters by fecha de publicación or providencia", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    mockSourceFamilies();
+    server.use(
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([
+          { id: 1, family_key: "jep", name: "JEP", family_params: {}, active: true },
+          { id: 2, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true },
+        ])
+      ),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([]))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Nuevo run"));
+    await screen.findByLabelText("JEP");
+
+    const jepRow = screen.getByLabelText("JEP").closest("label") as HTMLElement;
+    const constitucionalRow = screen.getByLabelText("Corte Constitucional").closest("label") as HTMLElement;
+
+    expect(jepRow).toHaveTextContent("Filtra por fecha de publicación");
+    expect(constitucionalRow).toHaveTextContent("Filtra por fecha de providencia");
   });
 });

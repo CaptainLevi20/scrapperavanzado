@@ -22,6 +22,11 @@ def _years_in_range(fini: str, ffin: str) -> list[int]:
 
 @register_family("jep")
 class ScrapJEP(BaseScrapper):
+    # The JEP includes fecha_publicacion on every hit, so fini/ffin can be matched
+    # precisely against it client-side (the server itself only filters by year) —
+    # unlike most families, which can only filter by providencia date.
+    filters_by_publication_date = True
+
     def __init__(self):
         self.source = "JEP"
 
@@ -82,31 +87,35 @@ class ScrapJEP(BaseScrapper):
 
                     fecha_documento = raw.get("fecha_documento")
                     if not fecha_documento:
-                        continue  # sin fecha no se puede saber si cae dentro del rango pedido
-
-                    if fecha_documento < fini or fecha_documento > ffin:
-                        continue  # filtrado preciso: el servidor solo filtra por año
+                        continue  # sin fecha de providencia no se puede construir el documento
 
                     fecha_publicacion = raw.get("fecha_publicacion")
                     f_public = fecha_publicacion[:10] if fecha_publicacion else fecha_documento
 
+                    if f_public < fini or f_public > ffin:
+                        continue  # filtrado preciso por fecha de publicación: el servidor solo filtra por año
+
                     radicado = raw.get("radicado_documento") or ""
                     tipo = raw.get("tipo_documento") or ""
                     seccion = raw.get("sala_seccion") or ""
+                    # El expediente es el número del proceso judicial; el radicado identifica
+                    # solo el documento puntual. Se prefiere el expediente como título/nombre
+                    # de archivo, con el radicado como respaldo si la fuente no lo trae.
+                    expediente = raw.get("expediente") or radicado
 
                     hipervinculo = (raw.get("hipervinculo") or "").lstrip("/")
                     link = f"{_JEP_BASE_URL}{hipervinculo}"
 
-                    safe_radicado = _INVALID_PATH_CHARS.sub("-", radicado)
+                    safe_expediente = _INVALID_PATH_CHARS.sub("-", expediente)
                     path = storage_path(
-                        self.source, f_public, tipo, f"{safe_radicado}-{providencia_id}(extension)"
+                        self.source, f_public, tipo, f"{safe_expediente}-{providencia_id}(extension)"
                     )
 
                     docs.append(
                         RawDocModel(
                             source=self.source,
                             link={"url": link, "method": "GET"},
-                            title=radicado,
+                            title=expediente,
                             tipo=tipo,
                             seccion=seccion,
                             seccion_en_carpeta=False,

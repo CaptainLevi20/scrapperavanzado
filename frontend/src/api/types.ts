@@ -2,6 +2,7 @@ export interface SourceFamily {
   key: string;
   display_name: string;
   description: string | null;
+  filters_by_publication_date: boolean;
 }
 
 export interface Source {
