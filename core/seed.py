@@ -6,7 +6,7 @@ from core.scrapers.families.samai import SAMAI_CORPS
 _FAMILIES = {
     "constitucional": ("Corte Constitucional", "Buscador de relatoría de la Corte Constitucional"),
     "samai": (
-        "SAMAI (Tribunales Administrativos)",
+        "SAMAI (Consejo de Estado y Tribunales Administrativos)",
         "Sistema SAMAI del Consejo de Estado; cubre Consejo de Estado y Tribunales Administrativos",
     ),
     "corte_suprema": (
