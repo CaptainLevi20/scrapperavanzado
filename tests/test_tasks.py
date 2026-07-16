@@ -59,6 +59,57 @@ def test_scrape_source_task_downloads_new_document_and_marks_run_source_complete
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_uploads_file_with_the_correct_content_type(db_session, test_engine, monkeypatch):
+    """Regression test: the uploaded object's Content-Type in storage must match what
+    the source actually served (result.content_type), not silently fall back to S3's
+    default of binary/octet-stream. A mismatch here breaks the inline previewer: the
+    browser renders (or downloads) a blob based on the stored object's own Content-Type
+    header, not our documents.content_type DB column — found for real against JEP's
+    native-PDF documents, whose preview silently downloaded instead of rendering."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc2", "method": "GET"},
+            title="Documento 2",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/doc2",
+        body=b"contenido pdf",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        items, _ = repository.list_documents(assertion_session, source_id=source.id)
+        [document] = items
+    finally:
+        assertion_session.close()
+
+    from core.storage import _client
+
+    head = _client().head_object(Bucket=document.storage_bucket, Key=document.storage_key)
+    assert head["ContentType"] == "application/pdf"
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

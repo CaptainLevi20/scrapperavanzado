@@ -67,7 +67,9 @@ def scrape_source_task(self, run_source_id: int):
 
                     try:
                         result = downloader.download(doc, tmp_path)
-                        bucket, storage_key = upload_file(result.local_path, result.storage_key)
+                        bucket, storage_key = upload_file(
+                            result.local_path, result.storage_key, content_type=result.content_type
+                        )
                         repository.insert_document(
                             db,
                             doc_id=doc_id,
