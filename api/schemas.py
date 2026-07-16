@@ -95,6 +95,18 @@ class BulkDocumentReviewUpdate(BaseModel):
     review_status: Literal["pending", "useful", "not_useful"]
 
 
+class BulkDownloadOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    status: str
+    document_count: int
+    failed_count: int
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: datetime
+
+
 class FamilyCount(BaseModel):
     key: str
     display_name: str
