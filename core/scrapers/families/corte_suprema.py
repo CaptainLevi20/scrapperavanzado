@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import requests
 
@@ -10,6 +10,22 @@ from core.utils import storage_path
 
 _CORTE_SUPREMA_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
 _DOWNLOAD_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/"
+
+
+def _especialidad_from_online_path(online_path: str) -> Optional[str]:
+    path = online_path.upper()
+    # Tutela wins even when the path also names the internal sala that
+    # resolved it (e.g. ".../TUTELAS/PENAL/..." is a tutela, not a Penal case).
+    if "TUTELA" in path:
+        return "Tutela"
+    if "CIVIL" in path:
+        return "Civil"
+    if "LABORAL" in path:
+        return "Laboral"
+    if "PENAL" in path:
+        return "Penal"
+    return None
+
 
 _QUERY_TEMPLATE = """query GetSearchResult {{
     getSearchResult(
@@ -100,12 +116,15 @@ class ScrapCorteSuprema(BaseScrapper):
                             fecha = fecha_obj.strftime("%Y-%m-%d")
                             titulo = item["title"].split(".")[-2].strip()
 
+                            auto_sentencia = item.get("autoSentencia")
+                            online_path = item["onlinePath"]
                             doc = RawDocModel(
-                                tipo=item.get("typeOfDocument") or "Desconocido",
+                                tipo=auto_sentencia.capitalize() if auto_sentencia else "Desconocido",
                                 title=titulo,
+                                especialidad=_especialidad_from_online_path(online_path),
                                 link={
                                     "url": _DOWNLOAD_URL,
-                                    "body": {"path": item["onlinePath"]},
+                                    "body": {"path": online_path},
                                     "method": "POST",
                                 },
                                 f_public=fecha,
