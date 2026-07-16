@@ -28,6 +28,63 @@ def test_run_and_run_source_lifecycle(db_session):
     assert repository.is_cancel_requested(db_session, run.id) is True
 
 
+def test_bulk_download_lifecycle(db_session):
+    from datetime import datetime, timezone
+
+    bulk_download = repository.create_bulk_download(db_session)
+    assert bulk_download.status == "pending"
+    assert bulk_download.document_count == 0
+    assert bulk_download.failed_count == 0
+
+    repository.set_bulk_download_status(
+        db_session, bulk_download.id, "running", started_at=datetime.now(timezone.utc)
+    )
+    refreshed = repository.get_bulk_download(db_session, bulk_download.id)
+    assert refreshed.status == "running"
+    assert refreshed.started_at is not None
+
+    repository.set_bulk_download_status(
+        db_session,
+        bulk_download.id,
+        "completed",
+        document_count=5,
+        failed_count=1,
+        zip_storage_key="bulk-downloads/1.zip",
+        finished_at=datetime.now(timezone.utc),
+    )
+    refreshed = repository.get_bulk_download(db_session, bulk_download.id)
+    assert refreshed.status == "completed"
+    assert refreshed.document_count == 5
+    assert refreshed.failed_count == 1
+    assert refreshed.zip_storage_key == "bulk-downloads/1.zip"
+
+
+def test_list_bulk_downloads_orders_by_most_recent_first(db_session):
+    first = repository.create_bulk_download(db_session)
+    second = repository.create_bulk_download(db_session)
+
+    listed = repository.list_bulk_downloads(db_session)
+
+    assert [item.id for item in listed] == [second.id, first.id]
+
+
+def test_list_useful_documents_filters_by_review_status(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-useful", source_id=source.id, title="A", review_status="useful",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-pending", source_id=source.id, title="B",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    useful = repository.list_useful_documents(db_session)
+
+    assert [doc.doc_id for doc in useful] == ["doc-useful"]
+
+
 def test_insert_document_is_idempotent_on_doc_id(db_session):
     repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
     source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})

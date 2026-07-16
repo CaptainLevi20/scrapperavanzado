@@ -78,6 +78,20 @@ class RunError(Base):
     occurred_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
+class BulkDownload(Base):
+    __tablename__ = "bulk_downloads"
+
+    id = Column(Integer, primary_key=True)
+    status = Column(String, nullable=False, default="pending")  # pending | running | completed | failed
+    document_count = Column(Integer, nullable=False, default=0)  # incluidos en el zip
+    failed_count = Column(Integer, nullable=False, default=0)  # se omitieron por error de lectura
+    zip_storage_key = Column(Text, nullable=True)  # solo si status == completed
+    error_message = Column(Text, nullable=True)  # solo si status == failed
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
 class Document(Base):
     __tablename__ = "documents"
 

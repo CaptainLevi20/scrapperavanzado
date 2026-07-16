@@ -6,7 +6,7 @@ from sqlalchemy import cast, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from core.db.models import Document, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, Document, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -150,6 +150,41 @@ def add_run_error(db: Session, run_source_id: int, message: str, context: Option
     db.commit()
     db.refresh(error)
     return error
+
+
+def create_bulk_download(db: Session) -> BulkDownload:
+    bulk_download = BulkDownload(status="pending")
+    db.add(bulk_download)
+    db.commit()
+    db.refresh(bulk_download)
+    return bulk_download
+
+
+def get_bulk_download(db: Session, bulk_download_id: int) -> Optional[BulkDownload]:
+    return db.get(BulkDownload, bulk_download_id)
+
+
+def list_bulk_downloads(db: Session, limit: int = 50, offset: int = 0) -> list[BulkDownload]:
+    stmt = (
+        select(BulkDownload)
+        .order_by(BulkDownload.created_at.desc(), BulkDownload.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def set_bulk_download_status(db: Session, bulk_download_id: int, status: str, **fields) -> None:
+    bulk_download = db.get(BulkDownload, bulk_download_id)
+    bulk_download.status = status
+    for key, value in fields.items():
+        setattr(bulk_download, key, value)
+    db.commit()
+
+
+def list_useful_documents(db: Session) -> list[Document]:
+    stmt = select(Document).where(Document.review_status == "useful")
+    return list(db.scalars(stmt).all())
 
 
 def document_exists(db: Session, doc_id: str) -> bool:
