@@ -60,6 +60,84 @@ def test_scrape_source_task_downloads_new_document_and_marks_run_source_complete
 
 
 @responses.activate
+def test_scrape_source_task_processes_multiple_documents_concurrently(db_session, test_engine, monkeypatch):
+    """Downloading/converting/uploading now happens on a thread pool (see
+    MAX_CONCURRENT_DOCUMENT_DOWNLOADS) instead of one document at a time — this
+    verifies a batch with a success, a not-yet-published document (soft 404 via
+    HTML response), and a hard failure (HTTP 500) are all handled correctly when
+    processed concurrently, with the right counts landing in run_source."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/multi-ok", "method": "GET"},
+            title="Documento OK",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/multi-not-published", "method": "GET"},
+            title="Documento no publicado",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/multi-error", "method": "GET"},
+            title="Documento con error",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/multi-ok",
+        body=b"contenido ok",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://example.com/multi-not-published",
+        body="<!DOCTYPE html><html><body>No disponible</body></html>",
+        headers={"Content-Type": "text/html; charset=utf-8"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://example.com/multi-error",
+        body="error interno",
+        status=500,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "completed"
+        assert refreshed.docs_new == 1
+        assert refreshed.docs_errors == 1
+
+        items, total = repository.list_documents(assertion_session, source_id=source.id)
+        assert total == 1
+        assert items[0].title == "Documento OK"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
 def test_scrape_source_task_uploads_file_with_the_correct_content_type(db_session, test_engine, monkeypatch):
     """Regression test: the uploaded object's Content-Type in storage must match what
     the source actually served (result.content_type), not silently fall back to S3's
@@ -148,17 +226,12 @@ def test_generate_document_preview_pdf_converts_and_saves_the_key(db_session, te
         rtf_path.write_text("contenido rtf de prueba")
         upload_file(rtf_path, document.storage_key, bucket="iurisync-test")
 
-    class _FakeWordConverter:
-        def convert(self, input_path, target_format):
-            assert target_format == "pdf"
-            output_path = input_path.with_suffix(".pdf")
-            output_path.write_bytes(b"%PDF-1.4 contenido convertido")
-            return output_path
+    def _fake_convert_to_pdf(input_path, timeout=180):
+        output_path = input_path.with_suffix(".pdf")
+        output_path.write_bytes(b"%PDF-1.4 contenido convertido")
+        return output_path
 
-        def quit(self):
-            pass
-
-    monkeypatch.setattr("worker.tasks.WordConverter", _FakeWordConverter)
+    monkeypatch.setattr("worker.tasks.convert_to_pdf_via_libreoffice", _fake_convert_to_pdf)
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
@@ -238,19 +311,15 @@ def test_generate_document_preview_pdf_propagates_conversion_failure_without_sav
         rtf_path.write_text("contenido rtf de prueba")
         upload_file(rtf_path, document.storage_key, bucket="iurisync-test")
 
-    class _FailingWordConverter:
-        def convert(self, input_path, target_format):
-            raise RuntimeError("Word no pudo convertir el archivo")
+    def _failing_convert_to_pdf(input_path, timeout=180):
+        raise RuntimeError("LibreOffice no pudo convertir el archivo")
 
-        def quit(self):
-            pass
-
-    monkeypatch.setattr("worker.tasks.WordConverter", _FailingWordConverter)
+    monkeypatch.setattr("worker.tasks.convert_to_pdf_via_libreoffice", _failing_convert_to_pdf)
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
-    with pytest.raises(RuntimeError, match="Word no pudo convertir el archivo"):
+    with pytest.raises(RuntimeError, match="LibreOffice no pudo convertir el archivo"):
         generate_document_preview_pdf(document.id)
 
     assertion_session = task_session_factory()

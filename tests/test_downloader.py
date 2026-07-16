@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import requests
 import responses
 from pypdf import PdfWriter
 
+import core.downloader as downloader_module
 from core.downloader import Downloader
 from core.models import RawDocModel
 
@@ -269,3 +271,139 @@ def test_download_leaves_converted_format_none_when_conversion_silently_fails(tm
     assert result.converted_format is None
     assert result.storage_key.endswith(".pdf")
     assert result.local_path.suffix == ".pdf"
+
+
+@responses.activate
+def test_download_updates_content_type_to_rtf_when_conversion_succeeds(tmp_path):
+    """The stored content_type must reflect the CONVERTED file (RTF), not the
+    original pre-conversion type — otherwise the upload would carry a mismatched
+    Content-Type header, the same class of bug already fixed for the un-converted
+    upload path (worker/tasks.py)."""
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    downloader = Downloader()
+    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
+
+    assert result.content_type == "application/rtf"
+
+
+@responses.activate
+def test_download_keeps_original_content_type_when_conversion_silently_fails(tmp_path, monkeypatch):
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=b"not actually a pdf",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("conversión falló")
+
+    monkeypatch.setattr(downloader_module, "_pdf_to_rtf_fallback", _raise)
+
+    downloader = Downloader()
+    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
+
+    assert result.content_type == "application/pdf"
+
+
+def test_find_soffice_returns_path_from_which(monkeypatch):
+    monkeypatch.setattr(downloader_module.shutil, "which", lambda name: "/usr/bin/soffice")
+    assert downloader_module._find_soffice() == "/usr/bin/soffice"
+
+
+def test_find_soffice_falls_back_to_known_windows_install_path_when_not_on_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(downloader_module.shutil, "which", lambda name: None)
+    fake_soffice = tmp_path / "soffice.exe"
+    fake_soffice.write_text("")
+    monkeypatch.setattr(downloader_module, "_SOFFICE_FALLBACK_PATHS", [str(fake_soffice)])
+
+    assert downloader_module._find_soffice() == str(fake_soffice)
+
+
+def test_find_soffice_raises_when_not_found_anywhere(monkeypatch):
+    monkeypatch.setattr(downloader_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(downloader_module, "_SOFFICE_FALLBACK_PATHS", [])
+
+    with pytest.raises(FileNotFoundError):
+        downloader_module._find_soffice()
+
+
+def test_convert_to_pdf_via_libreoffice_invokes_soffice_without_an_import_filter(tmp_path, monkeypatch):
+    """Unlike the PDF->RTF direction, converting a native office format (RTF/DOC/DOCX)
+    to PDF needs no --infilter override — LibreOffice already knows how to read those
+    as Writer documents."""
+    rtf_path = tmp_path / "doc.rtf"
+    rtf_path.write_text("{\\rtf1}")
+
+    monkeypatch.setattr(downloader_module, "_find_soffice", lambda: "soffice")
+
+    captured = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(downloader_module.subprocess, "run", _fake_run)
+
+    result = downloader_module.convert_to_pdf_via_libreoffice(rtf_path)
+
+    assert result == rtf_path.with_suffix(".pdf")
+    cmd = captured["cmd"]
+    assert cmd[0] == "soffice"
+    assert cmd[1] == "--headless"
+    assert cmd[2].startswith("-env:UserInstallation=")
+    assert cmd[3:] == ["--convert-to", "pdf", "--outdir", str(tmp_path), str(rtf_path)]
+
+
+def test_libreoffice_conversions_use_a_different_isolated_profile_per_invocation(tmp_path, monkeypatch):
+    """Regression test: LibreOffice's default shared user profile holds an exclusive
+    lock, so a second concurrent headless invocation silently fails (no exception,
+    no stderr, no output file) while another is already running — reproduced for
+    real by running the JEP backfill and an on-demand preview conversion at the
+    same time. Each invocation must get its own disposable profile directory."""
+    monkeypatch.setattr(downloader_module, "_find_soffice", lambda: "soffice")
+
+    captured_profiles = []
+
+    def _fake_run(cmd, **kwargs):
+        env_arg = next(arg for arg in cmd if arg.startswith("-env:UserInstallation="))
+        captured_profiles.append(env_arg)
+        output_path = Path(cmd[-1]).with_suffix(".pdf")
+        output_path.write_bytes(b"%PDF-1.4")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(downloader_module.subprocess, "run", _fake_run)
+
+    doc_a = tmp_path / "a.rtf"
+    doc_a.write_text("{\\rtf1}")
+    doc_b = tmp_path / "b.rtf"
+    doc_b.write_text("{\\rtf1}")
+
+    downloader_module.convert_to_pdf_via_libreoffice(doc_a)
+    downloader_module.convert_to_pdf_via_libreoffice(doc_b)
+
+    assert len(captured_profiles) == 2
+    assert captured_profiles[0] != captured_profiles[1]
+
+
+def test_convert_to_pdf_via_libreoffice_raises_when_output_file_is_missing(tmp_path, monkeypatch):
+    rtf_path = tmp_path / "doc.rtf"
+    rtf_path.write_text("{\\rtf1}")
+
+    monkeypatch.setattr(downloader_module, "_find_soffice", lambda: "soffice")
+    monkeypatch.setattr(
+        downloader_module.subprocess,
+        "run",
+        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, stdout="", stderr="algo falló"),
+    )
+
+    with pytest.raises(RuntimeError):
+        downloader_module.convert_to_pdf_via_libreoffice(rtf_path)

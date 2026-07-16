@@ -1,4 +1,7 @@
 import logging
+import shutil
+import subprocess
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +13,67 @@ from core.models import RawDocModel
 from core.utils import extract_filename, storage_path
 
 _WORD_FORMATS = {"rtf": 6, "docx": 16, "pdf": 17}
+
+# LibreOffice's winget/MSI installer does not add soffice.exe to PATH (verified: absent
+# from both the user and Machine-level PATH env vars after a fresh install), so PATH
+# lookup alone cannot be relied on for this executable on Windows.
+_SOFFICE_FALLBACK_PATHS = [
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+]
+
+
+def _find_soffice() -> str:
+    found = shutil.which("soffice")
+    if found:
+        return found
+    for path in _SOFFICE_FALLBACK_PATHS:
+        if Path(path).exists():
+            return path
+    raise FileNotFoundError("No se encontró el ejecutable de LibreOffice (soffice)")
+
+
+def _run_soffice(convert_args: list[str], input_path: Path, output_suffix: str, timeout: int) -> Path:
+    """Ejecuta soffice en modo headless con un perfil de usuario aislado y
+    desechable para esta única invocación. LibreOffice usa por defecto un perfil
+    compartido con bloqueo exclusivo: si otra instancia headless ya está corriendo
+    (por ejemplo, un backfill en curso al mismo tiempo que una vista previa bajo
+    demanda), la segunda invocación falla en silencio — sin excepción, sin stderr,
+    y sin generar el archivo de salida — confirmado empíricamente reproduciendo
+    justo ese escenario. Un perfil por invocación elimina esa colisión."""
+    soffice = _find_soffice()
+    output_dir = input_path.parent
+    with tempfile.TemporaryDirectory(prefix="lo_profile_") as profile_dir:
+        result = subprocess.run(
+            [
+                soffice,
+                "--headless",
+                f"-env:UserInstallation=file:///{Path(profile_dir).as_posix()}",
+                *convert_args,
+                "--outdir",
+                str(output_dir),
+                str(input_path),
+            ],
+            capture_output=True,
+            timeout=timeout,
+            text=True,
+        )
+    output_path = input_path.with_suffix(output_suffix)
+    if not output_path.exists():
+        raise RuntimeError(
+            f"LibreOffice no generó el archivo esperado: {output_path}\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+    return output_path
+
+
+def convert_to_pdf_via_libreoffice(input_path: Path, timeout: int = 180) -> Path:
+    """Convierte un documento de oficina (RTF, DOC, DOCX) a PDF usando LibreOffice —
+    usado para generar la vista previa bajo demanda. A diferencia de Word (52.4s en
+    una prueba real con un RTF de 20MB con imágenes incrustadas, contra el límite
+    síncrono de 30s del endpoint de previsualización), LibreOffice tomó 15.9s para
+    el mismo archivo."""
+    return _run_soffice(["--convert-to", "pdf"], input_path, ".pdf", timeout)
 
 
 @dataclass
@@ -197,6 +261,7 @@ class Downloader:
                 storage_key = storage_key.rsplit(".", 1)[0] + ".rtf" if "." in storage_key else storage_key + ".rtf"
                 temp_path = converted
                 converted_format = doc.convert_to
+                content_type = "application/rtf"
 
         return DownloadResult(
             local_path=temp_path,

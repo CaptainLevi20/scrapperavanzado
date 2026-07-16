@@ -38,11 +38,14 @@ def upload_file(
     return bucket, key
 
 
-def presigned_url(bucket: str, key: str, expires_in: int = 3600) -> str:
+def presigned_url(
+    bucket: str, key: str, expires_in: int = 3600, response_content_disposition: Optional[str] = None
+) -> str:
     client = _client()
-    return client.generate_presigned_url(
-        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires_in
-    )
+    params = {"Bucket": bucket, "Key": key}
+    if response_content_disposition:
+        params["ResponseContentDisposition"] = response_content_disposition
+    return client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
 
 
 def download_file(bucket: str, key: str, local_path: Path) -> None:
