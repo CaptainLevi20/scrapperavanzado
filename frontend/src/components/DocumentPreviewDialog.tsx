@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download } from "lucide-react";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocumentPreviewBlob, updateDocumentReviewStatus } from "../api/documents";
+import {
+  buildDownloadFilename,
+  buildPreviewDownloadFilename,
+  downloadDocumentFile,
+  downloadFromUrl,
+  fetchDocumentPreviewUrl,
+  updateDocumentReviewStatus,
+} from "../api/documents";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { formatDate } from "../lib/formatters";
 import { ErrorBanner } from "./ErrorBanner";
@@ -24,10 +31,10 @@ const PREVIEWABLE_CONTENT_TYPES = new Set([
 
 export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenChange }: DocumentPreviewDialogProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [markError, setMarkError] = useState<string | null>(null);
   const [lastMarkAttempt, setLastMarkAttempt] = useState<DocumentReviewStatus | null>(null);
   const [documentsSnapshot, setDocumentsSnapshot] = useState(documents);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -40,28 +47,20 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
 
   useEffect(() => {
     setMarkError(null);
+    setDownloadError(null);
   }, [currentIndex]);
 
   const currentDocument = documentsSnapshot[currentIndex];
   const isPreviewable = !!currentDocument && PREVIEWABLE_CONTENT_TYPES.has(currentDocument.content_type ?? "");
+  const hasNativeRtf = currentDocument?.content_type === "application/rtf";
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === documentsSnapshot.length - 1;
 
-  const blobQuery = useQuery({
-    queryKey: ["document-preview-blob", currentDocument?.id],
-    queryFn: () => fetchDocumentPreviewBlob(currentDocument!.id),
+  const previewUrlQuery = useQuery({
+    queryKey: ["document-preview-url", currentDocument?.id],
+    queryFn: () => fetchDocumentPreviewUrl(currentDocument!.id),
     enabled: open && !!currentDocument && isPreviewable,
   });
-
-  useEffect(() => {
-    if (!blobQuery.data) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blobQuery.data);
-    setObjectUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [blobQuery.data]);
 
   const markMutation = useMutation({
     mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
@@ -86,24 +85,71 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
     markMutation.mutate({ id: currentDocument.id, status });
   }
 
+  async function handleDownloadRtf() {
+    try {
+      setDownloadError(null);
+      await downloadDocumentFile(currentDocument.id, buildDownloadFilename(currentDocument));
+    } catch {
+      setDownloadError("Error al descargar el RTF");
+    }
+  }
+
+  async function handleDownloadPdf() {
+    if (!previewUrlQuery.data) return;
+    try {
+      setDownloadError(null);
+      await downloadFromUrl(previewUrlQuery.data, buildPreviewDownloadFilename(currentDocument));
+    } catch {
+      setDownloadError("Error al descargar el PDF");
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] flex-col sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle className="font-display">{currentDocument.title}</DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            {currentDocument.tipo ?? "—"} · {formatDate(currentDocument.f_public)}
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <DialogTitle className="font-display">{currentDocument.title}</DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                {currentDocument.tipo ?? "—"} · {formatDate(currentDocument.f_public)}
+              </p>
+            </div>
+            {isPreviewable && (
+              <div className="flex shrink-0 gap-2">
+                {hasNativeRtf && (
+                  <Button variant="outline" size="sm" onClick={handleDownloadRtf}>
+                    <Download className="size-3.5" aria-hidden="true" />
+                    Descargar RTF
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" disabled={!previewUrlQuery.data} onClick={handleDownloadPdf}>
+                  <Download className="size-3.5" aria-hidden="true" />
+                  Descargar PDF
+                </Button>
+              </div>
+            )}
+          </div>
         </DialogHeader>
+
+        {downloadError && <ErrorBanner message={downloadError} onRetry={() => setDownloadError(null)} />}
 
         <div className="flex-1 overflow-hidden rounded-md border border-border bg-secondary">
           {isPreviewable ? (
-            blobQuery.isError ? (
+            previewUrlQuery.isError ? (
               <div className="flex h-full items-center justify-center p-6">
-                <ErrorBanner message="No se pudo cargar la vista previa" onRetry={() => blobQuery.refetch()} />
+                <ErrorBanner message="No se pudo cargar la vista previa" onRetry={() => previewUrlQuery.refetch()} />
               </div>
-            ) : objectUrl ? (
-              <iframe title={`Vista previa de ${currentDocument.title}`} src={objectUrl} className="size-full" />
+            ) : previewUrlQuery.data ? (
+              // #toolbar=0 suppresses the browser's own built-in pdf viewer chrome
+              // (Chrome/Firefox both honor it) — we offer download via our own
+              // explicit buttons above instead, matching the RTF/PDF choice a
+              // native download button couldn't express.
+              <iframe
+                title={`Vista previa de ${currentDocument.title}`}
+                src={`${previewUrlQuery.data}#toolbar=0`}
+                className="size-full"
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Cargando…</div>
             )

@@ -1,16 +1,9 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Eye, FileStack, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Calendar, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
-import {
-  buildDownloadFilename,
-  bulkUpdateDocumentReviewStatus,
-  downloadDocumentFile,
-  fetchDocuments,
-  fetchDocumentTipos,
-  updateDocumentReviewStatus,
-} from "../api/documents";
+import { fetchDocuments, fetchDocumentTipos } from "../api/documents";
 import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
 import type { DocumentReviewStatus } from "../api/types";
@@ -18,11 +11,28 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { NativeSelect } from "../components/ui/native-select";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
-import { formatBytes, formatDate } from "../lib/formatters";
+import { formatDate } from "../lib/formatters";
 
 const PAGE_SIZE = 50;
 
-const REVIEW_BUTTON_BASE = "rounded-md border-[1.5px] px-2 py-1 text-xs font-semibold transition-colors";
+const REVIEW_BADGE_BASE = "inline-block rounded-md border-[1.5px] px-2 py-1 text-xs font-semibold";
+
+function ReviewBadge({ status }: { status: DocumentReviewStatus }) {
+  if (status === "useful") {
+    return <span className={`${REVIEW_BADGE_BASE} border-verde/50 bg-verde-bg text-verde`}>Útil</span>;
+  }
+  if (status === "not_useful") {
+    return <span className={`${REVIEW_BADGE_BASE} border-rojo/50 bg-rojo-bg text-rojo`}>No útil</span>;
+  }
+  return <span className={`${REVIEW_BADGE_BASE} border-border bg-card text-muted-foreground`}>Sin revisar</span>;
+}
+
+function formatDateFilterLabel(from: string, to: string): string {
+  if (!from && !to) return "Fecha de publicación";
+  if (from && to) return `${formatDate(from)} – ${formatDate(to)}`;
+  if (from) return `Desde ${formatDate(from)}`;
+  return `Hasta ${formatDate(to)}`;
+}
 
 export function DocumentsPage() {
   const [title, setTitle] = useState("");
@@ -30,11 +40,24 @@ export function DocumentsPage() {
   const [sourceId, setSourceId] = useState("");
   const [familyKey, setFamilyKey] = useState("");
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus | "">("");
+  const [fPublicFrom, setFPublicFrom] = useState("");
+  const [fPublicTo, setFPublicTo] = useState("");
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [page, setPage] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  const queryClient = useQueryClient();
+  const dateFilterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dateFilterOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (dateFilterRef.current && !dateFilterRef.current.contains(event.target as Node)) {
+        setDateFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dateFilterOpen]);
 
   const sourcesQuery = useQuery({
     queryKey: ["sources", "for-documents-filter"],
@@ -51,7 +74,7 @@ export function DocumentsPage() {
   );
 
   const documentsQuery = useQuery({
-    queryKey: ["documents", title, tipo, sourceId, familyKey, reviewStatus, page],
+    queryKey: ["documents", title, tipo, sourceId, familyKey, reviewStatus, fPublicFrom, fPublicTo, page],
     queryFn: () =>
       fetchDocuments({
         title: title || undefined,
@@ -59,63 +82,17 @@ export function DocumentsPage() {
         source_id: sourceId ? Number(sourceId) : undefined,
         family_key: familyKey || undefined,
         review_status: reviewStatus || undefined,
+        f_public_from: fPublicFrom || undefined,
+        f_public_to: fPublicTo || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
   });
 
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-  const downloadMutation = useMutation({
-    mutationFn: ({ id, filename }: { id: number; filename: string }) => downloadDocumentFile(id, filename),
-    onError: () => setDownloadError("Error al descargar el documento"),
-  });
-
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const reviewMutation = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
-    onError: () => setReviewError("Error al marcar el documento"),
-  });
-
-  const [bulkError, setBulkError] = useState<string | null>(null);
-  const bulkReviewMutation = useMutation({
-    mutationFn: ({ ids, status }: { ids: number[]; status: DocumentReviewStatus }) =>
-      bulkUpdateDocumentReviewStatus(ids, status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      setSelectedIds(new Set());
-    },
-    onError: () => setBulkError("Error al marcar los documentos seleccionados"),
-  });
-
-  function toggleSelected(id: number) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  const visibleIds = documentsQuery.data?.items.map((document) => document.id) ?? [];
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
-
-  function toggleSelectAll() {
-    setSelectedIds((current) => {
-      if (allVisibleSelected) {
-        const next = new Set(current);
-        visibleIds.forEach((id) => next.delete(id));
-        return next;
-      }
-      return new Set([...current, ...visibleIds]);
-    });
-  }
+  const hasDateFilter = !!fPublicFrom || !!fPublicTo;
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full flex-col gap-6">
       <div>
         <p className="flex items-center gap-1.5 text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
           <FileStack className="size-3.5" aria-hidden="true" />
@@ -133,7 +110,6 @@ export function DocumentsPage() {
             onChange={(event) => {
               setTitle(event.target.value);
               setPage(0);
-              setSelectedIds(new Set());
             }}
             className="h-9 w-56 rounded-md border-[1.5px] border-input bg-background py-1 pr-3 pl-8 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
           />
@@ -145,7 +121,6 @@ export function DocumentsPage() {
             onChange={(event) => {
               setTipo(event.target.value);
               setPage(0);
-              setSelectedIds(new Set());
             }}
             className="w-32"
           >
@@ -164,7 +139,6 @@ export function DocumentsPage() {
             onChange={(event) => {
               setSourceId(event.target.value);
               setPage(0);
-              setSelectedIds(new Set());
             }}
             className="w-40"
           >
@@ -183,7 +157,6 @@ export function DocumentsPage() {
             onChange={(event) => {
               setFamilyKey(event.target.value);
               setPage(0);
-              setSelectedIds(new Set());
             }}
             className="w-40"
           >
@@ -202,7 +175,6 @@ export function DocumentsPage() {
             onChange={(event) => {
               setReviewStatus(event.target.value as DocumentReviewStatus | "");
               setPage(0);
-              setSelectedIds(new Set());
             }}
             className="w-32"
           >
@@ -212,59 +184,71 @@ export function DocumentsPage() {
             <option value="not_useful">No útil</option>
           </NativeSelect>
         </label>
+
+        <div className="relative" ref={dateFilterRef}>
+          <button
+            onClick={() => setDateFilterOpen((open) => !open)}
+            className={`flex h-9 items-center gap-1.5 rounded-md border-[1.5px] px-3 text-sm font-medium transition-colors ${
+              hasDateFilter
+                ? "border-sello/50 bg-sello/10 text-sello-ink"
+                : "border-input bg-background text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Calendar className="size-3.5" aria-hidden="true" />
+            {formatDateFilterLabel(fPublicFrom, fPublicTo)}
+          </button>
+          {dateFilterOpen && (
+            <div className="absolute top-full left-0 z-20 mt-2 flex w-64 flex-col gap-3 rounded-lg border border-border bg-card p-3 shadow-md">
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Desde
+                <input
+                  type="date"
+                  value={fPublicFrom}
+                  onChange={(event) => {
+                    setFPublicFrom(event.target.value);
+                    setPage(0);
+                  }}
+                  className="h-8 rounded-md border-[1.5px] border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Hasta
+                <input
+                  type="date"
+                  value={fPublicTo}
+                  onChange={(event) => {
+                    setFPublicTo(event.target.value);
+                    setPage(0);
+                  }}
+                  className="h-8 rounded-md border-[1.5px] border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+                />
+              </label>
+              {hasDateFilter && (
+                <button
+                  onClick={() => {
+                    setFPublicFrom("");
+                    setFPublicTo("");
+                    setPage(0);
+                  }}
+                  className="text-left text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {documentsQuery.isError && (
         <ErrorBanner message="No se pudieron cargar los documentos." onRetry={() => documentsQuery.refetch()} />
       )}
-      {downloadError && <ErrorBanner message={downloadError} onRetry={() => setDownloadError(null)} />}
-      {reviewError && <ErrorBanner message={reviewError} onRetry={() => setReviewError(null)} />}
-      {bulkError && (
-        <ErrorBanner
-          message={bulkError}
-          onRetry={() => {
-            setBulkError(null);
-            if (bulkReviewMutation.variables) {
-              bulkReviewMutation.mutate(bulkReviewMutation.variables);
-            }
-          }}
-        />
-      )}
 
-      {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border-[1.5px] border-sello/40 bg-sello/10 px-4 py-2.5">
-          <span className="text-sm font-semibold text-sello-ink">{selectedIds.size} seleccionados</span>
-          <button
-            disabled={bulkReviewMutation.isPending}
-            onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "useful" })}
-            className={`${REVIEW_BUTTON_BASE} border-verde/50 bg-card text-verde hover:bg-verde-bg disabled:opacity-50`}
-          >
-            Marcar como útil
-          </button>
-          <button
-            disabled={bulkReviewMutation.isPending}
-            onClick={() => bulkReviewMutation.mutate({ ids: Array.from(selectedIds), status: "not_useful" })}
-            className={`${REVIEW_BUTTON_BASE} border-rojo/50 bg-card text-rojo hover:bg-rojo-bg disabled:opacity-50`}
-          >
-            Marcar como no útil
-          </button>
-        </div>
-      )}
-
-      <div className={TABLE_SHELL}>
-        <div className={TABLE_SCROLL}>
-          <table className={`${TABLE} min-w-[1380px]`}>
-          <thead>
+      <div className={`${TABLE_SHELL} flex min-h-0 flex-1 flex-col`}>
+        <div className={`${TABLE_SCROLL} flex-1 overflow-y-auto`}>
+          <table className={`${TABLE} min-w-[1200px]`}>
+          <thead className="sticky top-0 z-10">
             <tr className={THEAD_ROW}>
-              <th className={TH}>
-                <input
-                  type="checkbox"
-                  aria-label="Seleccionar todos los documentos visibles"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAll}
-                  className="size-4 accent-sello"
-                />
-              </th>
               <th className={`${TH} min-w-[260px]`}>Título</th>
               <th className={TH}>Fuente</th>
               <th className={TH}>Tipo</th>
@@ -273,7 +257,6 @@ export function DocumentsPage() {
               <th className={TH}>Magistrado</th>
               <th className={`${TH} whitespace-nowrap`}>Fecha de publicación</th>
               <th className={`${TH} whitespace-nowrap`}>Fecha providencia</th>
-              <th className={TH}>Tamaño</th>
               <th className={`${TH} whitespace-nowrap`}>Revisión</th>
               <th className={TH}>Acciones</th>
             </tr>
@@ -281,15 +264,6 @@ export function DocumentsPage() {
           <tbody>
             {documentsQuery.data?.items.map((document, index) => (
               <tr key={document.id} className={TBODY_ROW}>
-                <td className={TD}>
-                  <input
-                    type="checkbox"
-                    aria-label={`Seleccionar "${document.title}"`}
-                    checked={selectedIds.has(document.id)}
-                    onChange={() => toggleSelected(document.id)}
-                    className="size-4 accent-sello"
-                  />
-                </td>
                 <td className={`${TD} font-medium whitespace-nowrap text-foreground`} title={document.detalle ?? undefined}>
                   {document.title}
                 </td>
@@ -300,50 +274,14 @@ export function DocumentsPage() {
                 <td className={`${TD} whitespace-nowrap`}>{document.magistrado ?? "—"}</td>
                 <td className={`${TD_MONO} whitespace-nowrap`}>{formatDate(document.f_public)}</td>
                 <td className={`${TD_MONO} whitespace-nowrap`}>{formatDate(document.f_providencia)}</td>
-                <td className={`${TD_MONO} whitespace-nowrap`}>{formatBytes(document.file_size_bytes)}</td>
                 <td className={TD}>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => reviewMutation.mutate({ id: document.id, status: "useful" })}
-                      aria-label={`Marcar "${document.title}" como útil`}
-                      aria-pressed={document.review_status === "useful"}
-                      className={`${REVIEW_BUTTON_BASE} ${
-                        document.review_status === "useful"
-                          ? "border-verde bg-verde text-white"
-                          : "border-border bg-card text-muted-foreground hover:border-verde/50 hover:text-verde"
-                      }`}
-                    >
-                      Útil
-                    </button>
-                    <button
-                      onClick={() => reviewMutation.mutate({ id: document.id, status: "not_useful" })}
-                      aria-label={`Marcar "${document.title}" como no útil`}
-                      aria-pressed={document.review_status === "not_useful"}
-                      className={`${REVIEW_BUTTON_BASE} ${
-                        document.review_status === "not_useful"
-                          ? "border-rojo bg-rojo text-white"
-                          : "border-border bg-card text-muted-foreground hover:border-rojo/50 hover:text-rojo"
-                      }`}
-                    >
-                      No útil
-                    </button>
-                  </div>
+                  <ReviewBadge status={document.review_status} />
                 </td>
                 <td className={TD}>
-                  <div className="flex gap-1.5">
-                    <Button variant="outline" size="sm" onClick={() => setPreviewIndex(index)}>
-                      <Eye className="size-3.5" aria-hidden="true" />
-                      Previsualizar
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => downloadMutation.mutate({ id: document.id, filename: buildDownloadFilename(document) })}
-                    >
-                      <Download className="size-3.5" aria-hidden="true" />
-                      Descargar
-                    </Button>
-                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setPreviewIndex(index)}>
+                    <Eye className="size-3.5" aria-hidden="true" />
+                    Previsualizar
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -362,20 +300,14 @@ export function DocumentsPage() {
         <div className="flex gap-2">
           <button
             disabled={page === 0}
-            onClick={() => {
-              setPage((current) => current - 1);
-              setSelectedIds(new Set());
-            }}
+            onClick={() => setPage((current) => current - 1)}
             className="rounded-md border-[1.5px] border-input bg-card px-3 py-1 text-sm font-medium shadow-xs disabled:opacity-50"
           >
             Anterior
           </button>
           <button
             disabled={(documentsQuery.data?.items.length ?? 0) < PAGE_SIZE}
-            onClick={() => {
-              setPage((current) => current + 1);
-              setSelectedIds(new Set());
-            }}
+            onClick={() => setPage((current) => current + 1)}
             className="rounded-md border-[1.5px] border-input bg-card px-3 py-1 text-sm font-medium shadow-xs disabled:opacity-50"
           >
             Siguiente

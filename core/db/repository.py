@@ -1,7 +1,8 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import Date as SqlDate
+from sqlalchemy import cast, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -199,6 +200,55 @@ def list_documents(
     total = len(list(db.scalars(stmt).all()))
     stmt = stmt.order_by(Document.f_public.desc().nulls_last(), Document.id.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all()), total
+
+
+def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
+    stmt = (
+        select(Source.family_key, func.count(Document.id))
+        .select_from(Document)
+        .join(Source, Source.id == Document.source_id)
+        .group_by(Source.family_key)
+        .order_by(func.count(Document.id).desc())
+    )
+    return list(db.execute(stmt).all())
+
+
+def count_documents_by_tipo(db: Session, limit: int = 8) -> list[tuple[str, int]]:
+    tipo_expr = func.coalesce(Document.tipo, "Sin tipo")
+    stmt = (
+        select(tipo_expr, func.count(Document.id))
+        .group_by(tipo_expr)
+        .order_by(func.count(Document.id).desc())
+        .limit(limit)
+    )
+    return list(db.execute(stmt).all())
+
+
+def _effective_date_expr():
+    # Dashboard charts bucket documents by fecha de publicación, falling back to
+    # downloaded_at for the (rare) document that scraped without one — same
+    # fallback the frontend used to apply client-side before this endpoint existed.
+    return func.coalesce(Document.f_public, cast(Document.downloaded_at, SqlDate))
+
+
+def list_document_years(db: Session) -> list[int]:
+    year_expr = func.extract("year", _effective_date_expr())
+    stmt = select(year_expr).distinct()
+    years = [int(year) for (year,) in db.execute(stmt).all() if year is not None]
+    return sorted(years, reverse=True)
+
+
+def count_documents_by_month(db: Session, year: int) -> list[int]:
+    date_expr = _effective_date_expr()
+    stmt = (
+        select(func.extract("month", date_expr), func.count(Document.id))
+        .where(func.extract("year", date_expr) == year)
+        .group_by(func.extract("month", date_expr))
+    )
+    counts = [0] * 12
+    for month, count in db.execute(stmt).all():
+        counts[int(month) - 1] = count
+    return counts
 
 
 def update_document_review_status(db: Session, document_id: int, review_status: str) -> Optional[Document]:

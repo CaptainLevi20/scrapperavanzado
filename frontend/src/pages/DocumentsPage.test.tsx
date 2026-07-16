@@ -58,7 +58,7 @@ function mockFilterEndpoints() {
 }
 
 describe("DocumentsPage", () => {
-  it("renders fetched documents with formatted size", async () => {
+  it("renders fetched documents", async () => {
     mockFilterEndpoints();
     server.use(
       http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
@@ -67,7 +67,19 @@ describe("DocumentsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Sentencia C-001-26")).toBeInTheDocument();
-    expect(screen.getByText("200.0 KB")).toBeInTheDocument();
+  });
+
+  it("does not show a file size column — it's tracked but not meant to be displayed here", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
+    );
+
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    expect(screen.queryByText("Tamaño")).not.toBeInTheDocument();
+    expect(screen.queryByText("200.0 KB")).not.toBeInTheDocument();
   });
 
   it("renders the Fuente column with the document's source name", async () => {
@@ -101,18 +113,17 @@ describe("DocumentsPage", () => {
     await waitFor(() => expect(lastUrl).toContain("title=sentencia"));
   });
 
-  it("triggers a download when the download button is clicked", async () => {
+  it("only shows Previsualizar in Acciones — no direct download button in the table", async () => {
     mockFilterEndpoints();
-    const user = userEvent.setup();
     server.use(
-      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })),
-      http.get(`${BASE_URL}/documents/1/download`, () => new HttpResponse(new Blob(["x"], { type: "application/pdf" })))
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
     );
     renderPage();
 
-    await user.click(await screen.findByText("Descargar"));
-
-    await waitFor(() => expect(screen.queryByText(/error al descargar/i)).not.toBeInTheDocument());
+    await screen.findByText("Sentencia C-001-26");
+    const row = screen.getByText("Sentencia C-001-26").closest("tr") as HTMLElement;
+    expect(within(row).getByRole("button", { name: /previsualizar/i })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /descargar/i })).not.toBeInTheDocument();
   });
 
   it("renders the Sección column", async () => {
@@ -187,22 +198,33 @@ describe("DocumentsPage", () => {
     expect(await screen.findByTitle("Resumen del fallo")).toBeInTheDocument();
   });
 
-  it("marks a document as useful and refetches the list", async () => {
+  it("shows the review status as a read-only badge, not an interactive control", async () => {
+    // Marking useful/not-useful now happens exclusively inside the preview modal —
+    // the table only needs to show the current status at a glance.
     mockFilterEndpoints();
-    const user = userEvent.setup();
-    let patchBody: unknown = null;
     server.use(
-      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })),
-      http.patch(`${BASE_URL}/documents/1`, async ({ request }) => {
-        patchBody = await request.json();
-        return HttpResponse.json({ ...DOCUMENT, review_status: "useful" });
-      })
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [{ ...DOCUMENT, review_status: "useful" }], total: 1, limit: 50, offset: 0 })
+      )
     );
     renderPage();
 
-    await user.click(await screen.findByLabelText(/marcar .* como útil/i));
+    await screen.findByText("Sentencia C-001-26");
+    const row = screen.getByText("Sentencia C-001-26").closest("tr") as HTMLElement;
+    expect(within(row).getByText("Útil")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /útil/i })).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(patchBody).toEqual({ review_status: "useful" }));
+  it("shows 'Sin revisar' for a pending document", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
+    );
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    const row = screen.getByText("Sentencia C-001-26").closest("tr") as HTMLElement;
+    expect(within(row).getByText("Sin revisar")).toBeInTheDocument();
   });
 
   it("refetches with the review status filter applied", async () => {
@@ -263,86 +285,50 @@ describe("DocumentsPage", () => {
     await waitFor(() => expect(lastUrl).toContain("tipo=Sentencia"));
   });
 
-  it("selects individual rows and shows the bulk action bar", async () => {
+  it("shows a date filter button and refetches with the publication date range applied", async () => {
     mockFilterEndpoints();
+    let lastUrl = "";
     server.use(
-      http.get(`${BASE_URL}/documents`, () =>
-        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
-      )
-    );
-    const user = userEvent.setup();
-    renderPage();
-
-    await screen.findByText("Sentencia C-001-26");
-    expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByLabelText('Seleccionar "Sentencia C-001-26"'));
-
-    expect(await screen.findByText("1 seleccionados")).toBeInTheDocument();
-  });
-
-  it("selects and deselects all visible rows with the header checkbox", async () => {
-    mockFilterEndpoints();
-    server.use(
-      http.get(`${BASE_URL}/documents`, () =>
-        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
-      )
-    );
-    const user = userEvent.setup();
-    renderPage();
-
-    await screen.findByText("Sentencia C-001-26");
-    const selectAll = screen.getByLabelText("Seleccionar todos los documentos visibles");
-
-    await user.click(selectAll);
-    expect(await screen.findByText("2 seleccionados")).toBeInTheDocument();
-
-    await user.click(selectAll);
-    expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument();
-  });
-
-  it("marks the selected documents as useful in bulk and clears the selection", async () => {
-    mockFilterEndpoints();
-    const user = userEvent.setup();
-    let bulkBody: unknown = null;
-    server.use(
-      http.get(`${BASE_URL}/documents`, () =>
-        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
-      ),
-      http.patch(`${BASE_URL}/documents/bulk-review`, async ({ request }) => {
-        bulkBody = await request.json();
-        return HttpResponse.json({ updated: 2 });
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
       })
     );
+    const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("Sentencia C-001-26");
-    await user.click(screen.getByLabelText("Seleccionar todos los documentos visibles"));
-    await screen.findByText("2 seleccionados");
+    await waitFor(() => expect(lastUrl).toContain("/documents"));
+    await user.click(screen.getByRole("button", { name: /fecha de publicación/i }));
 
-    await user.click(screen.getByText("Marcar como útil"));
+    const desde = screen.getByLabelText("Desde");
+    const hasta = screen.getByLabelText("Hasta");
+    await user.type(desde, "2026-06-01");
+    await waitFor(() => expect(lastUrl).toContain("f_public_from=2026-06-01"));
 
-    await waitFor(() => expect(bulkBody).toEqual({ document_ids: [1, 2], review_status: "useful" }));
-    await waitFor(() => expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument());
+    await user.type(hasta, "2026-06-30");
+    await waitFor(() => expect(lastUrl).toContain("f_public_to=2026-06-30"));
   });
 
-  it("clears the selection when a filter changes", async () => {
+  it("clears the date filter", async () => {
     mockFilterEndpoints();
+    let lastUrl = "";
     server.use(
-      http.get(`${BASE_URL}/documents`, () =>
-        HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
-      )
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      })
     );
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("Sentencia C-001-26");
-    await user.click(screen.getByLabelText('Seleccionar "Sentencia C-001-26"'));
-    await screen.findByText("1 seleccionados");
+    await waitFor(() => expect(lastUrl).toContain("/documents"));
+    await user.click(screen.getByRole("button", { name: /fecha de publicación/i }));
+    await user.type(screen.getByLabelText("Desde"), "2026-06-01");
+    await waitFor(() => expect(lastUrl).toContain("f_public_from=2026-06-01"));
 
-    await user.type(screen.getByPlaceholderText(/buscar por t.tulo/i), "algo");
+    await user.click(screen.getByText("Limpiar"));
 
-    await waitFor(() => expect(screen.queryByText(/seleccionados/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(lastUrl).not.toContain("f_public_from"));
   });
 
   it("opens the preview dialog with the correct document when Previsualizar is clicked", async () => {
@@ -352,7 +338,7 @@ describe("DocumentsPage", () => {
       http.get(`${BASE_URL}/documents`, () =>
         HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 })
       ),
-      http.get(`${BASE_URL}/documents/2/preview`, () => new HttpResponse("x", { headers: { "Content-Type": "application/pdf" } }))
+      http.get(`${BASE_URL}/documents/2/preview`, () => HttpResponse.json({ url: "https://signed.example.com/doc2.pdf" }))
     );
     renderPage();
 

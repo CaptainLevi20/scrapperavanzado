@@ -14,11 +14,6 @@ const SOURCES = [
   { id: 2, family_key: "samai", name: "Consejo de Estado", family_params: {}, active: true },
 ];
 
-const FAMILIES = [
-  { key: "constitucional", display_name: "Corte Constitucional", description: null },
-  { key: "samai", display_name: "SAMAI", description: null },
-];
-
 function makeDoc(overrides: Partial<Document> = {}): Document {
   return {
     id: 1,
@@ -44,11 +39,26 @@ function makeDoc(overrides: Partial<Document> = {}): Document {
   };
 }
 
+// Novedades table fixture — separate from the (now server-aggregated) stats.
 const DOCS: Document[] = [
   makeDoc({ id: 1, title: "Resolución 1", tipo: "Resolución", source_id: 1, f_public: "2026-06-01" }),
   makeDoc({ id: 2, title: "Resolución 2", tipo: "Resolución", source_id: 1, f_public: "2026-06-15" }),
   makeDoc({ id: 3, title: "Circular 1", tipo: "Circular", source_id: 2, f_public: "2026-01-10", review_status: "useful" }),
 ];
+
+const STATS = {
+  by_family: [
+    { key: "constitucional", display_name: "Corte Constitucional", count: 2 },
+    { key: "samai", display_name: "SAMAI", count: 1 },
+  ],
+  by_tipo: [
+    { tipo: "Resolución", count: 2 },
+    { tipo: "Circular", count: 1 },
+  ],
+  by_month: Array.from({ length: 12 }, (_, index) => (index === 0 ? 1 : index === 5 ? 2 : 0)),
+  year: 2026,
+  available_years: [2026],
+};
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -63,6 +73,11 @@ function renderPage() {
 
 function mockDocuments() {
   server.use(
+    http.get(`${BASE_URL}/documents/stats`, ({ request }) => {
+      const url = new URL(request.url);
+      const yearParam = url.searchParams.get("year");
+      return HttpResponse.json({ ...STATS, year: yearParam ? Number(yearParam) : STATS.year });
+    }),
     http.get(`${BASE_URL}/documents`, ({ request }) => {
       const url = new URL(request.url);
       if (url.searchParams.get("review_status") === "pending") {
@@ -71,8 +86,8 @@ function mockDocuments() {
       if (url.searchParams.get("limit") === "1") {
         return HttpResponse.json({ items: [], total: 12, limit: 1, offset: 0 });
       }
-      // stats fetch (larger page)
-      return HttpResponse.json({ items: DOCS, total: DOCS.length, limit: 200, offset: 0 });
+      // novedades fetch (limit=8)
+      return HttpResponse.json({ items: DOCS, total: DOCS.length, limit: 8, offset: 0 });
     })
   );
 }
@@ -80,7 +95,6 @@ function mockDocuments() {
 function mockBaselines() {
   server.use(
     http.get(`${BASE_URL}/sources`, () => HttpResponse.json(SOURCES)),
-    http.get(`${BASE_URL}/source-families`, () => HttpResponse.json(FAMILIES)),
     http.get(`${BASE_URL}/runs`, () => HttpResponse.json([]))
   );
 }
@@ -107,7 +121,7 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(statCardValue("Sin revisar")).toHaveTextContent("2"));
   });
 
-  it("renders the Documentos por tipo and por familia charts from the fetched documents", async () => {
+  it("renders the Documentos por tipo and por familia charts from the aggregated stats endpoint", async () => {
     mockBaselines();
     mockDocuments();
 
@@ -124,7 +138,7 @@ describe("DashboardPage", () => {
     expect(within(familyCard).getByText("SAMAI")).toBeInTheDocument();
   });
 
-  it("offers only the years actually present in the fetched documents", async () => {
+  it("offers only the years the stats endpoint reports as available", async () => {
     mockBaselines();
     mockDocuments();
 
@@ -134,8 +148,8 @@ describe("DashboardPage", () => {
     const yearSelect = await screen.findByLabelText("Año");
     expect(yearSelect).toHaveValue("2026");
 
-    // Only one year (2026) is present in the fixed DOCS fixture, so this
-    // just confirms the selector is wired to the actual data range.
+    // Only one year (2026) is present in the STATS fixture, so this just
+    // confirms the selector is wired to the actual data range.
     expect(within(yearSelect).getAllByRole("option")).toHaveLength(1);
   });
 
@@ -155,7 +169,6 @@ describe("DashboardPage", () => {
   it("renders the most recent runs", async () => {
     server.use(
       http.get(`${BASE_URL}/sources`, () => HttpResponse.json(SOURCES)),
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json(FAMILIES)),
       http.get(`${BASE_URL}/runs`, () =>
         HttpResponse.json([
           {
@@ -199,8 +212,8 @@ describe("DashboardPage", () => {
           { id: 101, family_key: "constitucional", name: "Fuente 101", family_params: {}, active: true },
         ]);
       }),
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json({ ...STATS, by_family: [], by_tipo: [] })),
       http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }))
     );
 

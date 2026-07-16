@@ -1,4 +1,6 @@
 import logging
+import re
+from datetime import date
 from typing import Optional
 
 from celery.exceptions import TimeoutError as CeleryTimeoutError
@@ -7,8 +9,9 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
-from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpdate, PaginatedDocuments
+from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpdate, DocumentStatsOut, PaginatedDocuments
 from core.db import repository
+from core.db.models import Document
 from core.storage import presigned_url
 from worker.tasks import generate_document_preview_pdf
 
@@ -25,6 +28,18 @@ CONVERTIBLE_CONTENT_TYPES = {
 }
 PREVIEW_TASK_TIMEOUT_SECONDS = 30
 
+_INVALID_FILENAME_CHARS = re.compile(r'[/\\\x00-\x1f]')
+
+
+def _preview_content_disposition(document: Document) -> str:
+    # The preview is always a PDF regardless of what format the main download
+    # (storage_key) is in — this is what lets the presigned URL carry a filename
+    # hint that the browser's OWN pdf viewer chrome (not just our UI) picks up for
+    # its native download button, without us proxying the bytes through a Blob
+    # (which would have thrown this filename information away).
+    safe_title = _INVALID_FILENAME_CHARS.sub("-", document.title)
+    return f'inline; filename="{safe_title}.pdf"'
+
 
 @router.get("/documents", response_model=PaginatedDocuments)
 def get_documents(
@@ -33,6 +48,8 @@ def get_documents(
     tipo: Optional[str] = None,
     title: Optional[str] = None,
     review_status: Optional[str] = None,
+    f_public_from: Optional[date] = None,
+    f_public_to: Optional[date] = None,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -43,6 +60,8 @@ def get_documents(
         family_key=family_key,
         tipo=tipo,
         review_status=review_status,
+        f_public_from=f_public_from,
+        f_public_to=f_public_to,
         title_contains=title,
         limit=limit,
         offset=offset,
@@ -53,6 +72,28 @@ def get_documents(
 @router.get("/documents/tipos", response_model=list[str])
 def get_document_tipos(db: Session = Depends(get_db)):
     return repository.list_distinct_document_tipos(db)
+
+
+@router.get("/documents/stats", response_model=DocumentStatsOut)
+def get_document_stats(year: Optional[int] = None, db: Session = Depends(get_db)):
+    display_name_by_key = {family.key: family.display_name for family in repository.list_source_families(db)}
+    by_family = [
+        {"key": key, "display_name": display_name_by_key.get(key, key), "count": count}
+        for key, count in repository.count_documents_by_family(db)
+    ]
+    by_tipo = [{"tipo": tipo, "count": count} for tipo, count in repository.count_documents_by_tipo(db)]
+
+    available_years = repository.list_document_years(db)
+    effective_year = year if year is not None else (available_years[0] if available_years else date.today().year)
+    by_month = repository.count_documents_by_month(db, effective_year)
+
+    return {
+        "by_family": by_family,
+        "by_tipo": by_tipo,
+        "by_month": by_month,
+        "year": effective_year,
+        "available_years": available_years,
+    }
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
@@ -92,16 +133,23 @@ def preview_document(document_id: int, db: Session = Depends(get_db)):
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
+    disposition = _preview_content_disposition(document)
+
+    # A pre-set preview_storage_key takes priority over content_type-based branching:
+    # for sources whose native format is already PDF (e.g. JEP) but are stored as RTF
+    # for download, this points at the untouched original PDF captured at scrape time —
+    # re-deriving a preview from the stored RTF would instead reconstruct it from a
+    # PDF-import round-trip, which can silently drop visible body text.
+    if document.preview_storage_key:
+        url = presigned_url(document.storage_bucket, document.preview_storage_key, response_content_disposition=disposition)
+        return {"url": url}
+
     if document.content_type == "application/pdf":
-        url = presigned_url(document.storage_bucket, document.storage_key)
-        return RedirectResponse(url)
+        url = presigned_url(document.storage_bucket, document.storage_key, response_content_disposition=disposition)
+        return {"url": url}
 
     if document.content_type not in CONVERTIBLE_CONTENT_TYPES:
         raise HTTPException(status_code=404, detail="Vista previa no disponible para este tipo de archivo")
-
-    if document.preview_storage_key:
-        url = presigned_url(document.storage_bucket, document.preview_storage_key)
-        return RedirectResponse(url)
 
     try:
         preview_key = generate_document_preview_pdf.delay(document_id).get(timeout=PREVIEW_TASK_TIMEOUT_SECONDS)
@@ -113,5 +161,5 @@ def preview_document(document_id: int, db: Session = Depends(get_db)):
         logger.exception("Falló la generación de la vista previa para el documento %s", document_id)
         raise HTTPException(status_code=502, detail="No se pudo generar la vista previa")
 
-    url = presigned_url(document.storage_bucket, preview_key)
-    return RedirectResponse(url)
+    url = presigned_url(document.storage_bucket, preview_key, response_content_disposition=disposition)
+    return {"url": url}

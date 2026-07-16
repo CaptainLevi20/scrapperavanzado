@@ -45,10 +45,8 @@ function renderDialog(documents: Document[], initialIndex: number, onOpenChange 
   return { onOpenChange };
 }
 
-function mockBlob(id: number, content = "contenido") {
-  server.use(
-    http.get(`${BASE_URL}/documents/${id}/preview`, () => new HttpResponse(content, { headers: { "Content-Type": "application/pdf" } }))
-  );
+function mockPreviewUrl(id: number, url = `https://signed.example.com/doc${id}.pdf`) {
+  server.use(http.get(`${BASE_URL}/documents/${id}/preview`, () => HttpResponse.json({ url })));
 }
 
 describe("DocumentPreviewDialog", () => {
@@ -56,7 +54,7 @@ describe("DocumentPreviewDialog", () => {
 
   it("renders an iframe for a PDF document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc PDF" })];
-    mockBlob(1);
+    mockPreviewUrl(1);
 
     renderDialog(documents, 0);
 
@@ -74,8 +72,8 @@ describe("DocumentPreviewDialog", () => {
 
   it("marking a non-last document as useful advances to the next document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
-    mockBlob(1);
-    mockBlob(2);
+    mockPreviewUrl(1);
+    mockPreviewUrl(2);
     let patchedId: number | null = null;
     server.use(
       http.patch(`${BASE_URL}/documents/1`, async ({ request }) => {
@@ -97,8 +95,8 @@ describe("DocumentPreviewDialog", () => {
 
   it("does not advance or close the dialog when the mark mutation fails", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
-    mockBlob(1);
-    mockBlob(2);
+    mockPreviewUrl(1);
+    mockPreviewUrl(2);
     server.use(http.patch(`${BASE_URL}/documents/1`, () => new HttpResponse(null, { status: 500 })));
     const user = userEvent.setup();
 
@@ -114,7 +112,7 @@ describe("DocumentPreviewDialog", () => {
 
   it("marking the last document closes the dialog", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" })];
-    mockBlob(1);
+    mockPreviewUrl(1);
     server.use(
       http.patch(`${BASE_URL}/documents/1`, () => HttpResponse.json({ ...documents[0], review_status: "not_useful" }))
     );
@@ -130,8 +128,8 @@ describe("DocumentPreviewDialog", () => {
 
   it("Siguiente advances without marking the document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
-    mockBlob(1);
-    mockBlob(2);
+    mockPreviewUrl(1);
+    mockPreviewUrl(2);
     let patchCalled = false;
     server.use(
       http.patch(`${BASE_URL}/documents/1`, () => {
@@ -152,8 +150,8 @@ describe("DocumentPreviewDialog", () => {
 
   it("disables Anterior on the first document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
-    mockBlob(1);
-    mockBlob(2);
+    mockPreviewUrl(1);
+    mockPreviewUrl(2);
 
     renderDialog(documents, 0);
     await screen.findByTitle("Vista previa de Doc 1");
@@ -164,8 +162,8 @@ describe("DocumentPreviewDialog", () => {
 
   it("disables Siguiente on the last document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
-    mockBlob(1);
-    mockBlob(2);
+    mockPreviewUrl(1);
+    mockPreviewUrl(2);
 
     renderDialog(documents, 1);
     await screen.findByTitle("Vista previa de Doc 2");
@@ -180,8 +178,8 @@ describe("DocumentPreviewDialog", () => {
       makeDocument({ id: 2, title: "Doc B" }),
       makeDocument({ id: 3, title: "Doc C" }),
     ];
-    mockBlob(1);
-    mockBlob(2);
+    mockPreviewUrl(1);
+    mockPreviewUrl(2);
     server.use(
       http.patch(`${BASE_URL}/documents/1`, () => HttpResponse.json({ ...documents[0], review_status: "useful" }))
     );
@@ -220,7 +218,7 @@ describe("DocumentPreviewDialog", () => {
       http.get(`${BASE_URL}/documents/1/preview`, () => {
         attempts += 1;
         if (attempts === 1) return new HttpResponse(null, { status: 500 });
-        return new HttpResponse("contenido", { headers: { "Content-Type": "application/pdf" } });
+        return HttpResponse.json({ url: "https://signed.example.com/doc1.pdf" });
       })
     );
     const user = userEvent.setup();
@@ -235,7 +233,7 @@ describe("DocumentPreviewDialog", () => {
 
   it("renders an iframe for a previewable RTF document (via /preview, not /download)", async () => {
     const documents = [makeDocument({ id: 9, title: "Doc RTF", content_type: "application/rtf" })];
-    mockBlob(9);
+    mockPreviewUrl(9);
 
     renderDialog(documents, 0);
 
@@ -248,5 +246,97 @@ describe("DocumentPreviewDialog", () => {
     renderDialog(documents, 0);
 
     expect(await screen.findByText("Vista previa no disponible para este tipo de archivo.")).toBeInTheDocument();
+  });
+
+  it("points the iframe at the presigned URL with the native pdf viewer toolbar suppressed", async () => {
+    // #toolbar=0 hides the browser's own built-in pdf viewer chrome (including its
+    // download button) — downloading is offered via our own explicit "Descargar RTF"
+    // / "Descargar PDF" buttons instead, which can express the RTF-vs-PDF choice a
+    // single native button couldn't.
+    const documents = [makeDocument({ id: 11, title: "SAI-AOI-RC-PMA-320-2026", content_type: "application/rtf" })];
+    mockPreviewUrl(11, "https://signed.example.com/SAI-AOI-RC-PMA-320-2026.preview.pdf");
+
+    renderDialog(documents, 0);
+
+    const iframe = await screen.findByTitle("Vista previa de SAI-AOI-RC-PMA-320-2026");
+    expect(iframe).toHaveAttribute("src", "https://signed.example.com/SAI-AOI-RC-PMA-320-2026.preview.pdf#toolbar=0");
+  });
+
+  it("shows both Descargar RTF and Descargar PDF for a native RTF document", async () => {
+    const documents = [makeDocument({ id: 12, title: "Doc RTF", content_type: "application/rtf" })];
+    mockPreviewUrl(12);
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc RTF");
+
+    expect(screen.getByRole("button", { name: /descargar rtf/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /descargar pdf/i })).toBeInTheDocument();
+  });
+
+  it("hides Descargar RTF (but keeps Descargar PDF) for a native PDF document", async () => {
+    const documents = [makeDocument({ id: 13, title: "Doc PDF nativo", content_type: "application/pdf" })];
+    mockPreviewUrl(13);
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc PDF nativo");
+
+    expect(screen.queryByRole("button", { name: /descargar rtf/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /descargar pdf/i })).toBeInTheDocument();
+  });
+
+  it("Descargar RTF downloads the stored file via /download with the title as filename", async () => {
+    const documents = [
+      makeDocument({ id: 14, title: "Doc RTF", content_type: "application/rtf", storage_key: "carpeta/archivo.rtf" }),
+    ];
+    mockPreviewUrl(14);
+    server.use(
+      http.get(`${BASE_URL}/documents/14/download`, () => new HttpResponse(new Blob(["contenido rtf"], { type: "application/rtf" })))
+    );
+    const clickSpy = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") element.click = clickSpy;
+      return element;
+    });
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc RTF");
+
+    await user.click(screen.getByRole("button", { name: /descargar rtf/i }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
+    createElementSpy.mockRestore();
+  });
+
+  it("Descargar PDF fetches the previewed URL and downloads it under the title as .pdf", async () => {
+    const documents = [makeDocument({ id: 15, title: "Doc RTF", content_type: "application/rtf" })];
+    mockPreviewUrl(15, "https://signed.example.com/doc15.preview.pdf");
+    server.use(
+      http.get("https://signed.example.com/doc15.preview.pdf", () => new HttpResponse(new Blob(["contenido pdf"], { type: "application/pdf" })))
+    );
+    const clickSpy = vi.fn();
+    let capturedFilename: string | null = null;
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") {
+        element.click = clickSpy;
+        clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
+          capturedFilename = this.download;
+        });
+      }
+      return element;
+    });
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc RTF");
+
+    await user.click(screen.getByRole("button", { name: /descargar pdf/i }));
+
+    await waitFor(() => expect(capturedFilename).toBe("Doc RTF.pdf"));
+    createElementSpy.mockRestore();
   });
 });

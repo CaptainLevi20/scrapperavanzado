@@ -9,7 +9,7 @@ export function AppLayout() {
       <div className="flex h-screen flex-1 flex-col overflow-hidden">
         <Masthead />
         <main className="flex-1 overflow-y-auto bg-background p-8">
-          <div className="mx-auto max-w-[90rem]">
+          <div className="mx-auto h-full max-w-[90rem]">
             <Outlet />
           </div>
         </main>

@@ -5,9 +5,24 @@ export function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+// A plain "YYYY-MM-DD" string is parsed by `new Date(value)` as UTC midnight —
+// in any timezone west of UTC (Colombia included, UTC-5) that shifts to the
+// previous day once displayed in local time. Confirmed for real against JEP
+// documents whose stored f_public/f_providencia were correct but rendered one
+// day earlier. Parsing the components explicitly as local-time avoids the shift
+// (see the same fix already applied in dashboardStats.ts's yearMonthOf).
+function parseDateOnlyAsLocal(value: string): Date {
+  const match = DATE_ONLY_PATTERN.exec(value);
+  if (!match) return new Date(value);
+  const [, year, month, day] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
 export function formatDate(value: string | null): string {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
+  return parseDateOnlyAsLocal(value).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
 }
 
 export function formatDateTime(value: string | null): string {

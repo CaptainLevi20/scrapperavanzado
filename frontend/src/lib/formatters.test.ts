@@ -18,4 +18,13 @@ describe("formatDate / formatDateTime", () => {
     expect(formatDate("2026-07-10")).not.toBe("—");
     expect(formatDateTime("2026-07-10T12:00:00Z")).not.toBe("—");
   });
+
+  it("does not shift a plain YYYY-MM-DD date back a day in a UTC-5 timezone", () => {
+    // Regression test: `new Date("2026-07-16")` is parsed as UTC midnight, which is
+    // 2026-07-15T19:00:00 in America/Bogota (UTC-5) — the exact discrepancy reported
+    // against real JEP documents (DB correctly stored 2026-07-16, but the table
+    // displayed 2026-07-15).
+    expect(formatDate("2026-07-16")).toContain("16");
+    expect(formatDate("2026-07-16")).not.toContain("15");
+  });
 });

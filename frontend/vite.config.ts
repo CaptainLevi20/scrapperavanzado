@@ -14,5 +14,11 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Tests hardcode BASE_URL = "http://localhost:8000" for MSW mocking — force the
+    // same value here regardless of a local .env.local override (e.g. a developer
+    // pointing their own dev server at a different port), so the two never diverge.
+    env: {
+      VITE_API_BASE_URL: "http://localhost:8000",
+    },
   },
 });

@@ -1,5 +1,5 @@
 import { apiFetch, buildQuery, getStoredToken } from "./client";
-import type { Document, DocumentReviewStatus, PaginatedDocuments } from "./types";
+import type { Document, DocumentReviewStatus, DocumentStats, PaginatedDocuments } from "./types";
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -9,6 +9,8 @@ export interface ListDocumentsParams {
   tipo?: string;
   title?: string;
   review_status?: DocumentReviewStatus;
+  f_public_from?: string;
+  f_public_to?: string;
   limit?: number;
   offset?: number;
   [key: string]: string | number | boolean | undefined;
@@ -22,37 +24,10 @@ export function fetchDocumentTipos(): Promise<string[]> {
   return apiFetch<string[]>("/documents/tipos");
 }
 
-const STATS_PAGE_SIZE = 200;
-const STATS_FETCH_CAP = 1000;
-
-export interface DocumentStats {
-  items: Document[];
-  total: number;
-  /** True when the archive holds more documents than STATS_FETCH_CAP — charts
-   *  are then based on the most recent STATS_FETCH_CAP documents (the API's
-   *  own sort order), not the full history. */
-  capped: boolean;
-}
-
-// There's no aggregation endpoint on the backend (no "count grouped by tipo"),
-// so dashboard charts page through the same /documents data DocumentsPage
-// shows row-by-row and group it client-side. Documents already come sorted
-// by downloaded_at desc, so this doubles as "most recent N" for the
-// Dashboard's novedades table.
-export async function fetchDocumentsForStats(): Promise<DocumentStats> {
-  const first = await fetchDocuments({ limit: STATS_PAGE_SIZE, offset: 0 });
-  const targetCount = Math.min(first.total, STATS_FETCH_CAP);
-  const items = [...first.items];
-
-  let offset = STATS_PAGE_SIZE;
-  while (items.length < targetCount) {
-    const page = await fetchDocuments({ limit: STATS_PAGE_SIZE, offset });
-    if (page.items.length === 0) break;
-    items.push(...page.items);
-    offset += STATS_PAGE_SIZE;
-  }
-
-  return { items, total: first.total, capped: first.total > STATS_FETCH_CAP };
+// Aggregated server-side (GROUP BY over the whole table) rather than sampled
+// client-side, so counts stay accurate no matter how large the archive gets.
+export function fetchDocumentStats(year?: number): Promise<DocumentStats> {
+  return apiFetch<DocumentStats>(`/documents/stats${buildQuery({ year })}`);
 }
 
 export function fetchDocument(id: number): Promise<Document> {
@@ -96,6 +71,25 @@ export function buildDownloadFilename(document: Document): string {
   return ext ? `${sanitizedTitle}.${ext}` : sanitizedTitle;
 }
 
+// The previewed file is always a PDF (native passthrough or an on-demand/pre-generated
+// conversion) regardless of what format storage_key points at for the main download
+// (e.g. RTF for Corte Constitucional/SAMAI), so its filename can't reuse
+// buildDownloadFilename's storage_key-derived extension.
+export function buildPreviewDownloadFilename(document: Document): string {
+  return `${sanitizeFilename(document.title)}.pdf`;
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> {
   const token = getStoredToken();
   const headers = new Headers();
@@ -112,18 +106,31 @@ export function fetchDocumentBlob(id: number): Promise<Blob> {
   return fetchBlobFrom(`/documents/${id}/download`, "No se pudo cargar el documento");
 }
 
-export function fetchDocumentPreviewBlob(id: number): Promise<Blob> {
-  return fetchBlobFrom(`/documents/${id}/preview`, "No se pudo cargar la vista previa");
+// The preview endpoint returns the presigned URL as JSON (rather than a 302 redirect
+// consumed via fetch()+Blob) specifically so the browser's OWN pdf viewer can be
+// pointed at the signed URL directly — that lets its native download button use the
+// filename baked into the URL's ResponseContentDisposition, which a Blob would have
+// thrown away.
+export function fetchDocumentPreviewUrl(id: number): Promise<string> {
+  return apiFetch<{ url: string }>(`/documents/${id}/preview`).then((data) => data.url);
+}
+
+// The presigned URL is cross-origin (points at MinIO, not our API) and carries no
+// Authorization header requirement — CORS is already permissive there (verified:
+// core/storage.py's presigned URLs allow cross-origin reads), so a plain fetch works.
+// Downloading via Blob (rather than just navigating to the URL) guarantees the
+// browser saves the file under our chosen name regardless of cross-origin
+// `download`-attribute quirks.
+export async function downloadFromUrl(url: string, filename: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("No se pudo descargar el archivo");
+  }
+  const blob = await response.blob();
+  downloadBlob(blob, filename);
 }
 
 export async function downloadDocumentFile(id: number, filename: string): Promise<void> {
   const blob = await fetchDocumentBlob(id);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, filename);
 }

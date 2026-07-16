@@ -2,7 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { buildDownloadFilename, downloadDocumentFile, fetchDocument, fetchDocumentBlob, fetchDocumentPreviewBlob, fetchDocumentTipos, fetchDocuments } from "./documents";
+import {
+  buildDownloadFilename,
+  downloadDocumentFile,
+  downloadFromUrl,
+  fetchDocument,
+  fetchDocumentBlob,
+  fetchDocumentPreviewUrl,
+  fetchDocumentTipos,
+  fetchDocuments,
+} from "./documents";
 import type { Document } from "./types";
 
 const BASE_URL = "http://localhost:8000";
@@ -73,7 +82,7 @@ describe("downloadDocumentFile", () => {
     );
     const clickSpy = vi.fn();
     const originalCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       const element = originalCreateElement(tag);
       if (tag === "a") element.click = clickSpy;
       return element;
@@ -82,12 +91,39 @@ describe("downloadDocumentFile", () => {
     await downloadDocumentFile(1, "sentencia.pdf");
 
     expect(clickSpy).toHaveBeenCalledOnce();
+    createElementSpy.mockRestore();
   });
 
   it("throws when the download request fails", async () => {
     server.use(http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse(null, { status: 404 })));
 
     await expect(downloadDocumentFile(2, "x.pdf")).rejects.toThrow();
+  });
+});
+
+describe("downloadFromUrl", () => {
+  it("fetches the given URL and triggers a browser download under the given filename", async () => {
+    server.use(
+      http.get("https://signed.example.com/preview.pdf", () => new HttpResponse(new Blob(["contenido pdf"], { type: "application/pdf" })))
+    );
+    const clickSpy = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") element.click = clickSpy;
+      return element;
+    });
+
+    await downloadFromUrl("https://signed.example.com/preview.pdf", "documento.pdf");
+
+    expect(clickSpy).toHaveBeenCalledOnce();
+    createElementSpy.mockRestore();
+  });
+
+  it("throws when the fetch fails", async () => {
+    server.use(http.get("https://signed.example.com/missing.pdf", () => new HttpResponse(null, { status: 404 })));
+
+    await expect(downloadFromUrl("https://signed.example.com/missing.pdf", "x.pdf")).rejects.toThrow();
   });
 });
 
@@ -110,22 +146,24 @@ describe("fetchDocumentBlob", () => {
   });
 });
 
-describe("fetchDocumentPreviewBlob", () => {
-  it("fetches the preview content as a Blob", async () => {
+describe("fetchDocumentPreviewUrl", () => {
+  it("fetches the presigned preview URL as JSON (not a redirect consumed as a Blob)", async () => {
+    // The preview URL is meant to be used directly as an <iframe src>, so the browser's
+    // own pdf viewer can read the filename hint baked into the URL's
+    // ResponseContentDisposition — something a fetch()+Blob would throw away.
     server.use(
-      http.get(`${BASE_URL}/documents/7/preview`, () => new HttpResponse("contenido pdf", { headers: { "Content-Type": "application/pdf" } }))
+      http.get(`${BASE_URL}/documents/7/preview`, () => HttpResponse.json({ url: "https://signed.example.com/doc7.pdf" }))
     );
 
-    const blob = await fetchDocumentPreviewBlob(7);
+    const url = await fetchDocumentPreviewUrl(7);
 
-    expect(blob).toBeInstanceOf(Blob);
-    expect(await blob.text()).toBe("contenido pdf");
+    expect(url).toBe("https://signed.example.com/doc7.pdf");
   });
 
   it("throws when the preview request fails", async () => {
     server.use(http.get(`${BASE_URL}/documents/8/preview`, () => new HttpResponse(null, { status: 502 })));
 
-    await expect(fetchDocumentPreviewBlob(8)).rejects.toThrow();
+    await expect(fetchDocumentPreviewUrl(8)).rejects.toThrow();
   });
 });
 

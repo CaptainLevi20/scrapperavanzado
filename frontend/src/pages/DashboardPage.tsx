@@ -2,15 +2,14 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Activity, FileClock, FileText, Radar, type LucideIcon } from "lucide-react";
-import { fetchDocuments, fetchDocumentsForStats } from "../api/documents";
+import { fetchDocuments, fetchDocumentStats } from "../api/documents";
 import { fetchRuns } from "../api/runs";
-import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
 import { formatDateTime, formatRelativeTime } from "../lib/formatters";
-import { availableYears, countByFamily, countByMonth, countByTipo, type CountBucket } from "../lib/dashboardStats";
+import { familyCountsToBuckets, tipoCountsToBuckets, type CountBucket } from "../lib/dashboardStats";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { NativeSelect } from "../components/ui/native-select";
 
@@ -111,8 +110,6 @@ export function DashboardPage() {
     queryFn: fetchAllActiveSources,
   });
 
-  const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
-
   const recentRunsQuery = useQuery({
     queryKey: ["runs", "recent"],
     queryFn: () => fetchRuns({ limit: 50 }),
@@ -128,9 +125,15 @@ export function DashboardPage() {
     queryFn: () => fetchDocuments({ review_status: "pending", limit: 1 }),
   });
 
+  const novedadesQuery = useQuery({
+    queryKey: ["documents", "novedades"],
+    queryFn: () => fetchDocuments({ limit: 8 }),
+  });
+
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const statsQuery = useQuery({
-    queryKey: ["documents", "stats"],
-    queryFn: fetchDocumentsForStats,
+    queryKey: ["documents", "stats", selectedYear],
+    queryFn: () => fetchDocumentStats(selectedYear ?? undefined),
   });
 
   const runsLast24h = (recentRunsQuery.data ?? []).filter(
@@ -140,24 +143,18 @@ export function DashboardPage() {
   for (const run of runsLast24h) byStatus[run.status] = (byStatus[run.status] ?? 0) + 1;
 
   const recentRuns = recentRunsQuery.data ?? [];
-  const statsItems = useMemo(() => statsQuery.data?.items ?? [], [statsQuery.data]);
 
-  const tipoBuckets = useMemo(() => countByTipo(statsItems), [statsItems]);
-  const familyBuckets = useMemo(
-    () => countByFamily(statsItems, activeSourcesQuery.data ?? [], familiesQuery.data ?? []),
-    [statsItems, activeSourcesQuery.data, familiesQuery.data]
-  );
-  const years = useMemo(() => availableYears(statsItems), [statsItems]);
-
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const effectiveYear = selectedYear ?? years[0] ?? new Date().getFullYear();
-  const monthlyCounts = useMemo(() => countByMonth(statsItems, effectiveYear), [statsItems, effectiveYear]);
+  const tipoBuckets = useMemo(() => tipoCountsToBuckets(statsQuery.data?.by_tipo ?? []), [statsQuery.data]);
+  const familyBuckets = useMemo(() => familyCountsToBuckets(statsQuery.data?.by_family ?? []), [statsQuery.data]);
+  const years = statsQuery.data?.available_years ?? [];
+  const effectiveYear = statsQuery.data?.year ?? selectedYear ?? new Date().getFullYear();
+  const monthlyCounts = statsQuery.data?.by_month ?? new Array(12).fill(0);
 
   const sourceNameById = useMemo(
     () => new Map((activeSourcesQuery.data ?? []).map((source) => [source.id, source.name])),
     [activeSourcesQuery.data]
   );
-  const novedades: Document[] = statsItems.slice(0, 8);
+  const novedades: Document[] = novedadesQuery.data?.items ?? [];
 
   return (
     <div className="space-y-8">
@@ -220,11 +217,6 @@ export function DashboardPage() {
         <div className="mt-4">
           <MonthlyBars counts={monthlyCounts} />
         </div>
-        {statsQuery.data?.capped && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            Basado en los {statsQuery.data.items.length} documentos más recientes.
-          </p>
-        )}
       </div>
 
       <div className="space-y-3">

@@ -95,6 +95,25 @@ class BulkDocumentReviewUpdate(BaseModel):
     review_status: Literal["pending", "useful", "not_useful"]
 
 
+class FamilyCount(BaseModel):
+    key: str
+    display_name: str
+    count: int
+
+
+class TipoCount(BaseModel):
+    tipo: str
+    count: int
+
+
+class DocumentStatsOut(BaseModel):
+    by_family: list[FamilyCount]
+    by_tipo: list[TipoCount]
+    by_month: list[int]
+    year: int
+    available_years: list[int]
+
+
 class PaginatedDocuments(BaseModel):
     items: list[DocumentOut]
     total: int
