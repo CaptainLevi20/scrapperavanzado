@@ -1,5 +1,4 @@
 import re
-import unicodedata
 from typing import List
 
 import requests
@@ -9,133 +8,116 @@ from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
 
-_JEP_URL = "https://relatoria.jep.gov.co/listarProvidecias"
-_JEP_DOWNLOAD_URL = "https://relatoria.jep.gov.co/"
+_JEP_SEARCHADV_URL = "https://relatoria.jep.gov.co/searchadv"
+_JEP_BASE_URL = "https://relatoria.jep.gov.co/"
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
-# El API de JEP no expone un campo de "tipo de documento" separado: "nombre" es en
-# realidad la sala/sección (ej. "S - Sala de Amnistía o Indulto"), no el tipo. El
-# tipo real (Auto, Resolución, Sentencia...) solo aparece como prefijo del nombre
-# de archivo en "hipervinculo" (ej. "Auto_SRVR-003_06-julio-2018.pdf"). Reglas en
-# orden de especificidad: los prefijos compuestos van antes que sus sub-cadenas
-# (ej. "sv-av" antes que "sv" y "av") para no matchear la regla equivocada.
-_TIPO_REGLAS = [
-    ("sv-av", "Salvamento y Aclaración de Voto"),
-    ("spav", "Salvamento y Aclaración de Voto"),
-    ("sentencia-interpretativa", "Sentencia Interpretativa"),
-    ("sentencia interpretativa", "Sentencia Interpretativa"),
-    ("sentencia", "Sentencia"),
-    ("resolucion", "Resolución"),
-    ("resolicion", "Resolución"),  # typo visto en datos reales de la fuente
-    ("auto", "Auto"),
-    ("av", "Aclaración de Voto"),
-    ("sv", "Salvamento de Voto"),
-    ("concepto", "Concepto"),
-    ("acuerdo", "Acuerdo"),
-    ("anexo", "Anexo"),
-    ("edicion", "Boletín"),
-    ("boletin", "Boletín"),
-    ("guia", "Guía"),
-    ("protocolo", "Protocolo"),
-    ("aclaracion", "Aclaración"),
-    ("oficio", "Oficio"),
-    ("manual", "Manual"),
-    ("lineamiento", "Lineamiento"),
-]
+_PER_PAGE = 200
 
 
-def _extraer_tipo(hipervinculo: str) -> str:
-    fname = hipervinculo.rsplit("/", 1)[-1]
-    prefijo = fname.split("_", 1)[0].strip()
-    clave = unicodedata.normalize("NFKD", prefijo).encode("ascii", "ignore").decode().lower()
-    for patron, tipo in _TIPO_REGLAS:
-        if clave.startswith(patron):
-            return tipo
-    return ""
+def _years_in_range(fini: str, ffin: str) -> list[int]:
+    return list(range(int(fini[:4]), int(ffin[:4]) + 1))
 
 
 @register_family("jep")
 class ScrapJEP(BaseScrapper):
     def __init__(self):
         self.source = "JEP"
-        self.url = None
 
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
-        # El API de JEP no expone mes/día: "fecha" siempre es un año (ej. 2024), no una
-        # fecha completa. Por eso fini/ffin se recortan a año aquí y el filtro de abajo
-        # compara años, no días — pedir un rango de meses dentro del mismo año devuelve
-        # el año completo, no un subconjunto. La deduplicación por doc_id en el pipeline
-        # de descarga es lo que evita reprocesar/reportar los mismos documentos en cada corrida.
-        anio_inicial = fini[:4]
-        anio_final = ffin[:4]
-        self.url = _JEP_URL
-        docs = []
+        docs: List[RawDocModel] = []
+        vistos = set()  # providencia_id ya procesados en esta corrida (JEP puede repetir el mismo documento)
 
-        response = requests.get(self.url)
+        for anio in _years_in_range(fini, ffin):
+            if stop_event is not None and stop_event.is_set():
+                break
 
-        if response.status_code != 200:
-            raise Exception(
-                f"Error al obtener datos de {self.source}: {response.status_code} - {response.text} el sitio pudo haber cambiado su estructura o el formato de respuesta, informare al equipo de desarrollo para actualizar el scraper."
-            )
+            page = 1
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
 
-        try:
-            results = response.json()
-        except ValueError:
-            raise Exception(
-                f"La respuesta no es JSON válido. Contenido recibido:\n{response.text[:500]}"
-            )
+                response = requests.post(
+                    _JEP_SEARCHADV_URL,
+                    json={
+                        "alguna_palabra": "",
+                        "todas_palabras": "",
+                        "frase_exacta": "",
+                        "ninguna_palabra": "",
+                        "anio": str(anio),
+                        "sala_seccion": "",
+                        "tipo_documento": "",
+                        "page": page,
+                        "per_page": _PER_PAGE,
+                    },
+                )
 
-        data = results
-        vistos = set()  # JEP repite el mismo documento con distintos "id" en su propio listado
+                if response.status_code != 200:
+                    raise Exception(
+                        f"Error al obtener datos de {self.source}: {response.status_code} - {response.text}"
+                    )
 
-        for item in data:
-            fecha_p = item.get("fecha", 0)
-            if fecha_p is None:
-                fecha_p = 0
+                try:
+                    data = response.json()
+                except ValueError:
+                    raise Exception(
+                        f"La respuesta no es JSON válido. Contenido recibido:\n{response.text[:500]}"
+                    )
 
-            if int(fecha_p) < int(anio_inicial) or int(fecha_p) > int(anio_final):
-                continue  # Salta al siguiente item si la fecha no está dentro del rango
+                reponse = data.get("reponse")
+                if reponse is None:
+                    break
 
-            if not item.get("hipervinculo"):
-                continue  # registros placeholder (ej. id=1 "No Aplica") sin archivo real
+                hits = reponse.get("hits", {}).get("hits", [])
+                total = reponse.get("hits", {}).get("total", {}).get("value", 0)
 
-            hipervinculo = item["hipervinculo"]
-            if hipervinculo in vistos:
-                continue  # evita reintentar el mismo documento roto muchas veces en la misma corrida
-            vistos.add(hipervinculo)
+                for hit in hits:
+                    raw = hit["_source"]
 
-            link = f"{_JEP_DOWNLOAD_URL}{hipervinculo}"
+                    providencia_id = raw.get("providencia_id")
+                    if providencia_id in vistos:
+                        continue
+                    vistos.add(providencia_id)
 
-            radicado = item.get("radicado", "")
-            seccion = item.get("nombre") or ""  # sala/sección (ej. "S - Sala de Amnistía o Indulto")
-            tipo = _extraer_tipo(hipervinculo)
-            # El pipeline de este backend (worker/tasks.py:_parse_date) exige "YYYY-MM-DD"
-            # estricto; JEP solo tiene año, así que se ancla al 1 de enero de ese año (mismo
-            # criterio que el fallback de "solo año" ya usado en adr.py/ane.py).
-            fecha_p = f"{fecha_p}-01-01"
+                    fecha_documento = raw.get("fecha_documento")
+                    if not fecha_documento:
+                        continue  # sin fecha no se puede saber si cae dentro del rango pedido
 
-            # el radicado NO identifica un único documento: el mismo número de caso se
-            # reutiliza para el Auto, su SV/AV, y luego la Sentencia y el suyo propio.
-            # Sin el id (único y siempre presente en el API) esos documentos distintos
-            # comparten ruta local — el segundo pisa al primero, o peor: el downloader
-            # ve que el archivo ya existe (guard pensado para el paralelismo de SAMAI) y
-            # lo salta sin descargar, aunque igual quede marcado como descargado.
-            safe_radicado = _INVALID_PATH_CHARS.sub("-", radicado)
-            item_id = item.get("id", "")
-            path = storage_path(self.source, fecha_p, tipo, f"{safe_radicado}-{item_id}(extension)")
+                    if fecha_documento < fini or fecha_documento > ffin:
+                        continue  # filtrado preciso: el servidor solo filtra por año
 
-            doc = RawDocModel(
-                source=self.source,
-                link={"url": link, "method": "GET"},
-                title=radicado,
-                tipo=tipo,
-                seccion=seccion,
-                seccion_en_carpeta=False,
-                f_public=fecha_p,
-                save_path=path,
-            )
+                    fecha_publicacion = raw.get("fecha_publicacion")
+                    f_public = fecha_publicacion[:10] if fecha_publicacion else fecha_documento
 
-            docs.append(doc)
+                    radicado = raw.get("radicado_documento") or ""
+                    tipo = raw.get("tipo_documento") or ""
+                    seccion = raw.get("sala_seccion") or ""
+
+                    hipervinculo = (raw.get("hipervinculo") or "").lstrip("/")
+                    link = f"{_JEP_BASE_URL}{hipervinculo}"
+
+                    safe_radicado = _INVALID_PATH_CHARS.sub("-", radicado)
+                    path = storage_path(
+                        self.source, f_public, tipo, f"{safe_radicado}-{providencia_id}(extension)"
+                    )
+
+                    docs.append(
+                        RawDocModel(
+                            source=self.source,
+                            link={"url": link, "method": "GET"},
+                            title=radicado,
+                            tipo=tipo,
+                            seccion=seccion,
+                            seccion_en_carpeta=False,
+                            f_public=f_public,
+                            f_providencia=fecha_documento,
+                            save_path=path,
+                        )
+                    )
+
+                if len(hits) < _PER_PAGE or page * _PER_PAGE >= total:
+                    break
+                page += 1
 
         return docs
