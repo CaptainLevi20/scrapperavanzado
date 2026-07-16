@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
@@ -12,7 +13,9 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DocumentsPage />
+      <MemoryRouter>
+        <DocumentsPage />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -348,5 +351,37 @@ describe("DocumentsPage", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Sentencia C-002-26")).toBeInTheDocument();
+  });
+
+  it("creates a bulk download and navigates to /bulk-downloads when 'Descarga masiva' is clicked", async () => {
+    mockFilterEndpoints();
+    let bulkDownloadCreated = false;
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })),
+      http.post(`${BASE_URL}/bulk-downloads`, () => {
+        bulkDownloadCreated = true;
+        return HttpResponse.json(
+          { id: 1, status: "pending", document_count: 0, failed_count: 0, error_message: null, started_at: null, finished_at: null, created_at: "2026-07-16T00:00:00Z" },
+          { status: 202 }
+        );
+      })
+    );
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/documents"]}>
+          <Routes>
+            <Route path="/documents" element={<DocumentsPage />} />
+            <Route path="/bulk-downloads" element={<div>Página de descargas masivas</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: /descarga masiva/i }));
+
+    await waitFor(() => expect(bulkDownloadCreated).toBe(true));
+    expect(await screen.findByText("Página de descargas masivas")).toBeInTheDocument();
   });
 });

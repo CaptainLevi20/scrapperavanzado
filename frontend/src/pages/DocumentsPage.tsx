@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Calendar, Eye, FileStack, Search } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { Calendar, Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
+import { createBulkDownload } from "../api/bulkDownloads";
 import { fetchDocuments, fetchDocumentTipos } from "../api/documents";
 import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
@@ -87,6 +89,12 @@ export function DocumentsPage() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
+  });
+
+  const navigate = useNavigate();
+  const bulkDownloadMutation = useMutation({
+    mutationFn: createBulkDownload,
+    onSuccess: () => navigate("/bulk-downloads"),
   });
 
   const hasDateFilter = !!fPublicFrom || !!fPublicTo;
@@ -238,6 +246,15 @@ export function DocumentsPage() {
             </div>
           )}
         </div>
+
+        <Button
+          variant="outline"
+          onClick={() => bulkDownloadMutation.mutate()}
+          disabled={bulkDownloadMutation.isPending}
+        >
+          <Download className="size-3.5" aria-hidden="true" />
+          {bulkDownloadMutation.isPending ? "Generando…" : "Descarga masiva"}
+        </Button>
       </div>
 
       {documentsQuery.isError && (
