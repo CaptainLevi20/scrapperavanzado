@@ -51,14 +51,20 @@ class ScrapConstitucional(BaseScrapper):
                 link = f"{_DOWNLOAD_URL}{raw['rutahtml'].replace('.htm', '.rtf')}"
                 fecha_p = raw.get("prov_f_public") or raw["prov_f_sentencia"]
                 safe_title = raw["prov_sentencia"].replace("/", "-")
-                path = storage_path(self.source, fecha_p, raw["prov_tipo"], f"{safe_title}(extension)")
+                # "Tutela" describes the process a ruling comes from, not the kind of
+                # decision — the Corte's own API reports it inconsistently for T-series
+                # rulings (sometimes "Sentencia", sometimes "Tutela"), so it's normalized
+                # here to keep "tipo" meaning the same thing regardless of which the API
+                # happened to return for a given document.
+                tipo = "Sentencia" if raw["prov_tipo"] == "Tutela" else raw["prov_tipo"]
+                path = storage_path(self.source, fecha_p, tipo, f"{safe_title}(extension)")
 
                 docs.append(
                     RawDocModel(
                         source=self.source,
                         link={"url": link, "method": "GET", "body": {"path": raw["prov_sentencia"]}},
                         title=raw["prov_sentencia"],
-                        tipo=raw["prov_tipo"],
+                        tipo=tipo,
                         f_public=fecha_p,
                         f_providencia=raw["prov_f_sentencia"],
                         save_path=path,

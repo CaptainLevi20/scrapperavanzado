@@ -48,6 +48,28 @@ def test_scrap_returns_expected_rawdocmodel():
     assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia/T-065-24(extension)"
 
 
+@responses.activate
+def test_scrap_normalizes_tutela_tipo_to_sentencia():
+    """The Corte's own search API sometimes reports T-series rulings with
+    prov_tipo="Tutela" instead of "Sentencia" — "Tutela" describes the process,
+    not the kind of decision, so it must always be normalized to "Sentencia"."""
+    fixture = _fixture_response()
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_tipo"] = "Tutela"
+    responses.add(
+        responses.GET,
+        "https://www.corteconstitucional.gov.co/relatoria/buscador_new/",
+        json=fixture,
+        status=200,
+    )
+    scraper = ScrapConstitucional()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.tipo == "Sentencia"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia/T-065-24(extension)"
+
+
 def test_constitucional_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401 — triggers registration
 
