@@ -292,16 +292,6 @@ export function DocumentsPage() {
                 </td>
                 <td className={`${TD} font-medium whitespace-nowrap text-foreground`} title={document.detalle ?? undefined}>
                   {document.title}
-                  {document.source_url && (
-                    <a
-                      href={document.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ml-2 text-xs font-normal text-sello-ink underline-offset-2 hover:underline"
-                    >
-                      Ver original ↗
-                    </a>
-                  )}
                 </td>
                 <td className={`${TD} whitespace-nowrap`}>{sourceNameById.get(document.source_id) ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.tipo ?? "—"}</td>

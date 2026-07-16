@@ -169,12 +169,12 @@ describe("DocumentsPage", () => {
     expect(screen.getByText("Juan Pérez")).toBeInTheDocument();
   });
 
-  it("shows detalle as a tooltip on the title and a link to source_url when present", async () => {
+  it("shows detalle as a tooltip on the title", async () => {
     mockFilterEndpoints();
     server.use(
       http.get(`${BASE_URL}/documents`, () =>
         HttpResponse.json({
-          items: [{ ...DOCUMENT, detalle: "Resumen del fallo", source_url: "https://example.com/original" }],
+          items: [{ ...DOCUMENT, detalle: "Resumen del fallo" }],
           total: 1,
           limit: 50,
           offset: 0,
@@ -185,20 +185,6 @@ describe("DocumentsPage", () => {
     renderPage();
 
     expect(await screen.findByTitle("Resumen del fallo")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /ver original/i });
-    expect(link).toHaveAttribute("href", "https://example.com/original");
-  });
-
-  it("does not render a 'Ver original' link when source_url is null", async () => {
-    mockFilterEndpoints();
-    server.use(
-      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
-    );
-
-    renderPage();
-
-    await screen.findByText("Sentencia C-001-26");
-    expect(screen.queryByRole("link", { name: /ver original/i })).not.toBeInTheDocument();
   });
 
   it("marks a document as useful and refetches the list", async () => {
