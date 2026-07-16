@@ -118,7 +118,60 @@ def test_download_retries_on_timeout_then_succeeds(tmp_path):
     downloader = Downloader()
     result = downloader.download(_doc(), tmp_path)
     assert result.local_path.read_bytes() == b"ok"
+
+
+@responses.activate
+def test_download_retries_on_connection_error_then_succeeds(tmp_path):
+    """A dropped/reset connection is just as transient as a timeout — a slow or
+    flaky source (observed for real against JEP's site) shouldn't be treated as
+    a permanent failure on the first blip."""
+    calls = {"count": 0}
+
+    def _callback(request):
+        calls["count"] += 1
+        if calls["count"] < 2:
+            raise requests.exceptions.ConnectionError()
+        return (200, {"Content-Type": "application/pdf"}, b"ok")
+
+    responses.add_callback(responses.GET, "https://example.com/file.pdf", callback=_callback)
+    downloader = Downloader()
+    result = downloader.download(_doc(), tmp_path)
+    assert result.local_path.read_bytes() == b"ok"
     assert calls["count"] == 2
+
+
+@responses.activate
+def test_download_retries_on_chunked_encoding_error_then_succeeds(tmp_path):
+    """An incomplete/interrupted read mid-stream (ChunkedEncodingError) is also
+    transient and must not be treated as a permanent failure on the first try."""
+    calls = {"count": 0}
+
+    def _callback(request):
+        calls["count"] += 1
+        if calls["count"] < 2:
+            raise requests.exceptions.ChunkedEncodingError()
+        return (200, {"Content-Type": "application/pdf"}, b"ok")
+
+    responses.add_callback(responses.GET, "https://example.com/file.pdf", callback=_callback)
+    downloader = Downloader()
+    result = downloader.download(_doc(), tmp_path)
+    assert result.local_path.read_bytes() == b"ok"
+    assert calls["count"] == 2
+
+
+@responses.activate
+def test_download_raises_after_exhausting_all_retries_on_transient_errors(tmp_path):
+    calls = {"count": 0}
+
+    def _callback(request):
+        calls["count"] += 1
+        raise requests.exceptions.ConnectionError("conexión rechazada")
+
+    responses.add_callback(responses.GET, "https://example.com/file.pdf", callback=_callback)
+    downloader = Downloader()
+    with pytest.raises(requests.exceptions.ConnectionError):
+        downloader.download(_doc(), tmp_path)
+    assert calls["count"] == 3
 
 
 def test_convert_rtf_word_falls_back_to_pypdf_when_word_conversion_fails(tmp_path, monkeypatch):

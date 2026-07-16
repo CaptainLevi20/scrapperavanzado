@@ -140,8 +140,20 @@ class Downloader:
     def download(self, doc: RawDocModel, tmp_dir: Path, stop_event=None) -> DownloadResult:
         headers = {"User-Agent": "Mozilla/5.0"}
 
+        # Un timeout, una conexión rechazada/cortada, o una lectura incompleta a
+        # mitad de la descarga son todas transitorias (se observó esto en producción
+        # contra el sitio de JEP, que responde lento e inconsistente bajo carga) —
+        # ninguna debe tratarse como fallo permanente en el primer intento. Se
+        # reintenta la secuencia completa (conexión + lectura del cuerpo) porque un
+        # corte a mitad de la descarga dejaría un archivo parcial si solo se
+        # reintentara la conexión inicial.
+        _TRANSIENT_ERRORS = (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        )
+
         last_exc = None
-        response = None
         for _attempt in range(3):
             try:
                 if doc.link["method"] == "POST":
@@ -152,31 +164,31 @@ class Downloader:
                     response = self._resolve_jwt_indirect(doc.link["url"], headers)
                 else:
                     response = requests.get(doc.link["url"], headers=headers, stream=True, timeout=120)
+
+                with response as r:
+                    r.raise_for_status()
+                    content_type = r.headers.get("Content-Type", "")
+                    if content_type.lower().startswith("text/html"):
+                        raise FileNotFoundError(
+                            f"El servidor devolvió una página HTML en vez del archivo: {doc.link['url']}"
+                        )
+                    disposition = r.headers.get("Content-Disposition", "")
+
+                    filename = extract_filename(disposition, content_type, doc.link["url"], doc.title)
+                    storage_key = self._resolve_storage_key(doc, filename)
+
+                    temp_path = tmp_dir / f"{uuid.uuid4().hex}{filename['extension']}"
+                    with open(temp_path, "wb") as f:
+                        for chunk in r.iter_content(8192):
+                            if stop_event is not None and getattr(stop_event, "is_set", lambda: False)():
+                                raise InterruptedError("Descarga cancelada")
+                            if chunk:
+                                f.write(chunk)
                 break
-            except requests.exceptions.Timeout as e:
+            except _TRANSIENT_ERRORS as e:
                 last_exc = e
-        if response is None:
+        else:
             raise last_exc
-
-        with response as r:
-            r.raise_for_status()
-            content_type = r.headers.get("Content-Type", "")
-            if content_type.lower().startswith("text/html"):
-                raise FileNotFoundError(
-                    f"El servidor devolvió una página HTML en vez del archivo: {doc.link['url']}"
-                )
-            disposition = r.headers.get("Content-Disposition", "")
-
-            filename = extract_filename(disposition, content_type, doc.link["url"], doc.title)
-            storage_key = self._resolve_storage_key(doc, filename)
-
-            temp_path = tmp_dir / f"{uuid.uuid4().hex}{filename['extension']}"
-            with open(temp_path, "wb") as f:
-                for chunk in r.iter_content(8192):
-                    if stop_event is not None and getattr(stop_event, "is_set", lambda: False)():
-                        raise InterruptedError("Descarga cancelada")
-                    if chunk:
-                        f.write(chunk)
 
         converted_format = None
         if doc.convert_to:
