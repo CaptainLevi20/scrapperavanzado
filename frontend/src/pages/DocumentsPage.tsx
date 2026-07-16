@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -44,6 +44,11 @@ export function DocumentsPage() {
   const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
 
   const tiposQuery = useQuery({ queryKey: ["documents", "tipos"], queryFn: fetchDocumentTipos });
+
+  const sourceNameById = useMemo(
+    () => new Map((sourcesQuery.data ?? []).map((source) => [source.id, source.name])),
+    [sourcesQuery.data]
+  );
 
   const documentsQuery = useQuery({
     queryKey: ["documents", title, tipo, sourceId, familyKey, reviewStatus, page],
@@ -261,6 +266,7 @@ export function DocumentsPage() {
                 />
               </th>
               <th className={`${TH} min-w-[260px]`}>Título</th>
+              <th className={TH}>Fuente</th>
               <th className={TH}>Tipo</th>
               <th className={TH}>Sección</th>
               <th className={TH}>Especialidad</th>
@@ -297,6 +303,7 @@ export function DocumentsPage() {
                     </a>
                   )}
                 </td>
+                <td className={`${TD} whitespace-nowrap`}>{sourceNameById.get(document.source_id) ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.tipo ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.seccion ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.especialidad ?? "—"}</td>

@@ -197,7 +197,7 @@ def list_documents(
         stmt = stmt.where(Document.title.ilike(f"%{title_contains}%"))
 
     total = len(list(db.scalars(stmt).all()))
-    stmt = stmt.order_by(Document.downloaded_at.desc()).limit(limit).offset(offset)
+    stmt = stmt.order_by(Document.f_public.desc().nulls_last(), Document.id.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all()), total
 
 

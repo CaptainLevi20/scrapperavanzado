@@ -70,6 +70,19 @@ describe("DocumentsPage", () => {
     expect(screen.getByText("200.0 KB")).toBeInTheDocument();
   });
 
+  it("renders the Fuente column with the document's source name", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 }))
+    );
+
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    const row = screen.getByText("Sentencia C-001-26").closest("tr") as HTMLElement;
+    expect(within(row).getByText("Corte Constitucional")).toBeInTheDocument();
+  });
+
   it("refetches with the title filter applied", async () => {
     mockFilterEndpoints();
     let lastUrl = "";

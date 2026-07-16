@@ -105,6 +105,31 @@ def test_list_documents_filters_by_review_status(db_session):
     assert items[0].doc_id == "doc-useful"
 
 
+def test_list_documents_orders_by_f_public_descending_with_nulls_last(db_session):
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-older", source_id=source.id, title="Older", f_public=date(2026, 1, 1),
+        storage_bucket="iurisync-test", storage_key="older.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-no-date", source_id=source.id, title="No date", f_public=None,
+        storage_bucket="iurisync-test", storage_key="no-date.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-newer", source_id=source.id, title="Newer", f_public=date(2026, 6, 1),
+        storage_bucket="iurisync-test", storage_key="newer.pdf",
+    )
+
+    items, _ = repository.list_documents(db_session)
+
+    assert [d.doc_id for d in items] == ["doc-newer", "doc-older", "doc-no-date"]
+
+
 def test_list_distinct_document_tipos_returns_sorted_unique_non_null_values(db_session):
     from core.db import repository
 
