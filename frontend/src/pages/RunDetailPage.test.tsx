@@ -34,7 +34,7 @@ const RUN = {
   created_at: "2026-07-10T00:00:00Z",
 };
 
-const RUN_SOURCE = { id: 1, run_id: 1, source_id: 5, status: "failed", docs_new: 2, docs_errors: 1, error_message: "timeout" };
+const RUN_SOURCE = { id: 1, run_id: 1, source_id: 5, status: "failed", docs_new: 2, docs_updated: 0, docs_errors: 1, error_message: "timeout" };
 
 describe("RunDetailPage", () => {
   it("renders the run header and its sources table", async () => {
@@ -137,5 +137,17 @@ describe("RunDetailPage", () => {
     // Verify that neither endpoint was called
     expect(runQueryCalled).toBe(false);
     expect(sourcesQueryCalled).toBe(false);
+  });
+
+  it("shows the Actualizados column with docs_updated", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json(RUN)),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([{ ...RUN_SOURCE, docs_updated: 4 }]))
+    );
+
+    renderPage();
+
+    await screen.findByText("Run #1");
+    expect(screen.getByText("4")).toBeInTheDocument();
   });
 });

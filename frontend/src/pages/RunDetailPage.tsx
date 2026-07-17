@@ -88,6 +88,7 @@ export function RunDetailPage() {
                 <th className={TH}>Fuente (id)</th>
                 <th className={TH}>Estado</th>
                 <th className={TH}>Docs nuevos</th>
+                <th className={TH}>Actualizados</th>
                 <th className={TH}>Docs con error</th>
                 <th className={TH}>Error</th>
               </tr>
@@ -100,6 +101,7 @@ export function RunDetailPage() {
                     <StatusBadge status={runSource.status} />
                   </td>
                   <td className={TD_MONO}>{runSource.docs_new}</td>
+                  <td className={TD_MONO}>{runSource.docs_updated}</td>
                   <td className={TD_MONO}>{runSource.docs_errors}</td>
                   <td className={`${TD} text-rojo`}>{runSource.error_message ?? "—"}</td>
                 </tr>

@@ -45,6 +45,7 @@ export interface RunSource {
   source_id: number;
   status: RunSourceStatus;
   docs_new: number;
+  docs_updated: number;
   docs_errors: number;
   error_message: string | null;
 }
