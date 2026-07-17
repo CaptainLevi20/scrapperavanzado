@@ -62,6 +62,7 @@ class RunSource(Base):
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
     status = Column(String, nullable=False, default="pending")
     docs_new = Column(Integer, nullable=False, default=0)
+    docs_updated = Column(Integer, nullable=False, default=0)
     docs_errors = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
@@ -118,6 +119,22 @@ class Document(Base):
     downloaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     review_status = Column(String, nullable=False, default="pending", server_default="pending")
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class DocumentVersion(Base):
+    __tablename__ = "document_versions"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    storage_bucket = Column(String, nullable=False)
+    storage_key = Column(Text, nullable=False)
+    content_type = Column(String, nullable=True)
+    file_extension = Column(String, nullable=True)
+    file_size_bytes = Column(BigInteger, nullable=True)
+    converted_format = Column(String, nullable=True)
+    source_url = Column(Text, nullable=True)
+    downloaded_at = Column(DateTime(timezone=True), nullable=False)
+    superseded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
 class User(Base):

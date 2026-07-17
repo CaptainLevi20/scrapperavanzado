@@ -297,6 +297,77 @@ def test_get_valid_session_by_token_hash_excludes_expired_sessions(db_session):
     assert repository.get_valid_session_by_token_hash(db_session, "expired-hash") is None
 
 
+def test_get_document_by_doc_id_returns_none_when_missing(db_session):
+    assert repository.get_document_by_doc_id(db_session, "does-not-exist") is None
+
+
+def test_archive_and_replace_document_snapshots_old_file_and_updates_with_new(db_session):
+    from datetime import datetime, timezone
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    original_downloaded_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-republished",
+        source_id=source.id,
+        title="A. 829/26",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2026-06-01/Auto/A.829-26.rtf",
+        content_type="application/rtf",
+        file_size_bytes=76245,
+        source_url="https://www.corteconstitucional.gov.co/sentencias/Autos/2026/A829-26.rtf",
+        review_status="useful",
+        downloaded_at=original_downloaded_at,
+    )
+    assert repository.get_document_by_doc_id(db_session, "doc-republished").id == document.id
+
+    updated = repository.archive_and_replace_document(
+        db_session,
+        document.id,
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2026-06-01/Auto/A.829-26-republicado-20260716T120000.rtf",
+        content_type="application/rtf",
+        file_extension=".rtf",
+        file_size_bytes=98000,
+        converted_format=None,
+    )
+
+    assert updated.storage_key == "Corte Constitucional/2026-06-01/Auto/A.829-26-republicado-20260716T120000.rtf"
+    assert updated.file_size_bytes == 98000
+    assert updated.review_status == "pending"
+    assert updated.reviewed_at is None
+
+    [version] = repository.list_document_versions(db_session, document.id)
+    assert version.storage_key == "Corte Constitucional/2026-06-01/Auto/A.829-26.rtf"
+    assert version.file_size_bytes == 76245
+    assert version.downloaded_at == original_downloaded_at
+
+
+def test_list_document_versions_orders_most_recently_superseded_first(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-multi-version",
+        source_id=source.id,
+        title="A. 900/26",
+        storage_bucket="iurisync-test",
+        storage_key="v1.rtf",
+        file_size_bytes=100,
+    )
+    repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v2.rtf", file_size_bytes=200
+    )
+    repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v3.rtf", file_size_bytes=300
+    )
+
+    versions = repository.list_document_versions(db_session, document.id)
+
+    assert [v.storage_key for v in versions] == ["v2.rtf", "v1.rtf"]
+    assert repository.get_document_version(db_session, versions[0].id).id == versions[0].id
+
 def test_touch_session_extends_expiration(db_session):
     user = repository.create_user(db_session, username="ana", password_hash="hashed")
     session = repository.create_session(db_session, user_id=user.id, token_hash="tokhash")

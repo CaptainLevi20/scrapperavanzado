@@ -6,7 +6,7 @@ from sqlalchemy import cast, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from core.db.models import BulkDownload, Document, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -197,6 +197,46 @@ def insert_document(db: Session, **fields) -> Optional[Document]:
     db.execute(stmt)
     db.commit()
     return db.scalars(select(Document).where(Document.doc_id == fields["doc_id"])).first()
+
+
+def get_document_by_doc_id(db: Session, doc_id: str) -> Optional[Document]:
+    return db.scalars(select(Document).where(Document.doc_id == doc_id)).first()
+
+
+def archive_and_replace_document(db: Session, document_id: int, **new_fields) -> Document:
+    document = db.get(Document, document_id)
+    version = DocumentVersion(
+        document_id=document.id,
+        storage_bucket=document.storage_bucket,
+        storage_key=document.storage_key,
+        content_type=document.content_type,
+        file_extension=document.file_extension,
+        file_size_bytes=document.file_size_bytes,
+        converted_format=document.converted_format,
+        source_url=document.source_url,
+        downloaded_at=document.downloaded_at,
+    )
+    db.add(version)
+    for key, value in new_fields.items():
+        setattr(document, key, value)
+    document.review_status = "pending"
+    document.reviewed_at = None
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def list_document_versions(db: Session, document_id: int) -> list[DocumentVersion]:
+    stmt = (
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == document_id)
+        .order_by(DocumentVersion.superseded_at.desc())
+    )
+    return list(db.scalars(stmt).all())
+
+
+def get_document_version(db: Session, version_id: int) -> Optional[DocumentVersion]:
+    return db.get(DocumentVersion, version_id)
 
 
 def list_distinct_document_tipos(db: Session) -> list[str]:
