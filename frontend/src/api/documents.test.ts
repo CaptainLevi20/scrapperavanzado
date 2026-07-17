@@ -11,6 +11,8 @@ import {
   fetchDocumentPreviewUrl,
   fetchDocumentTipos,
   fetchDocuments,
+  fetchDocumentVersions,
+  fetchDocumentVersionUrl,
 } from "./documents";
 import type { Document } from "./types";
 
@@ -223,5 +225,32 @@ describe("buildDownloadFilename", () => {
     const document = makeDocument({ title: "Auto 123/2026", storage_key: "abc123.pdf" });
 
     expect(buildDownloadFilename(document)).toBe("Auto 123-2026.pdf");
+  });
+});
+
+describe("fetchDocumentVersions", () => {
+  it("gets the version list for a document", async () => {
+    const versions = [
+      { id: 1, document_id: 5, file_size_bytes: 100, content_type: "application/rtf", downloaded_at: "2026-06-01T00:00:00Z", superseded_at: "2026-07-01T00:00:00Z" },
+    ];
+    server.use(http.get(`${BASE_URL}/documents/5/versions`, () => HttpResponse.json(versions)));
+
+    const result = await fetchDocumentVersions(5);
+
+    expect(result).toEqual(versions);
+  });
+});
+
+describe("fetchDocumentVersionUrl", () => {
+  it("returns the presigned url for a version", async () => {
+    server.use(
+      http.get(`${BASE_URL}/documents/5/versions/1/download`, () =>
+        HttpResponse.json({ url: "https://signed.example.com/versions/1.rtf" })
+      )
+    );
+
+    const result = await fetchDocumentVersionUrl(5, 1);
+
+    expect(result).toBe("https://signed.example.com/versions/1.rtf");
   });
 });

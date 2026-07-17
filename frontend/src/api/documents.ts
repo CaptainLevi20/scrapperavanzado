@@ -1,5 +1,5 @@
 import { apiFetch, buildQuery, getStoredToken } from "./client";
-import type { Document, DocumentReviewStatus, DocumentStats, PaginatedDocuments } from "./types";
+import type { Document, DocumentReviewStatus, DocumentStats, DocumentVersion, PaginatedDocuments } from "./types";
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -32,6 +32,14 @@ export function fetchDocumentStats(year?: number): Promise<DocumentStats> {
 
 export function fetchDocument(id: number): Promise<Document> {
   return apiFetch<Document>(`/documents/${id}`);
+}
+
+export function fetchDocumentVersions(documentId: number): Promise<DocumentVersion[]> {
+  return apiFetch<DocumentVersion[]>(`/documents/${documentId}/versions`);
+}
+
+export function fetchDocumentVersionUrl(documentId: number, versionId: number): Promise<string> {
+  return apiFetch<{ url: string }>(`/documents/${documentId}/versions/${versionId}/download`).then((data) => data.url);
 }
 
 export function updateDocumentReviewStatus(id: number, review_status: DocumentReviewStatus): Promise<Document> {
@@ -93,6 +101,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
 async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> {
   const token = getStoredToken();
   const headers = new Headers();
+  headers.set("ngrok-skip-browser-warning", "true");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${BASE_URL}${path}`, { headers });

@@ -98,3 +98,12 @@ export interface DocumentStats {
   year: number;
   available_years: number[];
 }
+
+export interface DocumentVersion {
+  id: number;
+  document_id: number;
+  file_size_bytes: number | null;
+  content_type: string | null;
+  downloaded_at: string;
+  superseded_at: string;
+}
