@@ -219,6 +219,7 @@ def archive_and_replace_document(db: Session, document_id: int, **new_fields) ->
     db.add(version)
     for key, value in new_fields.items():
         setattr(document, key, value)
+    document.downloaded_at = datetime.now(timezone.utc)
     document.review_status = "pending"
     document.reviewed_at = None
     db.commit()

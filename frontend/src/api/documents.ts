@@ -112,7 +112,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
 async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> {
   const token = getStoredToken();
   const headers = new Headers();
-  headers.set("ngrok-skip-browser-warning", "true");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${BASE_URL}${path}`, { headers });

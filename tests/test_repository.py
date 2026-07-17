@@ -344,6 +344,43 @@ def test_archive_and_replace_document_snapshots_old_file_and_updates_with_new(db
     assert version.downloaded_at == original_downloaded_at
 
 
+def test_archive_and_replace_document_refreshes_downloaded_at_so_chained_replacements_snapshot_correctly(db_session):
+    # Regression guard: archive_and_replace_document used to leave downloaded_at
+    # frozen at the original download time. A second replacement would then
+    # snapshot that stale value into its DocumentVersion row instead of the
+    # actual time the intermediate (first-replacement) version was fetched.
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-chained-replace",
+        source_id=source.id,
+        title="A. 1/26",
+        storage_bucket="iurisync-test",
+        storage_key="v1.rtf",
+        file_size_bytes=100,
+    )
+    original_downloaded_at = document.downloaded_at
+
+    first_replacement = repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v2.rtf", file_size_bytes=200
+    )
+    assert first_replacement.downloaded_at != original_downloaded_at
+    first_replacement_downloaded_at = first_replacement.downloaded_at
+
+    second_replacement = repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v3.rtf", file_size_bytes=300
+    )
+
+    versions = repository.list_document_versions(db_session, document.id)
+    # versions[0] es la más recientemente reemplazada (v2, archivada en el segundo
+    # reemplazo) — su downloaded_at debe ser el momento real en que v2 fue
+    # descargada (el primer reemplazo), no la fecha de creación original de v1.
+    assert versions[0].storage_key == "v2.rtf"
+    assert versions[0].downloaded_at == first_replacement_downloaded_at
+    assert second_replacement.downloaded_at != first_replacement_downloaded_at
+
+
 def test_list_document_versions_orders_most_recently_superseded_first(db_session):
     repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
     source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
