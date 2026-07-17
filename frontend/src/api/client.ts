@@ -47,6 +47,10 @@ export async function apiFetch<T>(
   const token = getStoredToken();
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
+  // Skips ngrok's free-tier interstitial warning page, which otherwise replaces
+  // the real response with an HTML page for any request carrying a browser
+  // User-Agent — harmless against a non-ngrok backend, which just ignores it.
+  headers.set("ngrok-skip-browser-warning", "true");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });

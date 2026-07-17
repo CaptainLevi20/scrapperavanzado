@@ -5,6 +5,11 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    // Lets an ngrok tunnel (whose Host header is a random *.ngrok-free.app
+    // subdomain each run) reach the dev server for ad-hoc demos.
+    allowedHosts: [".ngrok-free.app"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
