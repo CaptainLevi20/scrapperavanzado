@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
@@ -11,7 +11,7 @@ from worker.tasks import build_bulk_download_zip
 router = APIRouter(dependencies=[Depends(require_session)])
 
 
-@router.post("/bulk-downloads", response_model=BulkDownloadOut, status_code=202)
+@router.post("/bulk-downloads", response_model=BulkDownloadOut, status_code=status.HTTP_202_ACCEPTED)
 def post_bulk_download(db: Session = Depends(get_db)):
     bulk_download = repository.create_bulk_download(db)
     build_bulk_download_zip.delay(bulk_download.id)
@@ -29,6 +29,9 @@ def get_bulk_download_download(bulk_download_id: int, db: Session = Depends(get_
     if bulk_download is None or bulk_download.status != "completed" or not bulk_download.zip_storage_key:
         raise HTTPException(status_code=404, detail="Descarga masiva no disponible")
 
+    # Bulk-download zips always land in the current default bucket (unlike
+    # Document rows, which store their own storage_bucket) — fine as long as
+    # s3_bucket never changes between when a zip was built and when it's read.
     bucket = get_settings().s3_bucket
     url = presigned_url(
         bucket,

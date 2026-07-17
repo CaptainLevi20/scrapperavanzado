@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, inspect
 TEST_DATABASE_URL = "postgresql+psycopg://iurisync:iurisync@localhost:5432/iurisync_test"
 
 EXPECTED_TABLES = {
+    "bulk_downloads",
     "source_families",
     "sources",
     "runs",
