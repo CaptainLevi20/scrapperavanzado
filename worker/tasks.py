@@ -37,17 +37,25 @@ def _default_date_str(value: date | None) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def _download_and_upload_one(doc, tmp_path: Path, override_storage_key: str | None = None):
+def _download_and_upload_one(
+    doc, tmp_path: Path, override_storage_key: str | None = None, skip_upload_if_size_matches: int | None = None
+):
     """Runs in a worker thread: download, convert, and upload a single document.
-    Returns (payload, error) — payload is the dict of fields insert_document needs
-    beyond doc_id/source_id/run_source_id, or None if an error occurred. Owns its
-    own Downloader (and therefore its own WordConverter/Word COM instance) so
-    concurrent threads never share Word state. `override_storage_key`, when given,
-    is used instead of the freshly-computed key — this is how a republication
-    replacement lands under a distinct key instead of the original document's."""
+    Returns (payload, error) — payload is the dict of fields insert_document/
+    archive_and_replace_document needs beyond doc_id/source_id/run_source_id, or
+    None if an error occurred (error not None) or nothing changed (error is None too —
+    this is how a republication candidate whose real downloaded size matches the
+    stored one is discarded WITHOUT ever uploading, avoiding an orphaned object in
+    storage). Owns its own Downloader (and therefore its own WordConverter/Word COM
+    instance) so concurrent threads never share Word state. `override_storage_key`,
+    when given, is used instead of the freshly-computed key — this is how a
+    republication replacement lands under a distinct key instead of the original
+    document's."""
     downloader = Downloader()
     try:
         result = downloader.download(doc, tmp_path)
+        if skip_upload_if_size_matches is not None and result.file_size_bytes == skip_upload_if_size_matches:
+            return None, None
         upload_key = override_storage_key or result.storage_key
         bucket, storage_key = upload_file(result.local_path, upload_key, content_type=result.content_type)
 
@@ -130,7 +138,11 @@ def scrape_source_task(self, run_source_id: int):
                 }
                 replace_futures = {
                     executor.submit(
-                        _download_and_upload_one, doc, tmp_path, _versioned_replacement_key(existing.storage_key)
+                        _download_and_upload_one,
+                        doc,
+                        tmp_path,
+                        _versioned_replacement_key(existing.storage_key),
+                        existing.file_size_bytes,
                     ): ("replace", existing, doc_id, doc)
                     for existing, doc_id, doc in replace_candidates
                 }
@@ -151,6 +163,9 @@ def scrape_source_task(self, run_source_id: int):
                             db, run_source_id, str(exc), context={"title": doc.title, "url": doc.link.get("url")}
                         )
                         continue
+
+                    if payload is None:
+                        continue  # candidato a reemplazo confirmado sin cambios; no se subió nada
 
                     if kind == "new":
                         _, doc_id, doc = entry
@@ -173,8 +188,6 @@ def scrape_source_task(self, run_source_id: int):
                         docs_new += 1
                     else:
                         _, existing, doc_id, doc = entry
-                        if payload["file_size_bytes"] == existing.file_size_bytes:
-                            continue  # el HEAD no fue concluyente pero el tamaño real no cambió
                         repository.archive_and_replace_document(db, existing.id, **payload)
                         docs_updated += 1
 

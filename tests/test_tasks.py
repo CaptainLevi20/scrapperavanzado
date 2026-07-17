@@ -362,6 +362,70 @@ def test_scrape_source_task_never_head_checks_a_family_that_opts_out(db_session,
         DummyFamilyScraper.checks_for_republication = True  # restore the class-level default for later tests
 
 
+@responses.activate
+def test_scrape_source_task_uploads_nothing_when_head_is_inconclusive_but_real_size_is_unchanged(db_session, test_engine, monkeypatch):
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    existing_doc = repository.insert_document(
+        db_session,
+        doc_id="56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,  # tamaño de "contenido"
+        source_url="https://example.com/doc1",
+    )
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    # El HEAD no trae Content-Length (inconcluso) — dispara la descarga completa de
+    # respaldo. El contenido real descargado ("contenido", 9 bytes) resulta ser
+    # idéntico al ya guardado, así que no debe subirse nada nuevo ni tocarse el
+    # documento ni crearse ninguna versión.
+    responses.add(responses.HEAD, "https://example.com/doc1", status=200)  # sin Content-Length
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed_source] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed_source.docs_new == 0
+        assert refreshed_source.docs_updated == 0
+        assert refreshed_source.docs_errors == 0
+
+        unchanged_document = repository.get_document(assertion_session, existing_doc.id)
+        assert unchanged_document.storage_key == "old-key.pdf"  # nunca se tocó
+
+        assert repository.list_document_versions(assertion_session, existing_doc.id) == []  # no se creó versión
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 
