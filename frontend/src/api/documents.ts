@@ -61,6 +61,7 @@ const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
   "text/plain": "txt",
   "application/msword": "doc",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/rtf": "rtf",
 };
 
 function extensionFromStorageKey(storageKey: string): string | undefined {
@@ -85,6 +86,16 @@ export function buildDownloadFilename(document: Document): string {
 // buildDownloadFilename's storage_key-derived extension.
 export function buildPreviewDownloadFilename(document: Document): string {
   return `${sanitizeFilename(document.title)}.pdf`;
+}
+
+// A DocumentVersion has no storage_key (only content_type), so its extension
+// can only come from the CONTENT_TYPE_EXTENSIONS lookup, unlike
+// buildDownloadFilename which can also fall back to the live document's
+// storage_key.
+export function buildVersionDownloadFilename(documentTitle: string, version: DocumentVersion): string {
+  const ext = version.content_type ? CONTENT_TYPE_EXTENSIONS[version.content_type] : undefined;
+  const sanitizedTitle = sanitizeFilename(documentTitle);
+  return ext ? `${sanitizedTitle}-version-${version.id}.${ext}` : `${sanitizedTitle}-version-${version.id}`;
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {

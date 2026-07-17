@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import {
   buildDownloadFilename,
   buildPreviewDownloadFilename,
+  buildVersionDownloadFilename,
   downloadDocumentFile,
   downloadFromUrl,
   fetchDocumentPreviewUrl,
@@ -11,7 +12,7 @@ import {
   fetchDocumentVersions,
   updateDocumentReviewStatus,
 } from "../api/documents";
-import type { Document, DocumentReviewStatus } from "../api/types";
+import type { Document, DocumentReviewStatus, DocumentVersion } from "../api/types";
 import { formatBytes, formatDate, formatDateTime } from "../lib/formatters";
 import { ErrorBanner } from "./ErrorBanner";
 import { Button } from "./ui/button";
@@ -112,11 +113,11 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
     }
   }
 
-  async function handleDownloadVersion(versionId: number) {
+  async function handleDownloadVersion(version: DocumentVersion) {
     try {
       setDownloadError(null);
-      const url = await fetchDocumentVersionUrl(currentDocument.id, versionId);
-      await downloadFromUrl(url, `${currentDocument.title}-version-${versionId}.rtf`);
+      const url = await fetchDocumentVersionUrl(currentDocument.id, version.id);
+      await downloadFromUrl(url, buildVersionDownloadFilename(currentDocument.title, version));
     } catch {
       setDownloadError("Error al descargar la versión anterior");
     }
@@ -196,7 +197,7 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
                   <span className="text-muted-foreground">
                     Reemplazada el {formatDateTime(version.superseded_at)} · {formatBytes(version.file_size_bytes)}
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => handleDownloadVersion(version.id)}>
+                  <Button variant="outline" size="sm" onClick={() => handleDownloadVersion(version)}>
                     <Download className="size-3.5" aria-hidden="true" />
                     Descargar
                   </Button>
