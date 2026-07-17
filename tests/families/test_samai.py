@@ -99,3 +99,10 @@ def test_scrap_swallows_exceptions_and_returns_empty_list(monkeypatch):
 
     assert docs == []
     assert any("Error en" in m for m in messages)
+
+
+def test_samai_does_not_check_for_republication():
+    # SAMAI's download goes through an indirect JWT hop (no direct file URL), so
+    # there's nothing cheap to HEAD — republication checking is out of scope.
+    scraper = ScrapTribunales("1100103", "Consejo de Estado")
+    assert scraper.checks_for_republication is False

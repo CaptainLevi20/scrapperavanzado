@@ -170,3 +170,9 @@ def test_scrap_skips_malformed_item_without_aborting_the_rest():
 
     assert len(docs) == 4  # el item malformado se salta, uno válido por cada uno de los 4 tipos
     assert {d.title for d in docs} == {"Sentencia SC9999-2024"}
+
+
+def test_corte_suprema_does_not_check_for_republication():
+    # CSJ's download is a POST to a shared endpoint (no direct file URL), so there's
+    # nothing cheap to HEAD — republication checking is out of scope for this family.
+    assert ScrapCorteSuprema().checks_for_republication is False

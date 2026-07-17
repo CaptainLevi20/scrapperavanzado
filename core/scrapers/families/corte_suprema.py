@@ -62,6 +62,11 @@ _QUERY_TEMPLATE = """query GetSearchResult {{
 
 @register_family("corte_suprema")
 class ScrapCorteSuprema(BaseScrapper):
+    # CSJ's download is a POST to a shared endpoint with a body param, not a direct
+    # file URL — there's nothing cheap to HEAD, so republication checking is out of
+    # scope for this family (see tests/families/test_corte_suprema.py).
+    checks_for_republication = False
+
     def __init__(self):
         self.source = "CSJ"
         self.url = _CORTE_SUPREMA_URL

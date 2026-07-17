@@ -76,6 +76,10 @@ def _all_inputs(soup) -> dict:
 @register_family("samai")
 class ScrapTribunales(BaseScrapper):
     source = "Tribunales Administrativos"
+    # SAMAI's download goes through an indirect JWT hop, not a direct file URL —
+    # there's nothing cheap to HEAD, so republication checking is out of scope for
+    # this family (see tests/families/test_samai.py).
+    checks_for_republication = False
 
     def __init__(self, corp_code: str, corp_name: str):
         self._corp_code = corp_code
