@@ -220,7 +220,6 @@ class ScrapCNDJ(BaseScrapper):
                 f_public=f_public,
                 f_providencia=fecha_decision,
                 save_path=path,
-                convert_to="rtf",
             ))
 
         return docs

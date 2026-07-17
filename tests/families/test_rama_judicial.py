@@ -83,7 +83,7 @@ def test_scrap_builds_docs_from_listing_and_detail(monkeypatch):
     assert doc.especialidad == "Civil"
     assert doc.seccion == "Juzgado 1 Civil del Circuito"
     assert doc.f_public == "2024-06-15"
-    assert doc.convert_to == "rtf"
+    assert doc.convert_to is None
     assert doc.link == {
         "url": _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123",
         "method": "GET",

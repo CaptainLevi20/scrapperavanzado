@@ -280,7 +280,6 @@ class ScrapRamaJudicial(BaseScrapper):
                             seccion=despacho_dir,
                             f_public=fecha_p,
                             save_path=save_path,
-                            convert_to="rtf",
                         ))
 
             if num_pag >= max_pages:
