@@ -188,6 +188,180 @@ def test_scrape_source_task_uploads_file_with_the_correct_content_type(db_sessio
     assert head["ContentType"] == "application/pdf"
 
 
+@responses.activate
+def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old_one(db_session, test_engine, monkeypatch):
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    existing_doc = repository.insert_document(
+        db_session,
+        doc_id="56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,  # tamaño de "contenido" (el body del test original)
+        source_url="https://example.com/doc1",
+        review_status="useful",
+    )
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    # "56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66" es make_doc_id("https://example.com/doc1", "2026-01-01")
+    # (verificado directamente), el mismo valor que produce compute_doc_id(doc) para
+    # este RawDocModel — por eso existing_doc puede insertarse con ese doc_id fijo de
+    # antemano y el bucle de scrape_source_task lo reconoce como el mismo documento.
+    responses.add(responses.HEAD, "https://example.com/doc1", headers={"Content-Length": "20"}, status=200)
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido mas largo!",  # 20 bytes, distinto de los 9 originales
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed_source] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed_source.status == "completed"
+        assert refreshed_source.docs_new == 0
+        assert refreshed_source.docs_updated == 1
+        assert refreshed_source.docs_errors == 0
+
+        updated_document = repository.get_document(assertion_session, existing_doc.id)
+        assert updated_document.file_size_bytes == 20
+        assert updated_document.storage_key != "old-key.pdf"
+        assert updated_document.review_status == "pending"
+        assert updated_document.reviewed_at is None
+
+        [version] = repository.list_document_versions(assertion_session, existing_doc.id)
+        assert version.storage_key == "old-key.pdf"
+        assert version.file_size_bytes == 9
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_skips_unchanged_existing_document_without_downloading(db_session, test_engine, monkeypatch):
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    repository.insert_document(
+        db_session,
+        doc_id="56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,
+        source_url="https://example.com/doc1",
+    )
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(responses.HEAD, "https://example.com/doc1", headers={"Content-Length": "9"}, status=200)
+    # Deliberadamente NO se registra ningún mock de GET para esta URL — si el código
+    # intentara descargar de todos modos, `responses` haría fallar la petición y el
+    # test lo detectaría como error, no como "saltado silenciosamente".
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed_source] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed_source.docs_new == 0
+        assert refreshed_source.docs_updated == 0
+        assert refreshed_source.docs_errors == 0
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_never_head_checks_a_family_that_opts_out(db_session, test_engine, monkeypatch):
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    repository.insert_document(
+        db_session,
+        doc_id="56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,
+        source_url="https://example.com/doc1",
+    )
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    # No se registra NINGÚN mock (ni HEAD ni GET) — si el código llegara a llamar a
+    # cualquiera de los dos, `responses` lo haría fallar, probando que un existing
+    # document se salta por completo cuando la familia no verifica republicaciones.
+    DummyFamilyScraper.checks_for_republication = False
+    try:
+        task_session_factory = sessionmaker(bind=test_engine, future=True)
+        monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+        monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+        scrape_source_task(run_source.id)
+
+        assertion_session = task_session_factory()
+        try:
+            [refreshed_source] = repository.list_run_sources(assertion_session, run.id)
+            assert refreshed_source.docs_new == 0
+            assert refreshed_source.docs_updated == 0
+        finally:
+            assertion_session.close()
+    finally:
+        DummyFamilyScraper.checks_for_republication = True  # restore the class-level default for later tests
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

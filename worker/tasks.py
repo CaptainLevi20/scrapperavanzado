@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 
 from core.db import repository
 from core.db.session import SessionLocal
-from core.downloader import Downloader, convert_to_pdf_via_libreoffice
+from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
@@ -37,22 +37,25 @@ def _default_date_str(value: date | None) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def _download_and_upload_one(doc, tmp_path: Path):
+def _download_and_upload_one(doc, tmp_path: Path, override_storage_key: str | None = None):
     """Runs in a worker thread: download, convert, and upload a single document.
     Returns (payload, error) — payload is the dict of fields insert_document needs
     beyond doc_id/source_id/run_source_id, or None if an error occurred. Owns its
     own Downloader (and therefore its own WordConverter/Word COM instance) so
-    concurrent threads never share Word state."""
+    concurrent threads never share Word state. `override_storage_key`, when given,
+    is used instead of the freshly-computed key — this is how a republication
+    replacement lands under a distinct key instead of the original document's."""
     downloader = Downloader()
     try:
         result = downloader.download(doc, tmp_path)
-        bucket, storage_key = upload_file(result.local_path, result.storage_key, content_type=result.content_type)
+        upload_key = override_storage_key or result.storage_key
+        bucket, storage_key = upload_file(result.local_path, upload_key, content_type=result.content_type)
 
         return {
             "storage_bucket": bucket,
             "storage_key": storage_key,
             "content_type": result.content_type,
-            "file_extension": Path(result.storage_key).suffix,
+            "file_extension": Path(storage_key).suffix,
             "file_size_bytes": result.file_size_bytes,
             "converted_format": result.converted_format,
         }, None
@@ -60,6 +63,17 @@ def _download_and_upload_one(doc, tmp_path: Path):
         return None, exc
     finally:
         downloader.close()
+
+
+def _versioned_replacement_key(original_key: str) -> str:
+    """Builds a distinct storage key for a re-downloaded (republished) document, so
+    the new upload never overwrites the original object — a DocumentVersion row
+    keeps pointing at that original key as the archived version's location."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    posix_key = PurePosixPath(original_key)
+    if posix_key.suffix:
+        return str(posix_key.with_name(f"{posix_key.stem}-republicado-{timestamp}{posix_key.suffix}"))
+    return f"{original_key}-republicado-{timestamp}"
 
 
 @celery_app.task(name="worker.scrape_source_task", bind=True, max_retries=2, default_retry_delay=30)
@@ -87,26 +101,45 @@ def scrape_source_task(self, run_source_id: int):
             return
 
         docs_new = 0
+        docs_updated = 0
         docs_errors = 0
         with tempfile.TemporaryDirectory(prefix=f"run_source_{run_source_id}_") as tmp_dir:
             tmp_path = Path(tmp_dir)
 
-            pending = []
+            pending = []  # (doc_id, doc) -> brand new documents
+            replace_candidates = []  # (existing_document, doc_id, doc) -> possible republication
             for doc in docs:
                 if repository.is_cancel_requested(db, run.id):
                     break
                 doc_id = compute_doc_id(doc)
-                if repository.document_exists(db, doc_id):
+                existing = repository.get_document_by_doc_id(db, doc_id)
+                if existing is None:
+                    pending.append((doc_id, doc))
                     continue
-                pending.append((doc_id, doc))
+                if not scraper.checks_for_republication:
+                    continue
+                remote_size = check_remote_content_length(doc.link.get("url"))
+                if remote_size is not None and remote_size == existing.file_size_bytes:
+                    continue
+                replace_candidates.append((existing, doc_id, doc))
 
             with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOCUMENT_DOWNLOADS) as executor:
-                futures = {
-                    executor.submit(_download_and_upload_one, doc, tmp_path): (doc_id, doc)
+                new_futures = {
+                    executor.submit(_download_and_upload_one, doc, tmp_path): ("new", doc_id, doc)
                     for doc_id, doc in pending
                 }
-                for future in as_completed(futures):
-                    doc_id, doc = futures[future]
+                replace_futures = {
+                    executor.submit(
+                        _download_and_upload_one, doc, tmp_path, _versioned_replacement_key(existing.storage_key)
+                    ): ("replace", existing, doc_id, doc)
+                    for existing, doc_id, doc in replace_candidates
+                }
+                all_futures = {**new_futures, **replace_futures}
+
+                for future in as_completed(all_futures):
+                    entry = all_futures[future]
+                    kind = entry[0]
+                    doc = entry[-1]
                     payload, exc = future.result()
 
                     if exc is not None:
@@ -119,29 +152,38 @@ def scrape_source_task(self, run_source_id: int):
                         )
                         continue
 
-                    repository.insert_document(
-                        db,
-                        doc_id=doc_id,
-                        source_id=source.id,
-                        run_source_id=run_source_id,
-                        title=doc.title,
-                        tipo=doc.tipo,
-                        seccion=doc.seccion,
-                        especialidad=doc.especialidad,
-                        magistrado=doc.magistrado,
-                        detalle=doc.detalle,
-                        f_public=_parse_date(doc.f_public),
-                        f_providencia=_parse_date(doc.f_providencia),
-                        source_url=doc.link.get("url"),
-                        **payload,
-                    )
-                    docs_new += 1
+                    if kind == "new":
+                        _, doc_id, doc = entry
+                        repository.insert_document(
+                            db,
+                            doc_id=doc_id,
+                            source_id=source.id,
+                            run_source_id=run_source_id,
+                            title=doc.title,
+                            tipo=doc.tipo,
+                            seccion=doc.seccion,
+                            especialidad=doc.especialidad,
+                            magistrado=doc.magistrado,
+                            detalle=doc.detalle,
+                            f_public=_parse_date(doc.f_public),
+                            f_providencia=_parse_date(doc.f_providencia),
+                            source_url=doc.link.get("url"),
+                            **payload,
+                        )
+                        docs_new += 1
+                    else:
+                        _, existing, doc_id, doc = entry
+                        if payload["file_size_bytes"] == existing.file_size_bytes:
+                            continue  # el HEAD no fue concluyente pero el tamaño real no cambió
+                        repository.archive_and_replace_document(db, existing.id, **payload)
+                        docs_updated += 1
 
         repository.set_run_source_status(
             db,
             run_source_id,
             "completed",
             docs_new=docs_new,
+            docs_updated=docs_updated,
             docs_errors=docs_errors,
             finished_at=datetime.now(timezone.utc),
         )
