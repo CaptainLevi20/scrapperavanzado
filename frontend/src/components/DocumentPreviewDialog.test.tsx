@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -337,6 +337,55 @@ describe("DocumentPreviewDialog", () => {
     await user.click(screen.getByRole("button", { name: /descargar pdf/i }));
 
     await waitFor(() => expect(capturedFilename).toBe("Doc RTF.pdf"));
+    createElementSpy.mockRestore();
+  });
+
+  it("does not show a version history section when the document has no prior versions", async () => {
+    const documents = [makeDocument({ id: 20, title: "Sin historial" })];
+    mockPreviewUrl(20);
+    server.use(http.get(`${BASE_URL}/documents/20/versions`, () => HttpResponse.json([])));
+
+    renderDialog(documents, 0);
+
+    await screen.findByTitle("Vista previa de Sin historial");
+    expect(screen.queryByText(/versiones anteriores/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the version history with a working download button", async () => {
+    const documents = [makeDocument({ id: 21, title: "Con historial" })];
+    mockPreviewUrl(21);
+    server.use(
+      http.get(`${BASE_URL}/documents/21/versions`, () =>
+        HttpResponse.json([
+          { id: 1, document_id: 21, file_size_bytes: 76245, content_type: "application/rtf", downloaded_at: "2026-06-01T00:00:00Z", superseded_at: "2026-07-01T00:00:00Z" },
+        ])
+      ),
+      http.get(`${BASE_URL}/documents/21/versions/1/download`, () =>
+        HttpResponse.json({ url: "https://signed.example.com/versions/1.rtf" })
+      ),
+      http.get("https://signed.example.com/versions/1.rtf", () => new HttpResponse(new Blob(["contenido viejo"])))
+    );
+    const clickSpy = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") element.click = clickSpy;
+      return element;
+    });
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Con historial");
+
+    // Scoped with within(): the default makeDocument() content_type is "application/pdf",
+    // so the header already renders its own "Descargar PDF" button — a bare
+    // screen.getByRole("button", { name: /descargar/i }) would match both that one and
+    // the version row's "Descargar" button and throw for multiple matches.
+    const versionsHeading = await screen.findByText(/1 versi.n anterior/i);
+    const versionsSection = versionsHeading.closest("div") as HTMLElement;
+    await user.click(within(versionsSection).getByRole("button", { name: /descargar/i }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
     createElementSpy.mockRestore();
   });
 });

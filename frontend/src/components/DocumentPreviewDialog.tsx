@@ -7,10 +7,12 @@ import {
   downloadDocumentFile,
   downloadFromUrl,
   fetchDocumentPreviewUrl,
+  fetchDocumentVersionUrl,
+  fetchDocumentVersions,
   updateDocumentReviewStatus,
 } from "../api/documents";
 import type { Document, DocumentReviewStatus } from "../api/types";
-import { formatDate } from "../lib/formatters";
+import { formatBytes, formatDate, formatDateTime } from "../lib/formatters";
 import { ErrorBanner } from "./ErrorBanner";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -62,6 +64,12 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
     enabled: open && !!currentDocument && isPreviewable,
   });
 
+  const versionsQuery = useQuery({
+    queryKey: ["document-versions", currentDocument?.id],
+    queryFn: () => fetchDocumentVersions(currentDocument!.id),
+    enabled: open && !!currentDocument,
+  });
+
   const markMutation = useMutation({
     mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
     onSuccess: () => {
@@ -101,6 +109,16 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
       await downloadFromUrl(previewUrlQuery.data, buildPreviewDownloadFilename(currentDocument));
     } catch {
       setDownloadError("Error al descargar el PDF");
+    }
+  }
+
+  async function handleDownloadVersion(versionId: number) {
+    try {
+      setDownloadError(null);
+      const url = await fetchDocumentVersionUrl(currentDocument.id, versionId);
+      await downloadFromUrl(url, `${currentDocument.title}-version-${versionId}.rtf`);
+    } catch {
+      setDownloadError("Error al descargar la versión anterior");
     }
   }
 
@@ -166,6 +184,27 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
             </div>
           )}
         </div>
+
+        {(versionsQuery.data?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-border bg-secondary/40 p-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase">
+              {versionsQuery.data!.length} {versionsQuery.data!.length === 1 ? "versión anterior" : "versiones anteriores"}
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {versionsQuery.data!.map((version) => (
+                <li key={version.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Reemplazada el {formatDateTime(version.superseded_at)} · {formatBytes(version.file_size_bytes)}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => handleDownloadVersion(version.id)}>
+                    <Download className="size-3.5" aria-hidden="true" />
+                    Descargar
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {markError && (
           <ErrorBanner message={markError} onRetry={() => lastMarkAttempt && handleMark(lastMarkAttempt)} />
