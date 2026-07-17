@@ -44,3 +44,19 @@ def test_get_runs_respects_limit_and_offset(api_client, auth_header, monkeypatch
     response = api_client.get("/runs?limit=2&offset=2", headers=auth_header)
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_get_run_sources_reports_docs_updated(api_client, auth_header, monkeypatch, db_session):
+    from core.db import repository
+
+    monkeypatch.setattr("api.routers.runs.orchestrate_run.delay", lambda *a, **k: None)
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    repository.set_run_source_status(db_session, run_source.id, "completed", docs_new=1, docs_updated=3, docs_errors=0)
+
+    response = api_client.get(f"/runs/{run.id}/sources", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json()[0]["docs_updated"] == 3

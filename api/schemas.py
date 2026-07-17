@@ -59,6 +59,7 @@ class RunSourceOut(BaseModel):
     source_id: int
     status: str
     docs_new: int
+    docs_updated: int
     docs_errors: int
     error_message: Optional[str] = None
 
@@ -105,6 +106,16 @@ class BulkDownloadOut(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime
+
+
+class DocumentVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    document_id: int
+    file_size_bytes: Optional[int] = None
+    content_type: Optional[str] = None
+    downloaded_at: datetime
+    superseded_at: datetime
 
 
 class FamilyCount(BaseModel):

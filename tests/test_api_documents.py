@@ -587,3 +587,85 @@ def test_preview_returns_404_for_a_non_convertible_content_type(api_client, auth
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Vista previa no disponible para este tipo de archivo"
+
+
+def test_get_document_versions_lists_most_recently_superseded_first(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session, doc_id="doc-v", source_id=source.id, title="A. 1/26",
+        storage_bucket="iurisync-test", storage_key="v1.rtf", file_size_bytes=100,
+    )
+    repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v2.rtf", file_size_bytes=200
+    )
+    repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v3.rtf", file_size_bytes=300
+    )
+
+    response = api_client.get(f"/documents/{document.id}/versions", headers=auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [v["file_size_bytes"] for v in body] == [200, 100]
+
+
+def test_get_document_versions_returns_empty_list_for_a_document_with_no_history(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session, doc_id="doc-no-versions", source_id=source.id, title="A. 2/26",
+        storage_bucket="iurisync-test", storage_key="only.rtf", file_size_bytes=50,
+    )
+
+    response = api_client.get(f"/documents/{document.id}/versions", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_get_document_version_download_returns_404_for_a_version_of_another_document(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document_a = repository.insert_document(
+        db_session, doc_id="doc-a", source_id=source.id, title="A", storage_bucket="iurisync-test",
+        storage_key="a.rtf", file_size_bytes=10,
+    )
+    document_b = repository.insert_document(
+        db_session, doc_id="doc-b", source_id=source.id, title="B", storage_bucket="iurisync-test",
+        storage_key="b.rtf", file_size_bytes=10,
+    )
+    repository.archive_and_replace_document(
+        db_session, document_b.id, storage_bucket="iurisync-test", storage_key="b-v2.rtf", file_size_bytes=20
+    )
+    [version_of_b] = repository.list_document_versions(db_session, document_b.id)
+
+    response = api_client.get(f"/documents/{document_a.id}/versions/{version_of_b.id}/download", headers=auth_header)
+
+    assert response.status_code == 404
+
+
+def test_get_document_version_download_returns_signed_url(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session, doc_id="doc-download-version", source_id=source.id, title="A. 3/26",
+        storage_bucket="iurisync-test", storage_key="v1.rtf", file_size_bytes=10,
+    )
+    repository.archive_and_replace_document(
+        db_session, document.id, storage_bucket="iurisync-test", storage_key="v2.rtf", file_size_bytes=20
+    )
+    [version] = repository.list_document_versions(db_session, document.id)
+
+    response = api_client.get(f"/documents/{document.id}/versions/{version.id}/download", headers=auth_header)
+
+    assert response.status_code == 200
+    assert "url" in response.json()

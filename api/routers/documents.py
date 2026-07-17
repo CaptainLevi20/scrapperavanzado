@@ -9,7 +9,14 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
-from api.schemas import BulkDocumentReviewUpdate, DocumentOut, DocumentReviewUpdate, DocumentStatsOut, PaginatedDocuments
+from api.schemas import (
+    BulkDocumentReviewUpdate,
+    DocumentOut,
+    DocumentReviewUpdate,
+    DocumentStatsOut,
+    DocumentVersionOut,
+    PaginatedDocuments,
+)
 from core.db import repository
 from core.db.models import Document
 from core.storage import presigned_url
@@ -102,6 +109,20 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     return document
+
+
+@router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionOut])
+def get_document_versions(document_id: int, db: Session = Depends(get_db)):
+    return repository.list_document_versions(db, document_id)
+
+
+@router.get("/documents/{document_id}/versions/{version_id}/download")
+def download_document_version(document_id: int, version_id: int, db: Session = Depends(get_db)):
+    version = repository.get_document_version(db, version_id)
+    if version is None or version.document_id != document_id:
+        raise HTTPException(status_code=404, detail="Versión no encontrada")
+    url = presigned_url(version.storage_bucket, version.storage_key)
+    return {"url": url}
 
 
 @router.patch("/documents/bulk-review")
