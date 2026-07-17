@@ -5,6 +5,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -21,6 +22,21 @@ _SOFFICE_FALLBACK_PATHS = [
     r"C:\Program Files\LibreOffice\program\soffice.exe",
     r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
 ]
+
+
+def check_remote_content_length(url: str, timeout: int = 15) -> Optional[int]:
+    """HEAD barato para saber si el archivo remoto cambió de tamaño sin descargarlo
+    completo. Devuelve None si el servidor no expone Content-Length, responde con un
+    status distinto de 200, o la petición falla — el llamador debe entonces caer a
+    descargar y comparar el tamaño real."""
+    try:
+        response = requests.head(url, allow_redirects=True, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+    except requests.exceptions.RequestException:
+        return None
+    if response.status_code != 200:
+        return None
+    content_length = response.headers.get("Content-Length")
+    return int(content_length) if content_length is not None else None
 
 
 def _find_soffice() -> str:

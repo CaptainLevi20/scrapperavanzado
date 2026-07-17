@@ -7,7 +7,7 @@ import responses
 from pypdf import PdfWriter
 
 import core.downloader as downloader_module
-from core.downloader import Downloader
+from core.downloader import Downloader, check_remote_content_length
 from core.models import RawDocModel
 
 
@@ -407,3 +407,34 @@ def test_convert_to_pdf_via_libreoffice_raises_when_output_file_is_missing(tmp_p
 
     with pytest.raises(RuntimeError):
         downloader_module.convert_to_pdf_via_libreoffice(rtf_path)
+
+
+@responses.activate
+def test_check_remote_content_length_returns_the_header_value():
+    responses.add(responses.HEAD, "https://example.com/file.rtf", headers={"Content-Length": "76245"}, status=200)
+
+    assert check_remote_content_length("https://example.com/file.rtf") == 76245
+
+
+@responses.activate
+def test_check_remote_content_length_returns_none_when_header_is_missing():
+    responses.add(responses.HEAD, "https://example.com/file.rtf", status=200)
+
+    assert check_remote_content_length("https://example.com/file.rtf") is None
+
+
+@responses.activate
+def test_check_remote_content_length_returns_none_on_non_200_status():
+    responses.add(responses.HEAD, "https://example.com/file.rtf", status=404)
+
+    assert check_remote_content_length("https://example.com/file.rtf") is None
+
+
+@responses.activate
+def test_check_remote_content_length_returns_none_on_request_exception():
+    def _callback(request):
+        raise requests.exceptions.ConnectionError("conexión rechazada")
+
+    responses.add_callback(responses.HEAD, "https://example.com/file.rtf", callback=_callback)
+
+    assert check_remote_content_length("https://example.com/file.rtf") is None
