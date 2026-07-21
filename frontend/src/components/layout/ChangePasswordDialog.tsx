@@ -8,7 +8,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
-export function ChangePasswordDialog() {
+interface ChangePasswordDialogProps {
+  collapsed?: boolean;
+}
+
+export function ChangePasswordDialog({ collapsed = false }: ChangePasswordDialogProps) {
   const [open, setOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -56,9 +60,14 @@ export function ChangePasswordDialog() {
       }}
     >
       <DialogTrigger asChild>
-        <button className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
+        <button
+          title={collapsed ? "Cambiar contraseña" : undefined}
+          className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ${
+            collapsed ? "justify-center" : ""
+          }`}
+        >
           <KeyRound className="size-4 shrink-0" aria-hidden="true" />
-          Cambiar contraseña
+          {!collapsed && "Cambiar contraseña"}
         </button>
       </DialogTrigger>
       <DialogContent>
