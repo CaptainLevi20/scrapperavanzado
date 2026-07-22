@@ -77,6 +77,27 @@ def test_get_document_tipos_returns_sorted_distinct_values(api_client, auth_head
     assert response.json() == ["Auto", "Sentencia"]
 
 
+def test_get_document_tipos_scoped_to_a_source(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source_a = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    source_b = repository.create_source(db_session, family_key="constitucional", name="Otra fuente", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source_a.id, title="A", tipo="Sentencia",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source_b.id, title="B", tipo="Auto",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get(f"/documents/tipos?source_id={source_a.id}", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json() == ["Sentencia"]
+
+
 def test_get_document_stats_aggregates_over_the_full_table_not_a_sample(api_client, auth_header, db_session):
     # Regression guard: the dashboard used to compute these breakdowns client-side
     # from only the 1000 most-recently-downloaded documents, which silently
@@ -263,6 +284,74 @@ def test_patch_document_review_status_rejects_invalid_value(api_client, auth_hea
     )
 
     assert response.status_code == 422
+
+
+def test_patch_document_title_updates_and_returns_document(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="T065_24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    response = api_client.patch(
+        f"/documents/{document.id}/title", json={"title": "ST065_24 (corregido a mano)"}, headers=auth_header
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "ST065_24 (corregido a mano)"
+
+
+def test_patch_document_title_strips_surrounding_whitespace(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="T065_24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    response = api_client.patch(
+        f"/documents/{document.id}/title", json={"title": "  Título con espacios  "}, headers=auth_header
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Título con espacios"
+
+
+def test_patch_document_title_rejects_blank_value(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="T065_24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    response = api_client.patch(f"/documents/{document.id}/title", json={"title": "   "}, headers=auth_header)
+
+    assert response.status_code == 422
+
+
+def test_patch_document_title_returns_404_when_missing(api_client, auth_header):
+    response = api_client.patch("/documents/999999/title", json={"title": "Nuevo título"}, headers=auth_header)
+    assert response.status_code == 404
 
 
 def test_bulk_patch_document_review_status_updates_multiple(api_client, auth_header, db_session):

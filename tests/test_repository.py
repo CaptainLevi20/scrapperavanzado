@@ -214,6 +214,25 @@ def test_list_distinct_document_tipos_returns_sorted_unique_non_null_values(db_s
     assert tipos == ["Auto", "Sentencia"]
 
 
+def test_list_distinct_document_tipos_scoped_to_a_source(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source_a = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    source_b = repository.create_source(db_session, family_key="constitucional", name="Otra fuente", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source_a.id, title="A", tipo="Sentencia",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source_b.id, title="B", tipo="Auto",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    assert repository.list_distinct_document_tipos(db_session, source_id=source_a.id) == ["Sentencia"]
+    assert repository.list_distinct_document_tipos(db_session, source_id=source_b.id) == ["Auto"]
+
+
 def test_bulk_update_document_review_status_updates_matching_rows(db_session):
     from core.db import repository
 

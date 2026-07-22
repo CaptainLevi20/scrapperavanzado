@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SourceFamilyOut(BaseModel):
@@ -89,6 +89,18 @@ class DocumentOut(BaseModel):
 
 class DocumentReviewUpdate(BaseModel):
     review_status: Literal["pending", "useful", "not_useful"]
+
+
+class DocumentTitleUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("El título no puede estar vacío")
+        return stripped
 
 
 class BulkDocumentReviewUpdate(BaseModel):

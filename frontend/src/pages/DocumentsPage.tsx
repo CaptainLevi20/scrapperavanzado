@@ -6,7 +6,6 @@ import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { createBulkDownload } from "../api/bulkDownloads";
 import { fetchDocuments, fetchDocumentTipos } from "../api/documents";
-import { fetchSourceFamilies } from "../api/sourceFamilies";
 import { fetchAllActiveSources } from "../api/sources";
 import type { DocumentReviewStatus } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
@@ -40,7 +39,6 @@ export function DocumentsPage() {
   const [title, setTitle] = useState("");
   const [tipo, setTipo] = useState("");
   const [sourceId, setSourceId] = useState("");
-  const [familyKey, setFamilyKey] = useState("");
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus | "">("");
   const [fPublicFrom, setFPublicFrom] = useState("");
   const [fPublicTo, setFPublicTo] = useState("");
@@ -66,9 +64,23 @@ export function DocumentsPage() {
     queryFn: fetchAllActiveSources,
   });
 
-  const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
+  const sortedSources = useMemo(
+    () => [...(sourcesQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, "es")),
+    [sourcesQuery.data]
+  );
 
-  const tiposQuery = useQuery({ queryKey: ["documents", "tipos"], queryFn: fetchDocumentTipos });
+  // Scoped to the selected source so the Tipo dropdown only ever offers
+  // values that actually exist for it (nested/cascading filters).
+  const tiposQuery = useQuery({
+    queryKey: ["documents", "tipos", sourceId],
+    queryFn: () => fetchDocumentTipos(sourceId ? Number(sourceId) : undefined),
+  });
+
+  useEffect(() => {
+    if (tipo && tiposQuery.data && !tiposQuery.data.includes(tipo)) {
+      setTipo("");
+    }
+  }, [tipo, tiposQuery.data]);
 
   const sourceNameById = useMemo(
     () => new Map((sourcesQuery.data ?? []).map((source) => [source.id, source.name])),
@@ -76,13 +88,12 @@ export function DocumentsPage() {
   );
 
   const documentsQuery = useQuery({
-    queryKey: ["documents", title, tipo, sourceId, familyKey, reviewStatus, fPublicFrom, fPublicTo, page],
+    queryKey: ["documents", title, tipo, sourceId, reviewStatus, fPublicFrom, fPublicTo, page],
     queryFn: () =>
       fetchDocuments({
         title: title || undefined,
         tipo: tipo || undefined,
         source_id: sourceId ? Number(sourceId) : undefined,
-        family_key: familyKey || undefined,
         review_status: reviewStatus || undefined,
         f_public_from: fPublicFrom || undefined,
         f_public_to: fPublicTo || undefined,
@@ -123,6 +134,24 @@ export function DocumentsPage() {
           />
         </div>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Fuente
+          <NativeSelect
+            value={sourceId}
+            onChange={(event) => {
+              setSourceId(event.target.value);
+              setPage(0);
+            }}
+            className="w-40"
+          >
+            <option value="">Todas</option>
+            {sortedSources.map((source) => (
+              <option key={source.id} value={String(source.id)}>
+                {source.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
           Tipo
           <NativeSelect
             value={tipo}
@@ -136,42 +165,6 @@ export function DocumentsPage() {
             {tiposQuery.data?.map((tipoOption) => (
               <option key={tipoOption} value={tipoOption}>
                 {tipoOption}
-              </option>
-            ))}
-          </NativeSelect>
-        </label>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          Fuente
-          <NativeSelect
-            value={sourceId}
-            onChange={(event) => {
-              setSourceId(event.target.value);
-              setPage(0);
-            }}
-            className="w-40"
-          >
-            <option value="">Todas</option>
-            {sourcesQuery.data?.map((source) => (
-              <option key={source.id} value={String(source.id)}>
-                {source.name}
-              </option>
-            ))}
-          </NativeSelect>
-        </label>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          Familia
-          <NativeSelect
-            value={familyKey}
-            onChange={(event) => {
-              setFamilyKey(event.target.value);
-              setPage(0);
-            }}
-            className="w-40"
-          >
-            <option value="">Todas</option>
-            {familiesQuery.data?.map((family) => (
-              <option key={family.key} value={family.key}>
-                {family.display_name}
               </option>
             ))}
           </NativeSelect>
@@ -263,7 +256,7 @@ export function DocumentsPage() {
 
       <div className={`${TABLE_SHELL} flex min-h-0 flex-1 flex-col`}>
         <div className={`${TABLE_SCROLL} flex-1 overflow-y-auto`}>
-          <table className={`${TABLE} min-w-[1200px]`}>
+          <table className={`${TABLE} h-full min-w-[1200px]`}>
           <thead className="sticky top-0 z-10">
             <tr className={THEAD_ROW}>
               <th className={`${TH} min-w-[260px]`}>Título</th>
@@ -279,6 +272,15 @@ export function DocumentsPage() {
             </tr>
           </thead>
           <tbody>
+            {(documentsQuery.data?.items.length ?? 0) === 0 && (
+              <tr>
+                <td colSpan={10} className="h-full p-0">
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyState message="No hay documentos que coincidan con estos filtros." />
+                  </div>
+                </td>
+              </tr>
+            )}
             {documentsQuery.data?.items.map((document, index) => (
               <tr key={document.id} className={TBODY_ROW}>
                 <td className={`${TD} font-medium whitespace-nowrap text-foreground`} title={document.detalle ?? undefined}>
@@ -305,9 +307,6 @@ export function DocumentsPage() {
           </tbody>
           </table>
         </div>
-        {(documentsQuery.data?.items.length ?? 0) === 0 && (
-          <EmptyState message="No hay documentos que coincidan con estos filtros." />
-        )}
       </div>
 
       <div className="flex items-center justify-between">

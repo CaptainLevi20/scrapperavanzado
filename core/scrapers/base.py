@@ -19,3 +19,12 @@ class BaseScrapper:
 
     def scrap(self, fini, ffin, q="", limit=100, stop_event=None, on_progress=None):
         raise NotImplementedError("Subclasses must implement this method.")
+
+    def resolve_unverified_document(self, doc, local_path, content_type) -> None:
+        """Called by the worker right after downloading a document whose
+        `title_unverified` flag is True, with the freshly downloaded file
+        still on disk — a chance to recover a proper title (and anything else
+        derived from it, like tipo) from the file's own content instead of
+        the unreliable metadata that produced the placeholder. Mutates `doc`
+        in place; does nothing by default. `local_path` is a `pathlib.Path`."""
+        return

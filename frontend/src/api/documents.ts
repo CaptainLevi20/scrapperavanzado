@@ -20,8 +20,8 @@ export function fetchDocuments(params: ListDocumentsParams = {}): Promise<Pagina
   return apiFetch<PaginatedDocuments>(`/documents${buildQuery(params)}`);
 }
 
-export function fetchDocumentTipos(): Promise<string[]> {
-  return apiFetch<string[]>("/documents/tipos");
+export function fetchDocumentTipos(sourceId?: number): Promise<string[]> {
+  return apiFetch<string[]>(`/documents/tipos${buildQuery({ source_id: sourceId })}`);
 }
 
 // Aggregated server-side (GROUP BY over the whole table) rather than sampled
@@ -44,6 +44,13 @@ export function fetchDocumentVersionUrl(documentId: number, versionId: number): 
 
 export function updateDocumentReviewStatus(id: number, review_status: DocumentReviewStatus): Promise<Document> {
   return apiFetch<Document>(`/documents/${id}`, { method: "PATCH", body: JSON.stringify({ review_status }) });
+}
+
+// Manual escape hatch for when a family's automated title rules (Corte
+// Constitucional, JEP, etc.) don't cover a one-off case — lets a reviewer
+// fix a single document's title by hand from the preview dialog.
+export function updateDocumentTitle(id: number, title: string): Promise<Document> {
+  return apiFetch<Document>(`/documents/${id}/title`, { method: "PATCH", body: JSON.stringify({ title }) });
 }
 
 export function bulkUpdateDocumentReviewStatus(

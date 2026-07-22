@@ -38,7 +38,11 @@ def _default_date_str(value: date | None) -> str:
 
 
 def _download_and_upload_one(
-    doc, tmp_path: Path, override_storage_key: str | None = None, skip_upload_if_size_matches: int | None = None
+    doc,
+    tmp_path: Path,
+    scraper=None,
+    override_storage_key: str | None = None,
+    skip_upload_if_size_matches: int | None = None,
 ):
     """Runs in a worker thread: download, convert, and upload a single document.
     Returns (payload, error) — payload is the dict of fields insert_document/
@@ -54,6 +58,11 @@ def _download_and_upload_one(
     downloader = Downloader()
     try:
         result = downloader.download(doc, tmp_path)
+        if doc.title_unverified and scraper is not None:
+            # doc.title (and possibly doc.tipo) get corrected in place from the
+            # file's own content — see e.g. ScrapCorteSuprema for the "doc"/"(3)"
+            # placeholder-title case this exists for.
+            scraper.resolve_unverified_document(doc, result.local_path, result.content_type)
         if skip_upload_if_size_matches is not None and result.file_size_bytes == skip_upload_if_size_matches:
             return None, None
         upload_key = override_storage_key or result.storage_key
@@ -94,6 +103,10 @@ def scrape_source_task(self, run_source_id: int):
 
         source = repository.get_source(db, run_source.source_id)
         run = repository.get_run(db, run_source.run_id)
+        # A source can declare in family_params that every document it produces
+        # should land already reviewed (e.g. the sources team confirming
+        # everything from Corte Constitucional is useful) instead of "pending".
+        auto_review_status = (source.family_params or {}).get("auto_review_status")
 
         repository.set_run_source_status(db, run_source_id, "running", started_at=datetime.now(timezone.utc))
 
@@ -133,7 +146,7 @@ def scrape_source_task(self, run_source_id: int):
 
             with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOCUMENT_DOWNLOADS) as executor:
                 new_futures = {
-                    executor.submit(_download_and_upload_one, doc, tmp_path): ("new", doc_id, doc)
+                    executor.submit(_download_and_upload_one, doc, tmp_path, scraper): ("new", doc_id, doc)
                     for doc_id, doc in pending
                 }
                 replace_futures = {
@@ -141,6 +154,7 @@ def scrape_source_task(self, run_source_id: int):
                         _download_and_upload_one,
                         doc,
                         tmp_path,
+                        scraper,
                         _versioned_replacement_key(existing.storage_key),
                         existing.file_size_bytes,
                     ): ("replace", existing, doc_id, doc)
@@ -183,12 +197,15 @@ def scrape_source_task(self, run_source_id: int):
                             f_public=_parse_date(doc.f_public),
                             f_providencia=_parse_date(doc.f_providencia),
                             source_url=doc.link.get("url"),
+                            **({"review_status": auto_review_status} if auto_review_status else {}),
                             **payload,
                         )
                         docs_new += 1
                     else:
                         _, existing, doc_id, doc = entry
-                        repository.archive_and_replace_document(db, existing.id, **payload)
+                        repository.archive_and_replace_document(
+                            db, existing.id, review_status=auto_review_status or "pending", **payload
+                        )
                         docs_updated += 1
 
         repository.set_run_source_status(

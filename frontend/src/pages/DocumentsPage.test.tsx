@@ -248,7 +248,7 @@ describe("DocumentsPage", () => {
     await waitFor(() => expect(lastUrl).toContain("review_status=useful"));
   });
 
-  it("refetches with the source and family filters applied", async () => {
+  it("refetches with the source filter applied", async () => {
     mockFilterEndpoints();
     let lastUrl = "";
     server.use(
@@ -264,9 +264,42 @@ describe("DocumentsPage", () => {
 
     await user.selectOptions(screen.getByLabelText("Fuente"), "1");
     await waitFor(() => expect(lastUrl).toContain("source_id=1"));
+  });
 
-    await user.selectOptions(screen.getByLabelText("Familia"), "constitucional");
-    await waitFor(() => expect(lastUrl).toContain("family_key=constitucional"));
+  it("does not show a Familia filter", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }))
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("Fuente")).toHaveTextContent("Corte Constitucional"));
+    expect(screen.queryByLabelText("Familia")).not.toBeInTheDocument();
+  });
+
+  it("scopes the Tipo dropdown to the selected Fuente (nested filters)", async () => {
+    let lastTiposUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([SOURCE])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([FAMILY])),
+      http.get(`${BASE_URL}/documents/tipos`, ({ request }) => {
+        lastTiposUrl = request.url;
+        return lastTiposUrl.includes("source_id=1")
+          ? HttpResponse.json(["Sentencia"])
+          : HttpResponse.json(["Auto", "Sentencia"]);
+      }),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("Tipo")).toHaveTextContent("Auto"));
+
+    await user.selectOptions(screen.getByLabelText("Fuente"), "1");
+
+    await waitFor(() => expect(lastTiposUrl).toContain("source_id=1"));
+    await waitFor(() => expect(screen.getByLabelText("Tipo")).not.toHaveTextContent("Auto"));
+    expect(screen.getByLabelText("Tipo")).toHaveTextContent("Sentencia");
   });
 
   it("refetches with the tipo filter applied, using a dropdown populated from the API", async () => {

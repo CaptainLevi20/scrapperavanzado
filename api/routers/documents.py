@@ -14,6 +14,7 @@ from api.schemas import (
     DocumentOut,
     DocumentReviewUpdate,
     DocumentStatsOut,
+    DocumentTitleUpdate,
     DocumentVersionOut,
     PaginatedDocuments,
 )
@@ -77,8 +78,8 @@ def get_documents(
 
 
 @router.get("/documents/tipos", response_model=list[str])
-def get_document_tipos(db: Session = Depends(get_db)):
-    return repository.list_distinct_document_tipos(db)
+def get_document_tipos(source_id: Optional[int] = None, db: Session = Depends(get_db)):
+    return repository.list_distinct_document_tipos(db, source_id=source_id)
 
 
 @router.get("/documents/stats", response_model=DocumentStatsOut)
@@ -134,6 +135,14 @@ def patch_bulk_document_review_status(payload: BulkDocumentReviewUpdate, db: Ses
 @router.patch("/documents/{document_id}", response_model=DocumentOut)
 def patch_document_review_status(document_id: int, payload: DocumentReviewUpdate, db: Session = Depends(get_db)):
     document = repository.update_document_review_status(db, document_id, payload.review_status)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    return document
+
+
+@router.patch("/documents/{document_id}/title", response_model=DocumentOut)
+def patch_document_title(document_id: int, payload: DocumentTitleUpdate, db: Session = Depends(get_db)):
+    document = repository.update_document_title(db, document_id, payload.title)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     return document

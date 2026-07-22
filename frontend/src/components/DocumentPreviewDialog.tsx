@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { Check, Download, Pencil, X } from "lucide-react";
 import {
   buildDownloadFilename,
   buildPreviewDownloadFilename,
@@ -11,6 +11,7 @@ import {
   fetchDocumentVersionUrl,
   fetchDocumentVersions,
   updateDocumentReviewStatus,
+  updateDocumentTitle,
 } from "../api/documents";
 import type { Document, DocumentReviewStatus, DocumentVersion } from "../api/types";
 import { formatBytes, formatDate, formatDateTime } from "../lib/formatters";
@@ -38,6 +39,9 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
   const [lastMarkAttempt, setLastMarkAttempt] = useState<DocumentReviewStatus | null>(null);
   const [documentsSnapshot, setDocumentsSnapshot] = useState(documents);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -51,6 +55,8 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
   useEffect(() => {
     setMarkError(null);
     setDownloadError(null);
+    setIsEditingTitle(false);
+    setRenameError(null);
   }, [currentIndex]);
 
   const currentDocument = documentsSnapshot[currentIndex];
@@ -85,6 +91,19 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
     onError: () => setMarkError("Error al marcar el documento"),
   });
 
+  const renameMutation = useMutation({
+    mutationFn: ({ id, title }: { id: number; title: string }) => updateDocumentTitle(id, title),
+    onSuccess: (updated) => {
+      setRenameError(null);
+      setIsEditingTitle(false);
+      setDocumentsSnapshot((snapshot) =>
+        snapshot.map((doc, index) => (index === currentIndex ? { ...doc, title: updated.title } : doc))
+      );
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: () => setRenameError("Error al renombrar el documento"),
+  });
+
   if (!currentDocument) return null;
 
   const busy = markMutation.isPending;
@@ -92,6 +111,26 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
   function handleMark(status: DocumentReviewStatus) {
     setLastMarkAttempt(status);
     markMutation.mutate({ id: currentDocument.id, status });
+  }
+
+  function handleStartRename() {
+    setRenameError(null);
+    setTitleDraft(currentDocument.title);
+    setIsEditingTitle(true);
+  }
+
+  function handleCancelRename() {
+    setRenameError(null);
+    setIsEditingTitle(false);
+  }
+
+  function handleSaveRename() {
+    const trimmed = titleDraft.trim();
+    if (!trimmed || trimmed === currentDocument.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+    renameMutation.mutate({ id: currentDocument.id, title: trimmed });
   }
 
   async function handleDownloadRtf() {
@@ -128,8 +167,56 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
       <DialogContent className="flex h-[85vh] flex-col sm:max-w-4xl">
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <DialogTitle className="font-display">{currentDocument.title}</DialogTitle>
+            <div className="min-w-0 flex-1">
+              {isEditingTitle ? (
+                <>
+                  <DialogTitle className="sr-only">{currentDocument.title}</DialogTitle>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={titleDraft}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleSaveRename();
+                        if (event.key === "Escape") handleCancelRename();
+                      }}
+                      autoFocus
+                      aria-label="Nuevo título del documento"
+                      className="h-9 min-w-0 flex-1 rounded-md border-[1.5px] border-input bg-background px-2 font-display text-lg font-semibold outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    />
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      disabled={renameMutation.isPending}
+                      onClick={handleSaveRename}
+                      aria-label="Guardar título"
+                    >
+                      <Check className="size-3.5" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={renameMutation.isPending}
+                      onClick={handleCancelRename}
+                      aria-label="Cancelar edición del título"
+                    >
+                      <X className="size-3.5" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <DialogTitle className="font-display truncate">{currentDocument.title}</DialogTitle>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    onClick={handleStartRename}
+                    aria-label="Renombrar título"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Pencil aria-hidden="true" />
+                  </Button>
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">
                 {currentDocument.tipo ?? "—"} · {formatDate(currentDocument.f_public)}
               </p>
@@ -206,6 +293,8 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
             </ul>
           </div>
         )}
+
+        {renameError && <ErrorBanner message={renameError} onRetry={handleSaveRename} />}
 
         {markError && (
           <ErrorBanner message={markError} onRetry={() => lastMarkAttempt && handleMark(lastMarkAttempt)} />

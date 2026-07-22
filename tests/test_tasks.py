@@ -260,6 +260,169 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
 
 
 @responses.activate
+def test_scrape_source_task_calls_resolve_unverified_document_for_flagged_docs(db_session, test_engine, monkeypatch):
+    """Wiring check: a doc scraped with title_unverified=True must have the
+    scraper's resolve_unverified_document called on it (with the real,
+    downloaded local file) before it's inserted, and the correction it makes
+    must land in the stored document."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="doc",
+            title_unverified=True,
+            tipo="Desconocido",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    def _resolve_unverified_document(self, doc, local_path, content_type):
+        assert local_path.exists()  # el archivo ya se descargó de verdad para este punto
+        doc.title = "recuperado-del-archivo"
+        doc.tipo = "Auto"
+
+    monkeypatch.setattr(DummyFamilyScraper, "resolve_unverified_document", _resolve_unverified_document)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        items, _ = repository.list_documents(assertion_session, source_id=source.id)
+        [document] = items
+        assert document.title == "recuperado-del-archivo"
+        assert document.tipo == "Auto"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_applies_auto_review_status_from_family_params_for_new_documents(
+    db_session, test_engine, monkeypatch
+):
+    """A source can declare family_params={"auto_review_status": "useful"} (e.g. the
+    sources team confirming everything from Corte Constitucional is useful) so brand
+    new documents land already reviewed instead of "pending"."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(
+        db_session, family_key="test-dummy", name="Dummy Source", family_params={"auto_review_status": "useful"}
+    )
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        items, _ = repository.list_documents(assertion_session, source_id=source.id)
+        [document] = items
+        assert document.review_status == "useful"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_applies_auto_review_status_from_family_params_on_republication(
+    db_session, test_engine, monkeypatch
+):
+    """The same auto_review_status override must also apply when a document is
+    replaced due to republication, not just on first insert — otherwise a
+    republished Corte Constitucional document would fall back to "pending"."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(
+        db_session, family_key="test-dummy", name="Dummy Source", family_params={"auto_review_status": "useful"}
+    )
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    existing_doc = repository.insert_document(
+        db_session,
+        doc_id="56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,
+        source_url="https://example.com/doc1",
+        review_status="useful",
+    )
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(responses.HEAD, "https://example.com/doc1", headers={"Content-Length": "20"}, status=200)
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido mas largo!",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        updated_document = repository.get_document(assertion_session, existing_doc.id)
+        assert updated_document.review_status == "useful"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
 def test_scrape_source_task_skips_unchanged_existing_document_without_downloading(db_session, test_engine, monkeypatch):
     celery_app.conf.task_always_eager = True
 

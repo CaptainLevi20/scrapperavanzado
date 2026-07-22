@@ -26,35 +26,7 @@ def _fixture_response():
     }
 
 
-@responses.activate
-def test_scrap_returns_expected_rawdocmodel():
-    responses.add(
-        responses.GET,
-        "https://www.corteconstitucional.gov.co/relatoria/buscador_new/",
-        json=_fixture_response(),
-        status=200,
-    )
-    scraper = ScrapConstitucional()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    assert len(docs) == 1
-    doc = docs[0]
-    assert doc.title == "T-065/24"
-    assert doc.tipo == "Sentencia"
-    assert doc.f_public == "2024-02-01"
-    assert doc.f_providencia == "2024-01-25"
-    assert doc.link["url"] == "https://www.corteconstitucional.gov.co/sentencias/t-065-24.rtf"
-    assert doc.link["body"] == {"path": "T-065/24"}
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia/T-065-24(extension)"
-
-
-@responses.activate
-def test_scrap_normalizes_tutela_tipo_to_sentencia():
-    """The Corte's own search API sometimes reports T-series rulings with
-    prov_tipo="Tutela" instead of "Sentencia" — "Tutela" describes the process,
-    not the kind of decision, so it must always be normalized to "Sentencia"."""
-    fixture = _fixture_response()
-    fixture["data"]["hits"]["hits"][0]["_source"]["prov_tipo"] = "Tutela"
+def _scrap_with(fixture):
     responses.add(
         responses.GET,
         "https://www.corteconstitucional.gov.co/relatoria/buscador_new/",
@@ -62,12 +34,83 @@ def test_scrap_normalizes_tutela_tipo_to_sentencia():
         status=200,
     )
     scraper = ScrapConstitucional()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
+    return scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
+
+
+@responses.activate
+def test_scrap_returns_expected_rawdocmodel():
+    docs = _scrap_with(_fixture_response())
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.tipo == "Sentencia"
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia/T-065-24(extension)"
+    assert doc.title == "ST065_24"
+    assert doc.tipo == "Sentencia de Tutela"
+    assert doc.f_public == "2024-02-01"
+    assert doc.f_providencia == "2024-01-25"
+    assert doc.link["url"] == "https://www.corteconstitucional.gov.co/sentencias/t-065-24.rtf"
+    assert doc.link["body"] == {"path": "T-065/24"}
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST065_24(extension)"
+
+
+@responses.activate
+def test_scrap_classifies_t_series_as_sentencia_de_tutela_even_when_prov_tipo_says_tutela():
+    """The Corte's own search API is inconsistent for T-series rulings —
+    sometimes prov_tipo="Sentencia", sometimes "Tutela" — so classification
+    must key off the providencia number's own "T-" prefix, not prov_tipo,
+    to get the same result either way."""
+    fixture = _fixture_response()
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_tipo"] = "Tutela"
+    docs = _scrap_with(fixture)
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.tipo == "Sentencia de Tutela"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST065_24(extension)"
+
+
+@responses.activate
+def test_scrap_classifies_c_series_as_sentencia_constitucional():
+    fixture = _fixture_response()
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_tipo"] = "Constitucionalidad"
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_sentencia"] = "C-034/26"
+    docs = _scrap_with(fixture)
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.tipo == "Sentencia Constitucional"
+    assert doc.title == "SC034_26"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia Constitucional/SC034_26(extension)"
+
+
+@responses.activate
+def test_scrap_classifies_su_series_as_sentencia_de_unificacion():
+    fixture = _fixture_response()
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_tipo"] = "Sentencia de unificación"
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_sentencia"] = "SU.066/26"
+    docs = _scrap_with(fixture)
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.tipo == "Sentencia de Unificación"
+    # Already starts with "S" ("SU" = Sentencia de Unificación), so it isn't
+    # prefixed again — must not become "SSU066_26".
+    assert doc.title == "SU066_26"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Unificación/SU066_26(extension)"
+
+
+@responses.activate
+def test_scrap_normalizes_title_with_period_and_space():
+    fixture = _fixture_response()
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_tipo"] = "Auto"
+    fixture["data"]["hits"]["hits"][0]["_source"]["prov_sentencia"] = "A. 846/26"
+    docs = _scrap_with(fixture)
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.tipo == "Auto"
+    assert doc.title == "A846_26"
+    assert doc.link["body"] == {"path": "A. 846/26"}
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Auto/A846_26(extension)"
 
 
 def test_constitucional_is_registered_under_its_family_key():

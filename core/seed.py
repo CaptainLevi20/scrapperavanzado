@@ -14,7 +14,7 @@ _FAMILIES = {
         "API GraphQL de consulta de providencias de la Corte Suprema de Justicia",
     ),
     "jep": ("Jurisdicción Especial para la Paz", "API de relatoría de la JEP"),
-    "cndj": ("Consejo Nacional de Disciplina Judicial", "Buscador de relatoría del CNDJ"),
+    "cndj": ("Comisión Nacional de Disciplina Judicial", "Buscador de relatoría del CNDJ"),
     "adr": ("Agencia de Desarrollo Rural", "Normativa publicada por la Agencia de Desarrollo Rural"),
     "adres": (
         "Administradora de los Recursos del Sistema General de Seguridad Social en Salud",
@@ -52,9 +52,9 @@ def seed_source_families_and_sources(db) -> None:
     if "JEP" not in existing_sources:
         repository.create_source(db, family_key="jep", name="JEP", family_params={})
 
-    if "Consejo Nacional de Disciplina Judicial" not in existing_sources:
+    if "Comisión Nacional de Disciplina Judicial" not in existing_sources:
         repository.create_source(
-            db, family_key="cndj", name="Consejo Nacional de Disciplina Judicial", family_params={}
+            db, family_key="cndj", name="Comisión Nacional de Disciplina Judicial", family_params={}
         )
 
     if "Agencia de Desarrollo Rural" not in existing_sources:

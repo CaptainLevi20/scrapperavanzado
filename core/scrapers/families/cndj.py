@@ -59,7 +59,7 @@ def _radicado_year(numero_unico: str):
 @register_family("cndj")
 class ScrapCNDJ(BaseScrapper):
     def __init__(self):
-        self.source = "Consejo Nacional de Disciplina Judicial"
+        self.source = "Comisión Nacional de Disciplina Judicial"
 
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         docs: List[RawDocModel] = []
@@ -214,8 +214,8 @@ class ScrapCNDJ(BaseScrapper):
             docs.append(RawDocModel(
                 source=self.source,
                 link={"url": url, "method": "GET", "body": {"path": dedup_key}},
-                title=f"{numero_unico} - {magistrado}",
-                tipo="",
+                title=safe_num,
+                tipo="Magistrado",
                 magistrado=magistrado_fmt,
                 f_public=f_public,
                 f_providencia=fecha_decision,

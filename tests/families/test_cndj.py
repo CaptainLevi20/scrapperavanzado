@@ -45,7 +45,8 @@ def test_scrap_full_flow_returns_expected_document():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "05001250200020210021501 - Juan Perez"
+    assert doc.title == "F05001-25-02-000-2021-00215-01_2024"
+    assert doc.tipo == "Magistrado"
     assert doc.magistrado == "Juan Perez"
     assert doc.f_public == "2024-01-20"
     assert doc.f_providencia == "2024-01-15"
@@ -53,7 +54,7 @@ def test_scrap_full_flow_returns_expected_document():
     assert doc.link["url"] == "https://relatoria.cndj.gov.co/docs_relatoria/ALGO_ADJUNTA20240120103000.pdf"
     assert doc.link["body"] == {"path": "05001250200020210021501_3"}
     assert doc.save_path == (
-        "Consejo Nacional de Disciplina Judicial/Juan Perez/2024-01-20/"
+        "Comisión Nacional de Disciplina Judicial/Juan Perez/2024-01-20/"
         "F05001-25-02-000-2021-00215-01_2024(extension)"
     )
 

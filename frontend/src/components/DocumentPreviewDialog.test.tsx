@@ -340,6 +340,98 @@ describe("DocumentPreviewDialog", () => {
     createElementSpy.mockRestore();
   });
 
+  it("lets the user rename the title by hand, for cases the automated rules don't cover", async () => {
+    const documents = [makeDocument({ id: 30, title: "1842" })];
+    mockPreviewUrl(30);
+    let patchedBody: { title: string } | null = null;
+    server.use(
+      http.patch(`${BASE_URL}/documents/30/title`, async ({ request }) => {
+        patchedBody = (await request.json()) as { title: string };
+        return HttpResponse.json({ ...documents[0], title: patchedBody.title });
+      })
+    );
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de 1842");
+
+    await user.click(screen.getByRole("button", { name: /renombrar título/i }));
+    const input = screen.getByLabelText(/nuevo título del documento/i);
+    expect(input).toHaveValue("1842");
+
+    await user.clear(input);
+    await user.type(input, "R_SDSJ-1842_2026");
+    await user.click(screen.getByRole("button", { name: /guardar título/i }));
+
+    await waitFor(() => expect(patchedBody).toEqual({ title: "R_SDSJ-1842_2026" }));
+    expect(await screen.findByTitle("Vista previa de R_SDSJ-1842_2026")).toBeInTheDocument();
+  });
+
+  it("cancels the rename with Escape without saving", async () => {
+    const documents = [makeDocument({ id: 31, title: "Título original" })];
+    mockPreviewUrl(31);
+    let patchCalled = false;
+    server.use(
+      http.patch(`${BASE_URL}/documents/31/title`, () => {
+        patchCalled = true;
+        return HttpResponse.json(documents[0]);
+      })
+    );
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Título original");
+
+    await user.click(screen.getByRole("button", { name: /renombrar título/i }));
+    await user.type(screen.getByLabelText(/nuevo título del documento/i), " editado");
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByLabelText(/nuevo título del documento/i)).not.toBeInTheDocument();
+    expect(patchCalled).toBe(false);
+    expect(screen.getByText("Título original")).toBeInTheDocument();
+  });
+
+  it("does not call the API when saving an unchanged title", async () => {
+    const documents = [makeDocument({ id: 32, title: "Sin cambios" })];
+    mockPreviewUrl(32);
+    let patchCalled = false;
+    server.use(
+      http.patch(`${BASE_URL}/documents/32/title`, () => {
+        patchCalled = true;
+        return HttpResponse.json(documents[0]);
+      })
+    );
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Sin cambios");
+
+    await user.click(screen.getByRole("button", { name: /renombrar título/i }));
+    await user.click(screen.getByRole("button", { name: /guardar título/i }));
+
+    expect(screen.queryByLabelText(/nuevo título del documento/i)).not.toBeInTheDocument();
+    expect(patchCalled).toBe(false);
+  });
+
+  it("shows an error and keeps editing open when the rename fails", async () => {
+    const documents = [makeDocument({ id: 33, title: "Título con error" })];
+    mockPreviewUrl(33);
+    server.use(http.patch(`${BASE_URL}/documents/33/title`, () => new HttpResponse(null, { status: 500 })));
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Título con error");
+
+    await user.click(screen.getByRole("button", { name: /renombrar título/i }));
+    const input = screen.getByLabelText(/nuevo título del documento/i);
+    await user.clear(input);
+    await user.type(input, "Nuevo título");
+    await user.click(screen.getByRole("button", { name: /guardar título/i }));
+
+    await screen.findByText("Error al renombrar el documento");
+    expect(screen.getByLabelText(/nuevo título del documento/i)).toBeInTheDocument();
+  });
+
   it("does not show a version history section when the document has no prior versions", async () => {
     const documents = [makeDocument({ id: 20, title: "Sin historial" })];
     mockPreviewUrl(20);

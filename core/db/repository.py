@@ -203,7 +203,9 @@ def get_document_by_doc_id(db: Session, doc_id: str) -> Optional[Document]:
     return db.scalars(select(Document).where(Document.doc_id == doc_id)).first()
 
 
-def archive_and_replace_document(db: Session, document_id: int, **new_fields) -> Document:
+def archive_and_replace_document(
+    db: Session, document_id: int, review_status: str = "pending", **new_fields
+) -> Document:
     document = db.get(Document, document_id)
     version = DocumentVersion(
         document_id=document.id,
@@ -220,7 +222,11 @@ def archive_and_replace_document(db: Session, document_id: int, **new_fields) ->
     for key, value in new_fields.items():
         setattr(document, key, value)
     document.downloaded_at = datetime.now(timezone.utc)
-    document.review_status = "pending"
+    # A source configured with family_params.auto_review_status (e.g. "el equipo
+    # de fuentes" declaring everything from Corte Constitucional useful) should
+    # keep landing there on republication too, not reset to "pending" — callers
+    # pass that override in; it defaults to the original "always reset" behavior.
+    document.review_status = review_status
     document.reviewed_at = None
     db.commit()
     db.refresh(document)
@@ -240,8 +246,11 @@ def get_document_version(db: Session, version_id: int) -> Optional[DocumentVersi
     return db.get(DocumentVersion, version_id)
 
 
-def list_distinct_document_tipos(db: Session) -> list[str]:
-    stmt = select(Document.tipo).distinct().where(Document.tipo.is_not(None)).order_by(Document.tipo)
+def list_distinct_document_tipos(db: Session, source_id: Optional[int] = None) -> list[str]:
+    stmt = select(Document.tipo).distinct().where(Document.tipo.is_not(None))
+    if source_id is not None:
+        stmt = stmt.where(Document.source_id == source_id)
+    stmt = stmt.order_by(Document.tipo)
     return list(db.scalars(stmt).all())
 
 
@@ -333,6 +342,16 @@ def update_document_review_status(db: Session, document_id: int, review_status: 
         return None
     document.review_status = review_status
     document.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def update_document_title(db: Session, document_id: int, title: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.title = title
     db.commit()
     db.refresh(document)
     return document
