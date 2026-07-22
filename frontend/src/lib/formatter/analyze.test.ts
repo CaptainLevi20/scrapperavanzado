@@ -39,6 +39,20 @@ describe("analyzeZip", () => {
     expect(plan.entries.find((entry) => entry.yearFolder === "ACUERDOS 1963")).toBeTruthy();
   });
 
+  it("detects config from year-folder names when the zip's own filename lacks the type keyword", async () => {
+    // Real-world case: no wrapping folder, and the zip is just named after the
+    // city ("CALI 2026.zip") — "acuerdo" only appears in each year subfolder's
+    // own name, never in the zip filename itself.
+    const zip = new JSZip();
+    zip.file("ACUERDOS 1962/Acuerdo 0005 de 1962.pdf", "x");
+    zip.file("ACUERDOS 1963/Acuerdo 0001 de 1963.pdf", "x");
+    const file = await toFile(zip, "CALI 2026.zip");
+
+    const plan = await analyzeZip(file);
+
+    expect(plan.config).toEqual({ typeCode: "A", cityCode: "CONCALI" });
+  });
+
   it("throws when the root folder name doesn't match a known type/city", async () => {
     const zip = new JSZip();
     zip.file("Resoluciones Bogota/2020/algo.pdf", "x");

@@ -50,13 +50,27 @@ export async function analyzeZip(file: File): Promise<FormatterPlan> {
   const sharedRoot = commonRootSegment(fileEntries.map((entry) => entry.name));
   const rootFolderName = sharedRoot ?? stripZipExtension(file.name);
 
-  const config = detectConfig(rootFolderName);
+  const segmentsByEntry = fileEntries.map((entry) => ({
+    entry,
+    segments: sharedRoot ? entry.name.split("/").slice(1) : entry.name.split("/"),
+  }));
+
+  // The zip's root folder name alone doesn't always carry both the type and city
+  // keywords — e.g. a zip named "CALI 2026.zip" with no wrapping folder only has
+  // the city in its filename, while the type ("Acuerdo") only shows up in each
+  // year subfolder's own name ("ACUERDOS 1962"). Searching across every distinct
+  // year-folder name too (in addition to rootFolderName) covers that real-world
+  // naming pattern without needing a wrapping folder that repeats it.
+  const yearFolderNames = Array.from(
+    new Set(segmentsByEntry.filter(({ segments }) => segments.length >= 2).map(({ segments }) => segments[0]))
+  );
+
+  const config = detectConfig([rootFolderName, ...yearFolderNames].join(" "));
   if (!config) {
     throw new FormatterError(`No se reconoce el tipo de documento o la ciudad en «${rootFolderName}».`);
   }
 
-  const entries: FormatterEntry[] = fileEntries.map((entry) => {
-    const segments = sharedRoot ? entry.name.split("/").slice(1) : entry.name.split("/");
+  const entries: FormatterEntry[] = segmentsByEntry.map(({ entry, segments }) => {
     const filename = segments[segments.length - 1];
 
     if (segments.length < 2) {
