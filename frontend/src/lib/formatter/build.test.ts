@@ -45,4 +45,27 @@ describe("buildFormattedZip", () => {
 
     expect(skippedCount).toBe(1);
   });
+
+  it("writes a root-level file (empty year folder) without a leading slash", async () => {
+    const source = new JSZip();
+    source.file("Acuerdos Cali/Acuerdo 0005 de 1962.pdf", "contenido-a");
+    const blob = await source.generateAsync({ type: "blob" });
+    const file = new File([blob], "lote.zip", { type: "application/zip" });
+
+    const plan = await analyzeZip(file);
+    const zip = await JSZip.loadAsync(file);
+    const entry = plan.entries[0];
+    expect(entry.yearFolder).toBe("");
+    entry.detectedYear = 1962;
+    entry.detectedNumber = 5;
+    const resolvedNames = new Map([[entry.path, computeFinalName(plan.config, entry)!]]);
+
+    const { blob: outputBlob } = await buildFormattedZip(zip, plan, resolvedNames);
+
+    const output = await JSZip.loadAsync(outputBlob);
+    const outputFileNames = Object.values(output.files)
+      .filter((candidate) => !candidate.dir)
+      .map((candidate) => candidate.name);
+    expect(outputFileNames).toEqual(["A_CONCALI_0005_1962.pdf"]);
+  });
 });

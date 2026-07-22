@@ -88,4 +88,22 @@ describe("FormatterPage", () => {
     expect(await screen.findByText(/no se pudo generar el zip/i)).toBeInTheDocument();
     expect(screen.queryByText(/generando el zip/i)).not.toBeInTheDocument();
   });
+
+  it("keeps the row editable while typing a multi-digit correction", async () => {
+    const file = await buildZipFile({
+      "Acuerdos Cali/ACUERDOS 1962/sin numero.pdf": "contenido",
+    });
+
+    const user = userEvent.setup();
+    render(<FormatterPage />);
+    const input = screen.getByLabelText(/seleccionar archivo zip/i);
+    await user.upload(input, file);
+
+    await screen.findByText(/número no detectado/i);
+    const numberField = screen.getByLabelText(/número para/i);
+    await user.type(numberField, "12");
+
+    expect(numberField).toHaveValue("12");
+    await waitFor(() => expect(screen.getByRole("button", { name: /descargar zip/i })).toBeEnabled());
+  });
 });

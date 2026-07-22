@@ -26,7 +26,8 @@ export async function buildFormattedZip(
 
     try {
       const content = await source.async("blob");
-      output.file(`${entry.yearFolder}/${finalName}`, content);
+      const outputPath = entry.yearFolder ? `${entry.yearFolder}/${finalName}` : finalName;
+      output.file(outputPath, content);
     } catch {
       skippedCount += 1;
     }

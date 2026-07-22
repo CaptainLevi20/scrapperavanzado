@@ -115,18 +115,21 @@ export function FormatterPage() {
       {state.step === "loaded" &&
         (() => {
           const resolvedPlan = applyCorrections(state.plan, state.corrections);
-          const exceptions = resolvedPlan.entries.filter((entry) => entry.reason !== null);
-          const ready = resolvedPlan.entries.length - exceptions.length;
-          const canDownload = exceptions.length === 0;
+          const pending = resolvedPlan.entries.filter((entry) => entry.reason !== null);
+          const visibleRows = resolvedPlan.entries.filter(
+            (entry) => entry.reason !== null || state.corrections.has(entry.path)
+          );
+          const ready = resolvedPlan.entries.length - pending.length;
+          const canDownload = pending.length === 0;
 
           return (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {ready} archivo{ready === 1 ? "" : "s"} listo{ready === 1 ? "" : "s"}
-                {exceptions.length > 0 ? `, ${exceptions.length} por revisar` : ""}.
+                {pending.length > 0 ? `, ${pending.length} por revisar` : ""}.
               </p>
 
-              {exceptions.length > 0 && (
+              {visibleRows.length > 0 && (
                 <div className={TABLE_SHELL}>
                   <div className={TABLE_SCROLL}>
                     <table className={TABLE}>
@@ -139,14 +142,14 @@ export function FormatterPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {exceptions.map((entry) => {
+                        {visibleRows.map((entry) => {
                           const correction = state.corrections.get(entry.path);
                           const yearValue = correction ? correction.year : String(entry.detectedYear ?? "");
                           const numberValue = correction ? correction.number : String(entry.detectedNumber ?? "");
                           return (
                             <tr key={entry.path} className={TBODY_ROW}>
                               <td className={TD}>{entry.path}</td>
-                              <td className={TD}>{REASON_LABEL[entry.reason ?? ""]}</td>
+                              <td className={TD}>{entry.reason ? REASON_LABEL[entry.reason] : "Resuelto"}</td>
                               <td className={TD}>
                                 <Input
                                   aria-label={`Año para ${entry.path}`}
