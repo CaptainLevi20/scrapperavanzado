@@ -106,7 +106,7 @@ Create `frontend/src/lib/formatter/testFsFakes.ts`:
 // In-memory fakes for the File System Access API, used only in tests — jsdom implements
 // neither FileSystemDirectoryHandle/FileSystemFileHandle nor showDirectoryPicker natively.
 
-export type DirectoryEntries = Record<string, string | DirectoryEntries>;
+export type DirectoryEntries = { [key: string]: string | DirectoryEntries };
 
 function buildFileHandle(name: string, content: string): FileSystemFileHandle {
   return {
