@@ -96,6 +96,7 @@ export function fakeOutputDirectory(name: string): RecordingDirectory {
           child = { kind: "directory", children: new Map() };
           node.children!.set(childName, child);
         }
+        if (child.kind !== "directory") throw new DOMException("Mismatched kind", "TypeMismatchError");
         return wrapDir(child, childName);
       },
       getFileHandle: async (childName: string, options?: { create?: boolean }) => {
@@ -105,6 +106,7 @@ export function fakeOutputDirectory(name: string): RecordingDirectory {
           child = { kind: "file" };
           node.children!.set(childName, child);
         }
+        if (child.kind !== "file") throw new DOMException("Mismatched kind", "TypeMismatchError");
         return wrapFile(child, childName);
       },
     } as unknown as FileSystemDirectoryHandle;

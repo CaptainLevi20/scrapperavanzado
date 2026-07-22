@@ -50,4 +50,11 @@ describe("fakeOutputDirectory", () => {
     await expect(output.handle.getDirectoryHandle("no-existe")).rejects.toThrow();
     await expect(output.handle.getFileHandle("no-existe.txt")).rejects.toThrow();
   });
+
+  it("throws when requesting a handle of the wrong kind for an existing entry", async () => {
+    const output = fakeOutputDirectory("salida");
+    await output.handle.getDirectoryHandle("algo", { create: true });
+
+    await expect(output.handle.getFileHandle("algo", { create: true })).rejects.toThrow();
+  });
 });
