@@ -82,7 +82,7 @@ Por cada `FormatterEntry` con nombre final resuelto (mismo criterio que v1: `res
 
 1. `yearDirHandle = entry.yearFolder ? await outputRoot.getDirectoryHandle(entry.yearFolder, { create: true }) : outputRoot` — recrea la carpeta de año en el destino (o escribe directo en la raíz si el archivo no tenía carpeta de año, igual que el guard `entry.yearFolder ? ... : finalName` que ya existe en `build.ts`).
 2. `outFileHandle = await yearDirHandle.getFileHandle(finalName, { create: true })`.
-3. `writable = await outFileHandle.createWritable()`; `await (await entry.fileHandle.getFile()).stream().pipeTo(writable)` — copia en streaming, sin materializar el archivo completo en un `Blob`/`ArrayBuffer` intermedio.
+3. `writable = await outFileHandle.createWritable()`; se lee el archivo de origen completo a memoria (`await (await entry.fileHandle.getFile()).arrayBuffer()`) y se escribe con `await writable.write(buffer)` seguido de `await writable.close()`. (`File.stream()` no está soportado por el entorno de test — jsdom — así que se usa `arrayBuffer()`, que sí lo está; esto ya resuelve el problema real, porque el límite de memoria pasa a ser **un archivo a la vez**, no el lote completo — para documentos individuales de tamaño normal, mucho más chico que el lote entero, esto es holgado.)
 4. Cualquier error en esos pasos para un archivo puntual: se cuenta en `skippedCount`, se continúa con el siguiente (no aborta el lote — mismo comportamiento que v1's manejo de errores por archivo).
 5. `onProgress?.(done, total)` después de cada archivo (copiado u omitido), para que la página pueda mostrar progreso sin tener que esperar a que termine todo el lote.
 
