@@ -541,7 +541,11 @@ describe("buildFormattedZip", () => {
 
     expect(skippedCount).toBe(0);
     const output = await JSZip.loadAsync(outputBlob);
-    expect(Object.keys(output.files).sort()).toEqual([
+    const outputFileNames = Object.values(output.files)
+      .filter((entry) => !entry.dir)
+      .map((entry) => entry.name)
+      .sort();
+    expect(outputFileNames).toEqual([
       "ACUERDOS 1962/A_CONCALI_0005_1962.pdf",
       "ACUERDOS 1963/A_CONCALI_0001_1963.pdf",
     ]);
