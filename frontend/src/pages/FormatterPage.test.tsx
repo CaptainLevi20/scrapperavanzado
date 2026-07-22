@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import JSZip from "jszip";
 import { FormatterPage } from "./FormatterPage";
+import { buildFormattedZip } from "../lib/formatter/build";
+
+// Keeps the real implementation by default so unrelated tests still exercise
+// actual zip-building; individual tests can override it with mockRejectedValueOnce.
+vi.mock("../lib/formatter/build", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/formatter/build")>();
+  return { ...actual, buildFormattedZip: vi.fn(actual.buildFormattedZip) };
+});
 
 async function buildZipFile(entries: Record<string, string>, name = "Acuerdos Cali.zip"): Promise<File> {
   const zip = new JSZip();
@@ -60,5 +68,24 @@ describe("FormatterPage", () => {
     await user.upload(input, file);
 
     expect(await screen.findByText(/no se reconoce el tipo de documento o la ciudad/i)).toBeInTheDocument();
+  });
+
+  it("shows an error banner instead of getting stuck on 'Generando el ZIP…' when the build fails", async () => {
+    const file = await buildZipFile({
+      "Acuerdos Cali/ACUERDOS 1962/Acuerdo 0005 de 1962.pdf": "contenido",
+    });
+    vi.mocked(buildFormattedZip).mockRejectedValueOnce(new Error("boom"));
+
+    const user = userEvent.setup();
+    render(<FormatterPage />);
+    const input = screen.getByLabelText(/seleccionar archivo zip/i);
+    await user.upload(input, file);
+
+    const downloadButton = await screen.findByRole("button", { name: /descargar zip/i });
+    expect(downloadButton).toBeEnabled();
+    await user.click(downloadButton);
+
+    expect(await screen.findByText(/no se pudo generar el zip/i)).toBeInTheDocument();
+    expect(screen.queryByText(/generando el zip/i)).not.toBeInTheDocument();
   });
 });

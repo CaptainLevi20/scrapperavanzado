@@ -62,15 +62,19 @@ export function FormatterPage() {
     }
 
     setState({ step: "building", plan: state.plan, zip: state.zip, corrections: state.corrections });
-    const { blob, skippedCount } = await buildFormattedZip(state.zip, resolvedPlan, resolvedNames);
-    downloadBlob(blob, `Formateador_${resolvedPlan.rootFolderName}.zip`);
-    setState({
-      step: "idle",
-      notice:
-        skippedCount > 0
-          ? `${skippedCount} archivo${skippedCount === 1 ? "" : "s"} se omitieron por error de lectura.`
-          : undefined,
-    });
+    try {
+      const { blob, skippedCount } = await buildFormattedZip(state.zip, resolvedPlan, resolvedNames);
+      downloadBlob(blob, `Formateador_${resolvedPlan.rootFolderName}.zip`);
+      setState({
+        step: "idle",
+        notice:
+          skippedCount > 0
+            ? `${skippedCount} archivo${skippedCount === 1 ? "" : "s"} se omitieron por error de lectura.`
+            : undefined,
+      });
+    } catch {
+      setState({ step: "error", message: "No se pudo generar el ZIP." });
+    }
   }
 
   return (
