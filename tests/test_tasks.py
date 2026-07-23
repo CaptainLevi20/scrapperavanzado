@@ -260,6 +260,76 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
 
 
 @responses.activate
+def test_scrape_source_task_matches_existing_document_by_stable_doc_id_ignoring_publication_date(
+    db_session, test_engine, monkeypatch
+):
+    # Rama Judicial-style family: f_public is a listing-occurrence date, not an
+    # intrinsic document date, so the source can re-list the same file under a
+    # new f_public. doc_id_uses_publication_date=False must still match this
+    # against the pre-existing document (by url/body key alone) so it goes
+    # through the replace/versioning path instead of being inserted as new.
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    existing_doc = repository.insert_document(
+        db_session,
+        # sha1("https://example.com/doc1") - compute_doc_id(doc, include_publication_date=False)
+        doc_id="99e8f097d9e596cafcea365756719ae6af3e3213",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,
+        source_url="https://example.com/doc1",
+        review_status="useful",
+    )
+
+    DummyFamilyScraper.doc_id_uses_publication_date = False
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-06-11",  # distinta a la fecha original con la que se insertó existing_doc
+        )
+    ]
+    responses.add(responses.HEAD, "https://example.com/doc1", headers={"Content-Length": "20"}, status=200)
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido mas largo!",  # 20 bytes, distinto de los 9 originales
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    try:
+        scrape_source_task(run_source.id)
+
+        assertion_session = task_session_factory()
+        try:
+            [refreshed_source] = repository.list_run_sources(assertion_session, run.id)
+            assert refreshed_source.docs_new == 0
+            assert refreshed_source.docs_updated == 1
+
+            updated_document = repository.get_document(assertion_session, existing_doc.id)
+            assert updated_document.file_size_bytes == 20
+        finally:
+            assertion_session.close()
+    finally:
+        DummyFamilyScraper.doc_id_uses_publication_date = True  # restore the class-level default for later tests
+
+
+@responses.activate
 def test_scrape_source_task_calls_resolve_unverified_document_for_flagged_docs(db_session, test_engine, monkeypatch):
     """Wiring check: a doc scraped with title_unverified=True must have the
     scraper's resolve_unverified_document called on it (with the real,
