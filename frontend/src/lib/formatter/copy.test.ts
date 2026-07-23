@@ -57,4 +57,18 @@ describe("copyFormattedFiles", () => {
       "ACUERDOS 1962/A_CONCALI_0006_1962.pdf": "contenido-b",
     });
   });
+
+  it("groups a flat batch's entries under the year folder derived from each filename", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "Acuerdo 0005 de 1962.pdf": "contenido-a",
+    });
+    const plan = await analyzeDirectory(root);
+    const resolvedNames = new Map(plan.entries.map((entry) => [entry.path, computeFinalName(plan.config, entry)!]));
+    const output = fakeOutputDirectory("salida");
+
+    const { copiedCount } = await copyFormattedFiles(output.handle, plan, resolvedNames);
+
+    expect(copiedCount).toBe(1);
+    expect(output.readAll()).toEqual({ "1962/A_CONCALI_0005_1962.pdf": "contenido-a" });
+  });
 });
