@@ -11,6 +11,7 @@ import { RunsPage } from "./pages/RunsPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { BulkDownloadsPage } from "./pages/BulkDownloadsPage";
+import { FormatterPage } from "./pages/FormatterPage";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ export function App() {
                 <Route path="/runs/:runId" element={<RunDetailPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/bulk-downloads" element={<BulkDownloadsPage />} />
+                <Route path="/formateador" element={<FormatterPage />} />
               </Route>
             </Route>
           </Routes>
