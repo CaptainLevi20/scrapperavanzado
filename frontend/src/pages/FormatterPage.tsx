@@ -153,9 +153,16 @@ export function FormatterPage() {
           // it just passes through with its original filename (see handleCopy).
           const pending = resolvedPlan.entries.filter((entry) => entry.reason !== null && entry.reason !== "no-number");
           const passthrough = resolvedPlan.entries.filter((entry) => entry.reason === "no-number");
-          const visibleRows = resolvedPlan.entries.filter(
-            (entry) => entry.reason !== null || state.corrections.has(entry.path)
-          );
+          // An untouched "no-number" entry never gets a row: it always passes
+          // through with its original filename, so listing it would just read
+          // as unfinished work. But once the user starts editing it (e.g.
+          // clearing a duplicate's number field mid-correction transiently
+          // makes it "no-number" too), it must stay visible — otherwise the
+          // row would vanish out from under whatever they're typing.
+          const visibleRows = resolvedPlan.entries.filter((entry) => {
+            if (entry.reason === "no-number" && !state.corrections.has(entry.path)) return false;
+            return entry.reason !== null || state.corrections.has(entry.path);
+          });
           const ready = resolvedPlan.entries.length - pending.length - passthrough.length;
           const canCopy = pending.length === 0;
 

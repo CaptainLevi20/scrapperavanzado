@@ -25,32 +25,7 @@ describe("FormatterPage", () => {
     expect(screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i })).toBeEnabled();
   });
 
-  it("keeps a no-number row editable while typing a multi-digit correction, renaming instead of passing through", async () => {
-    const inputRoot = fakeInputDirectory("Acuerdos Cali", {
-      "ACUERDOS 1962": { "sin numero.pdf": "contenido" },
-    });
-    const output = fakeOutputDirectory("salida");
-    const picker = vi.fn().mockResolvedValueOnce(inputRoot).mockResolvedValueOnce(output.handle);
-    vi.stubGlobal("showDirectoryPicker", picker);
-
-    const user = userEvent.setup();
-    render(<FormatterPage />);
-    await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
-
-    await screen.findByText(/número no detectado/i);
-    const numberField = screen.getByLabelText(/número para/i);
-    await user.type(numberField, "12");
-    expect(numberField).toHaveValue("12");
-
-    const copyButton = screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i });
-    expect(copyButton).toBeEnabled();
-    await user.click(copyButton);
-
-    await waitFor(() => expect(screen.getByText(/1 archivo copiado/i)).toBeInTheDocument());
-    expect(output.readAll()).toEqual({ "ACUERDOS 1962/A_CONCALI_0012_1962.pdf": "contenido" });
-  });
-
-  it("passes an unresolved no-number file through with its original name instead of blocking the copy", async () => {
+  it("passes an unresolved no-number file through with its original name and never lists it for review", async () => {
     const inputRoot = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 2016": { "decretos.rar": "contenido" },
     });
@@ -62,7 +37,10 @@ describe("FormatterPage", () => {
     render(<FormatterPage />);
     await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
-    await screen.findByText(/número no detectado/i);
+    expect(await screen.findByText(/sin número \(se copiarán con su nombre original\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/número no detectado/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
     const copyButton = screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i });
     expect(copyButton).toBeEnabled();
     await user.click(copyButton);
@@ -71,20 +49,38 @@ describe("FormatterPage", () => {
     expect(output.readAll()).toEqual({ "ACUERDOS 2016/decretos.rar": "contenido" });
   });
 
-  it("still keeps the copy button disabled for a duplicate that no auto-resolution rule can disambiguate", async () => {
+  it("keeps a duplicate row editable through a multi-digit correction, resolving the collision once disambiguated", async () => {
     const inputRoot = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 1962": {
         "Acuerdo 0005 primero.pdf": "contenido-a",
         "Acuerdo 0005 segundo.pdf": "contenido-b",
       },
     });
-    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(inputRoot));
+    const output = fakeOutputDirectory("salida");
+    const picker = vi.fn().mockResolvedValueOnce(inputRoot).mockResolvedValueOnce(output.handle);
+    vi.stubGlobal("showDirectoryPicker", picker);
 
+    const user = userEvent.setup();
     render(<FormatterPage />);
-    await userEvent.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
+    await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     await screen.findAllByText(/número duplicado/i);
     expect(screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i })).toBeDisabled();
+
+    const numberFields = screen.getAllByLabelText(/número para/i);
+    await user.clear(numberFields[0]);
+    await user.type(numberFields[0], "12");
+    expect(numberFields[0]).toHaveValue("12");
+
+    const copyButton = screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i });
+    await waitFor(() => expect(copyButton).toBeEnabled());
+    await user.click(copyButton);
+
+    await waitFor(() => expect(screen.getByText(/2 archivos copiados/i)).toBeInTheDocument());
+    expect(output.readAll()).toEqual({
+      "ACUERDOS 1962/A_CONCALI_0012_1962.pdf": "contenido-a",
+      "ACUERDOS 1962/A_CONCALI_0005_1962.pdf": "contenido-b",
+    });
   });
 
   it("shows an error when the output folder is the same as the input folder", async () => {
