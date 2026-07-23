@@ -54,6 +54,18 @@ describe("extractNumber", () => {
   it("does not skip a multi-digit number even if it directly follows 'n'", () => {
     expect(extractNumber("edicion0099.pdf", null)).toBe(99);
   });
+
+  it("prefers the number right after the word 'acuerdo' over an earlier unrelated number", () => {
+    expect(extractNumber("NULIDAD ARTICULO 16 DEL ACUERDO 032 DE 1998 PDF1.PDF", 1998)).toBe(32);
+  });
+
+  it("falls back to the first candidate number when the filename has no 'acuerdo' word at all", () => {
+    expect(extractNumber("Adicion 12 - copia 5.pdf", null)).toBe(12);
+  });
+
+  it("ignores a parenthesized copy marker like '(1)', even when it appears after the word 'acuerdo'", () => {
+    expect(extractNumber("055NOVIEMBRE1973ACUERDO (1).pdf", 1973)).toBe(55);
+  });
 });
 
 describe("padNumber", () => {
@@ -85,5 +97,14 @@ describe("fileExtension", () => {
 describe("buildFileName", () => {
   it("builds the final name from config, number, year and extension", () => {
     expect(buildFileName({ typeCode: "A", cityCode: "CONCALI" }, 5, 1962, ".pdf")).toBe("A_CONCALI_0005_1962.pdf");
+  });
+
+  it("appends an optional suffix before the extension", () => {
+    expect(buildFileName({ typeCode: "A", cityCode: "CONCALI" }, 55, 1973, ".pdf", "_1")).toBe(
+      "A_CONCALI_0055_1973_1.pdf"
+    );
+    expect(buildFileName({ typeCode: "A", cityCode: "CONCALI" }, 402, 2016, ".rar", "_anexo1")).toBe(
+      "A_CONCALI_0402_2016_anexo1.rar"
+    );
   });
 });

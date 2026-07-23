@@ -124,3 +124,61 @@ describe("applyCorrections", () => {
     expect(resolved.entries.every((entry) => entry.reason === null)).toBe(true);
   });
 });
+
+describe("markDuplicates auto-resolution", () => {
+  it("auto-resolves a duplicate pair via a '(1)' filename marker, appending _1 to the copy", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1973": {
+        "055NOVIEMBRE1973ACUERDO.pdf": "x",
+        "055NOVIEMBRE1973ACUERDO (1).pdf": "x",
+      },
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries.every((entry) => entry.reason === null)).toBe(true);
+    const names = plan.entries.map((entry) => computeFinalName(plan.config, entry)).sort();
+    expect(names).toEqual(["A_CONCALI_0055_1973.pdf", "A_CONCALI_0055_1973_1.pdf"]);
+  });
+
+  it("auto-resolves an 'anexo' collision by numbering each attachment", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 2016": {
+        "Acuerdo No.402 anexos.rar": "x",
+        "Acuerdo No.402 anexos abril 2017.rar": "x",
+      },
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries.every((entry) => entry.reason === null)).toBe(true);
+    const names = plan.entries.map((entry) => computeFinalName(plan.config, entry)).sort();
+    expect(names).toEqual(["A_CONCALI_0402_2016_anexo1.rar", "A_CONCALI_0402_2016_anexo2.rar"]);
+  });
+
+  it("still requires manual review when neither the '(N)' nor the 'anexo' pattern disambiguates a collision", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": {
+        "Acuerdo 0005 primero.pdf": "x",
+        "Acuerdo 0005 segundo.pdf": "x",
+      },
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries.every((entry) => entry.reason === "duplicate")).toBe(true);
+  });
+
+  it("falls back to manual review when two colliding copies share the same '(N)' marker", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": {
+        "Acuerdo 0005 (1) copia a.pdf": "x",
+        "Acuerdo 0005 (1) copia b.pdf": "x",
+      },
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries.every((entry) => entry.reason === "duplicate")).toBe(true);
+  });
+});

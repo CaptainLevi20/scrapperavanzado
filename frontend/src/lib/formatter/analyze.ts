@@ -10,6 +10,7 @@ export interface FormatterEntry {
   detectedYear: number | null;
   detectedNumber: number | null;
   reason: FormatterReason | null;
+  suffix: string;
 }
 
 export interface FormatterPlan {
@@ -72,11 +73,20 @@ export async function analyzeDirectory(root: FileSystemDirectoryHandle): Promise
 
   const entries: FormatterEntry[] = rawEntries.map(({ path, yearFolder, filename, fileHandle }) => {
     if (yearFolder === "") {
-      return { path, yearFolder, filename, fileHandle, detectedYear: null, detectedNumber: null, reason: null };
+      return {
+        path,
+        yearFolder,
+        filename,
+        fileHandle,
+        detectedYear: null,
+        detectedNumber: null,
+        reason: null,
+        suffix: "",
+      };
     }
     const detectedYear = extractYear(yearFolder);
     const detectedNumber = detectedYear === null ? null : extractNumber(filename, detectedYear);
-    return { path, yearFolder, filename, fileHandle, detectedYear, detectedNumber, reason: null };
+    return { path, yearFolder, filename, fileHandle, detectedYear, detectedNumber, reason: null, suffix: "" };
   });
 
   markDuplicates(entries, config);
@@ -86,7 +96,7 @@ export async function analyzeDirectory(root: FileSystemDirectoryHandle): Promise
 
 export function computeFinalName(config: FormatterConfig, entry: FormatterEntry): string | null {
   if (entry.detectedYear === null || entry.detectedNumber === null) return null;
-  return buildFileName(config, entry.detectedNumber, entry.detectedYear, fileExtension(entry.filename));
+  return buildFileName(config, entry.detectedNumber, entry.detectedYear, fileExtension(entry.filename), entry.suffix);
 }
 
 function recomputeReasons(entries: FormatterEntry[]): void {
@@ -97,8 +107,58 @@ function recomputeReasons(entries: FormatterEntry[]): void {
   }
 }
 
+function normalizeForMatch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+function parenMarker(filename: string): string | null {
+  const match = /\((\d+)\)/.exec(filename);
+  return match ? match[1] : null;
+}
+
+// Some collisions have an unambiguous resolution baked into the original
+// filenames themselves, so they don't need a human to look at them:
+//   - Every colliding file mentions "anexo" (an attachment) → number them
+//     _anexo1, _anexo2, ... in a stable order.
+//   - Exactly one colliding file has a plain name and the rest carry a
+//     Windows-style "(N)" copy marker → the plain one keeps its name, the
+//     copies get "_N" appended.
+// Returns true if the whole group was resolved (each entry's `suffix` is set
+// and all entries now have distinct final names); false if it still needs
+// manual review, in which case no entry's `suffix` is touched.
+function tryAutoResolveCollision(group: FormatterEntry[], config: FormatterConfig): boolean {
+  const hasAnexo = group.some((entry) => normalizeForMatch(entry.filename).includes("anexo"));
+  if (hasAnexo) {
+    const sorted = [...group].sort((a, b) => a.filename.localeCompare(b.filename));
+    sorted.forEach((entry, index) => {
+      entry.suffix = `_anexo${index + 1}`;
+    });
+    return true;
+  }
+
+  const canonicalCount = group.filter((entry) => parenMarker(entry.filename) === null).length;
+  if (canonicalCount !== 1) return false;
+
+  for (const entry of group) {
+    const marker = parenMarker(entry.filename);
+    entry.suffix = marker === null ? "" : `_${marker}`;
+  }
+
+  const resolvedNames = new Set(group.map((entry) => computeFinalName(config, entry)));
+  if (resolvedNames.size !== group.length) {
+    for (const entry of group) entry.suffix = "";
+    return false;
+  }
+  return true;
+}
+
 export function markDuplicates(entries: FormatterEntry[], config: FormatterConfig): void {
   recomputeReasons(entries);
+  for (const entry of entries) entry.suffix = "";
+
   const byName = new Map<string, FormatterEntry[]>();
   for (const entry of entries) {
     if (entry.reason !== null) continue;
@@ -109,7 +169,8 @@ export function markDuplicates(entries: FormatterEntry[], config: FormatterConfi
     byName.set(name, group);
   }
   for (const group of byName.values()) {
-    if (group.length > 1) {
+    if (group.length <= 1) continue;
+    if (!tryAutoResolveCollision(group, config)) {
       for (const entry of group) entry.reason = "duplicate";
     }
   }

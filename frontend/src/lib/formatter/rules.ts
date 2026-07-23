@@ -34,6 +34,7 @@ export function extractYear(folderName: string): number | null {
 }
 
 export function extractNumber(filename: string, year: number | null): number | null {
+  const candidates: RegExpMatchArray[] = [];
   for (const match of filename.matchAll(/\d+/g)) {
     const raw = match[0];
     const value = Number(raw);
@@ -46,9 +47,27 @@ export function extractNumber(filename: string, year: number | null): number | n
     const isNoAbbreviation = raw === "0" && precedingChar?.toLowerCase() === "n";
     if (isNoAbbreviation) continue;
 
-    return value;
+    // A number wrapped in parentheses, e.g. "archivo (1).pdf", is a Windows-style
+    // copy marker for an accidental duplicate upload, not the acuerdo's own
+    // number — exclude it from the candidates entirely.
+    const isParenthesized = precedingChar === "(" && filename[(match.index ?? 0) + raw.length] === ")";
+    if (isParenthesized) continue;
+
+    candidates.push(match);
   }
-  return null;
+  if (candidates.length === 0) return null;
+
+  // A number that appears before the word "acuerdo" is usually something else
+  // mentioned in the title (an article number, a nullity clause, ...), not the
+  // acuerdo's own number — prefer the first candidate that comes AFTER "acuerdo"
+  // when the word is present, falling back to the first candidate otherwise.
+  const acuerdoIndex = normalize(filename).indexOf("acuerdo");
+  if (acuerdoIndex !== -1) {
+    const afterAcuerdo = candidates.find((match) => (match.index ?? -1) > acuerdoIndex);
+    if (afterAcuerdo) return Number(afterAcuerdo[0]);
+  }
+
+  return Number(candidates[0][0]);
 }
 
 export function padNumber(value: number): string {
@@ -63,6 +82,12 @@ export function fileExtension(filename: string): string {
   return match ? match[0].toLowerCase() : "";
 }
 
-export function buildFileName(config: FormatterConfig, number: number, year: number, ext: string): string {
-  return `${config.typeCode}_${config.cityCode}_${padNumber(number)}_${year}${ext}`;
+export function buildFileName(
+  config: FormatterConfig,
+  number: number,
+  year: number,
+  ext: string,
+  suffix: string = ""
+): string {
+  return `${config.typeCode}_${config.cityCode}_${padNumber(number)}_${year}${suffix}${ext}`;
 }
