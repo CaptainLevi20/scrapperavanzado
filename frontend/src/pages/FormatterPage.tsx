@@ -1,26 +1,25 @@
 import { useState } from "react";
-import JSZip from "jszip";
 import { Wand2 } from "lucide-react";
-import { downloadBlob } from "../api/documents";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
-  analyzeZip,
+  analyzeDirectory,
   applyCorrections,
   computeFinalName,
   FormatterError,
   type Correction,
   type FormatterPlan,
 } from "../lib/formatter/analyze";
-import { buildFormattedZip } from "../lib/formatter/build";
+import { copyFormattedFiles } from "../lib/formatter/copy";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../lib/tableStyles";
 
 type FormatterState =
   | { step: "idle"; notice?: string }
+  | { step: "unsupported" }
   | { step: "error"; message: string }
-  | { step: "loaded"; plan: FormatterPlan; zip: JSZip; corrections: Map<string, Correction> }
-  | { step: "building"; plan: FormatterPlan; zip: JSZip; corrections: Map<string, Correction> };
+  | { step: "loaded"; plan: FormatterPlan; corrections: Map<string, Correction> }
+  | { step: "copying"; done: number; total: number };
 
 const REASON_LABEL: Record<string, string> = {
   "no-year": "Año no detectado",
@@ -28,15 +27,23 @@ const REASON_LABEL: Record<string, string> = {
   duplicate: "Número duplicado",
 };
 
-export function FormatterPage() {
-  const [state, setState] = useState<FormatterState>({ step: "idle" });
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
 
-  async function handleFileSelected(file: File) {
+export function FormatterPage() {
+  const [state, setState] = useState<FormatterState>(() =>
+    "showDirectoryPicker" in window ? { step: "idle" } : { step: "unsupported" }
+  );
+
+  async function handlePickInput() {
     try {
-      const [plan, zip] = await Promise.all([analyzeZip(file), JSZip.loadAsync(file)]);
-      setState({ step: "loaded", plan, zip, corrections: new Map() });
+      const root = await window.showDirectoryPicker();
+      const plan = await analyzeDirectory(root);
+      setState({ step: "loaded", plan, corrections: new Map() });
     } catch (error) {
-      const message = error instanceof FormatterError ? error.message : "No se pudo leer el archivo ZIP.";
+      if (isAbortError(error)) return;
+      const message = error instanceof FormatterError ? error.message : "No se pudo leer la carpeta.";
       setState({ step: "error", message });
     }
   }
@@ -52,7 +59,7 @@ export function FormatterPage() {
     setState({ ...state, corrections });
   }
 
-  async function handleDownload() {
+  async function handleCopy() {
     if (state.step !== "loaded") return;
     const resolvedPlan = applyCorrections(state.plan, state.corrections);
     const resolvedNames = new Map<string, string>();
@@ -61,19 +68,35 @@ export function FormatterPage() {
       if (name) resolvedNames.set(entry.path, name);
     }
 
-    setState({ step: "building", plan: state.plan, zip: state.zip, corrections: state.corrections });
+    let outputRoot: FileSystemDirectoryHandle;
     try {
-      const { blob, skippedCount } = await buildFormattedZip(state.zip, resolvedPlan, resolvedNames);
-      downloadBlob(blob, `Formateador_${resolvedPlan.rootFolderName}.zip`);
+      outputRoot = await window.showDirectoryPicker({ mode: "readwrite" });
+    } catch (error) {
+      if (isAbortError(error)) return;
+      setState({ step: "error", message: "No se pudo abrir la carpeta de salida." });
+      return;
+    }
+
+    setState({ step: "copying", done: 0, total: resolvedNames.size });
+    try {
+      const { copiedCount, skippedCount } = await copyFormattedFiles(
+        outputRoot,
+        resolvedPlan,
+        resolvedNames,
+        (done, total) => {
+          if (done % 20 === 0 || done === total) setState({ step: "copying", done, total });
+        }
+      );
+      const copiedLabel = `${copiedCount} archivo${copiedCount === 1 ? "" : "s"} copiado${copiedCount === 1 ? "" : "s"}`;
       setState({
         step: "idle",
         notice:
           skippedCount > 0
-            ? `${skippedCount} archivo${skippedCount === 1 ? "" : "s"} se omitieron por error de lectura.`
-            : undefined,
+            ? `${copiedLabel}, ${skippedCount} omitido${skippedCount === 1 ? "" : "s"} por error de lectura.`
+            : `${copiedLabel}.`,
       });
     } catch {
-      setState({ step: "error", message: "No se pudo generar el ZIP." });
+      setState({ step: "error", message: "No se pudo completar la copia." });
     }
   }
 
@@ -87,30 +110,29 @@ export function FormatterPage() {
         <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Formateador</h1>
       </div>
 
+      {state.step === "unsupported" && (
+        <ErrorBanner message="Esta función necesita Chrome o Edge; tu navegador actual no es compatible." />
+      )}
+
       {state.step === "idle" && (
         <div className={TABLE_SHELL}>
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
             {state.notice && <p className="text-xs text-muted-foreground">{state.notice}</p>}
             <p className="text-sm text-muted-foreground">
-              Sube un ZIP con la carpeta de acuerdos (subcarpetas por año) para renombrar los archivos.
+              Elige la carpeta con los acuerdos (subcarpetas por año) para renombrar los archivos.
             </p>
-            <Input
-              type="file"
-              accept=".zip"
-              aria-label="Seleccionar archivo ZIP"
-              className="max-w-xs"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void handleFileSelected(file);
-              }}
-            />
+            <Button onClick={() => void handlePickInput()}>Elegir carpeta de entrada</Button>
           </div>
         </div>
       )}
 
       {state.step === "error" && <ErrorBanner message={state.message} onRetry={() => setState({ step: "idle" })} />}
 
-      {state.step === "building" && <p className="text-sm text-muted-foreground">Generando el ZIP…</p>}
+      {state.step === "copying" && (
+        <p className="text-sm text-muted-foreground">
+          Copiando {state.done} / {state.total}…
+        </p>
+      )}
 
       {state.step === "loaded" &&
         (() => {
@@ -120,7 +142,7 @@ export function FormatterPage() {
             (entry) => entry.reason !== null || state.corrections.has(entry.path)
           );
           const ready = resolvedPlan.entries.length - pending.length;
-          const canDownload = pending.length === 0;
+          const canCopy = pending.length === 0;
 
           return (
             <div className="space-y-4">
@@ -175,8 +197,8 @@ export function FormatterPage() {
                 </div>
               )}
 
-              <Button onClick={() => void handleDownload()} disabled={!canDownload}>
-                Descargar ZIP
+              <Button onClick={() => void handleCopy()} disabled={!canCopy}>
+                Elegir carpeta de salida y copiar
               </Button>
             </div>
           );
