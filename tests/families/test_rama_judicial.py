@@ -3,7 +3,9 @@ import responses
 from core.scrapers.families.rama_judicial import (
     JUZGADOS_ENTIDADES,
     SUPERIORES_DEPTS,
+    TRIBUNAL_CODES,
     ScrapRamaJudicial,
+    _normalize_title,
 )
 from core.scrapers.registry import FAMILY_REGISTRY
 
@@ -73,6 +75,56 @@ def test_superiores_depts_and_juzgados_entidades_counts():
     assert JUZGADOS_ENTIDADES["31"] == "Juzgado de Circuito"
 
 
+def test_tribunal_codes_has_one_entry_per_superiores_dept():
+    assert set(TRIBUNAL_CODES.keys()) == set(SUPERIORES_DEPTS.keys())
+    assert TRIBUNAL_CODES["11"] == "BTA"
+    assert TRIBUNAL_CODES["76"] == "VALL"
+    assert TRIBUNAL_CODES["54"] == "NSAN"
+    assert TRIBUNAL_CODES["68"] == "SANT"
+
+
+def test_normalize_title_builds_prefix_from_23_digit_radicado():
+    assert _normalize_title("11001310302020220015001_DraGonzalezAutoAdmiteRecurso", "11") == (
+        "T_BTA_11001_31_03_020_2022_00150_01"
+    )
+
+
+def test_normalize_title_ignores_everything_after_the_radicado():
+    # el juez y la acción se descartan por completo, no se guardan en ningún lado
+    assert _normalize_title("11001310302020220015001_ AnythingElseHere123", "11") == (
+        "T_BTA_11001_31_03_020_2022_00150_01"
+    )
+
+
+def test_normalize_title_tolerates_missing_dr_prefix():
+    # caso real: el despacho subió el archivo sin "Dr"/"Dra" — la condición de
+    # disparo es solo el prefijo de 23 dígitos, no depende de "Dr"/"Dra"
+    assert _normalize_title("11001310303320170034203_ValenzuelaSentenciaSegundaInstancia", "11") == (
+        "T_BTA_11001_31_03_033_2017_00342_03"
+    )
+
+
+def test_normalize_title_leaves_person_name_titles_unchanged():
+    original = "033-2025-00417-01 PAOLA ANDREA NARANJO QUINTANA"
+    assert _normalize_title(original, "11") == original
+
+
+def test_normalize_title_leaves_generic_estado_titles_unchanged():
+    original = "ESTADO E-0109 DEL 26 DE JUNIO DE 2026"
+    assert _normalize_title(original, "11") == original
+
+
+def test_normalize_title_leaves_titles_unchanged_when_dept_code_has_no_tribunal_code():
+    # Juzgados no tienen dept_code (family_params usa dept_code="", ver core/seed.py)
+    original = "11001310302020220015001_DraGonzalezAutoAdmiteRecurso"
+    assert _normalize_title(original, "") == original
+
+
+def test_normalize_title_leaves_titles_unchanged_when_digit_prefix_is_not_23_long():
+    original = "1234567890123456789012_DraGonzalezAutoAdmiteRecurso"  # 22 dígitos, no 23
+    assert _normalize_title(original, "11") == original
+
+
 @responses.activate
 def test_fetch_detail_parses_file_table():
     responses.add(responses.GET, _BASE_DOMAIN + "/detalle/1", body=_DETAIL_HTML, status=200)
@@ -118,6 +170,66 @@ def test_scrap_builds_docs_from_listing_and_detail(monkeypatch):
     assert doc.save_path == (
         "Tribunal Superior de Antioquia/Civil/Juzgado 1 Civil del Circuito/2024-06-15/Sentencias/Auto_2024(extension)"
     )
+
+
+@responses.activate
+def test_scrap_normalizes_title_for_documents_with_a_23_digit_radicado(monkeypatch):
+    responses.add(
+        responses.GET,
+        "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio",
+        body=_LISTING_HTML,
+        status=200,
+    )
+
+    scraper = ScrapRamaJudicial(dept_code="11", dept_name="Tribunal Superior de Bogotá", entidad_id="22")
+    monkeypatch.setattr(scraper, "_get_instance_id", lambda session, headers: "XYZ")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_detail",
+        lambda headers, url: [
+            (
+                "11001310302020220015001_DraGonzalezAutoAdmiteRecurso.pdf",
+                _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-999",
+                "abc-999",
+            )
+        ],
+    )
+
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].title == "T_BTA_11001_31_03_020_2022_00150_01"
+
+
+@responses.activate
+def test_scrap_does_not_normalize_title_for_a_source_without_a_tribunal_code(monkeypatch):
+    responses.add(
+        responses.GET,
+        "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio",
+        body=_LISTING_HTML,
+        status=200,
+    )
+
+    # dept_code="" es como se instancia un Juzgado (ver core/seed.py) — no tiene
+    # código de tribunal, así que el título nunca se normaliza.
+    scraper = ScrapRamaJudicial(dept_code="", dept_name="Juzgado de Circuito", entidad_id="31")
+    monkeypatch.setattr(scraper, "_get_instance_id", lambda session, headers: "XYZ")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_detail",
+        lambda headers, url: [
+            (
+                "11001310302020220015001_DraGonzalezAutoAdmiteRecurso.pdf",
+                _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-999",
+                "abc-999",
+            )
+        ],
+    )
+
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].title == "11001310302020220015001_DraGonzalezAutoAdmiteRecurso"
 
 
 @responses.activate

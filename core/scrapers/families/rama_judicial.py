@@ -70,6 +70,67 @@ JUZGADOS_ENTIDADES = {
     "43": "Juzgado Municipal de Ejecución",
 }
 
+# Código de 3-4 letras por tribunal, usado por _normalize_title para el
+# prefijo "T_{CODIGO}_" del título normalizado. Dictado directamente por el
+# usuario para cada uno de los 33 tribunales — no se deriva automáticamente
+# del nombre (ver docs/superpowers/specs/2026-07-23-rama-judicial-title-normalization-design.md).
+TRIBUNAL_CODES = {
+    "05": "ANTI",
+    "08": "ATLA",
+    "11": "BTA",
+    "13": "BOLI",
+    "15": "BOYA",
+    "17": "CALD",
+    "18": "CAQU",
+    "19": "CAUC",
+    "20": "CESA",
+    "23": "CORD",
+    "25": "CUND",
+    "27": "CHOC",
+    "41": "HUIL",
+    "44": "GUAJ",
+    "47": "MAGD",
+    "50": "META",
+    "52": "NARI",
+    "54": "NSAN",
+    "63": "QUIN",
+    "66": "RISA",
+    "68": "SANT",
+    "70": "SUCR",
+    "73": "TOLI",
+    "76": "VALL",
+    "81": "ARAU",
+    "85": "CASA",
+    "86": "PUTU",
+    "88": "SAND",
+    "91": "AMAZ",
+    "94": "GUAI",
+    "95": "GUAV",
+    "97": "VAUP",
+    "99": "VICH",
+}
+
+_RADICADO_PREFIX = re.compile(r"^(\d{23})_")
+
+
+def _normalize_title(name_no_ext: str, dept_code: str) -> str:
+    """Reemplaza el nombre de archivo crudo por "T_{CODIGO}_{radicado segmentado}"
+    cuando empieza con el radicado completo (23 dígitos) y el tribunal tiene un
+    código conocido. El resto del nombre original (juez, acción) se descarta.
+    Si no calza (nombre de persona, aviso genérico "ESTADO...", tribunal sin
+    código, o el prefijo no tiene exactamente 23 dígitos), se deja tal cual."""
+    codigo = TRIBUNAL_CODES.get(dept_code)
+    if codigo is None:
+        return name_no_ext
+
+    match = _RADICADO_PREFIX.match(name_no_ext)
+    if not match:
+        return name_no_ext
+
+    n = match.group(1)
+    radicado_segmentado = f"{n[0:5]}_{n[5:7]}_{n[7:9]}_{n[9:12]}_{n[12:16]}_{n[16:21]}_{n[21:23]}"
+    return f"T_{codigo}_{radicado_segmentado}"
+
 
 def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3):
     """GET with up to `retries` attempts, retrying on timeout or a 5xx status.
@@ -319,7 +380,7 @@ class ScrapRamaJudicial(BaseScrapper):
                         docs.append(RawDocModel(
                             source=self.source,
                             link={"url": download_url, "method": "GET", "body": {"path": file_uuid}},
-                            title=name_no_ext,
+                            title=_normalize_title(name_no_ext, self._dept_code),
                             tipo=tipo,
                             especialidad=especialidad_raw,
                             seccion=despacho_raw,
