@@ -1,4 +1,3 @@
-import JSZip from "jszip";
 import { buildFileName, detectConfig, extractNumber, extractYear, fileExtension, type FormatterConfig } from "./rules";
 
 export type FormatterReason = "no-year" | "no-number" | "duplicate";
@@ -7,6 +6,7 @@ export interface FormatterEntry {
   path: string;
   yearFolder: string;
   filename: string;
+  fileHandle: FileSystemFileHandle;
   detectedYear: number | null;
   detectedNumber: number | null;
   reason: FormatterReason | null;
@@ -25,44 +25,44 @@ export interface Correction {
 
 export class FormatterError extends Error {}
 
-function stripZipExtension(name: string): string {
-  return name.replace(/\.zip$/i, "");
+interface RawEntry {
+  path: string;
+  yearFolder: string;
+  filename: string;
+  fileHandle: FileSystemFileHandle;
 }
 
-function commonRootSegment(paths: string[]): string | null {
-  const [first, ...rest] = paths.map((path) => path.split("/")[0]);
-  return first !== undefined && rest.every((segment) => segment === first) ? first : null;
-}
+export async function analyzeDirectory(root: FileSystemDirectoryHandle): Promise<FormatterPlan> {
+  const rootFolderName = root.name;
+  const rawEntries: RawEntry[] = [];
 
-export async function analyzeZip(file: File): Promise<FormatterPlan> {
-  let zip: JSZip;
-  try {
-    zip = await JSZip.loadAsync(file);
-  } catch {
-    throw new FormatterError("El archivo seleccionado no es un ZIP válido.");
+  for await (const handle of root.values()) {
+    if (handle.kind === "file") {
+      rawEntries.push({ path: handle.name, yearFolder: "", filename: handle.name, fileHandle: handle });
+      continue;
+    }
+    for await (const child of handle.values()) {
+      if (child.kind !== "file") continue;
+      rawEntries.push({
+        path: `${handle.name}/${child.name}`,
+        yearFolder: handle.name,
+        filename: child.name,
+        fileHandle: child,
+      });
+    }
   }
 
-  const fileEntries = Object.values(zip.files).filter((entry) => !entry.dir);
-  if (fileEntries.length === 0) {
-    throw new FormatterError("El ZIP no contiene ningún archivo.");
+  if (rawEntries.length === 0) {
+    throw new FormatterError("La carpeta no contiene ningún archivo.");
   }
 
-  const sharedRoot = commonRootSegment(fileEntries.map((entry) => entry.name));
-  const rootFolderName = sharedRoot ?? stripZipExtension(file.name);
-
-  const segmentsByEntry = fileEntries.map((entry) => ({
-    entry,
-    segments: sharedRoot ? entry.name.split("/").slice(1) : entry.name.split("/"),
-  }));
-
-  // The zip's root folder name alone doesn't always carry both the type and city
-  // keywords — e.g. a zip named "CALI 2026.zip" with no wrapping folder only has
-  // the city in its filename, while the type ("Acuerdo") only shows up in each
-  // year subfolder's own name ("ACUERDOS 1962"). Searching across every distinct
-  // year-folder name too (in addition to rootFolderName) covers that real-world
-  // naming pattern without needing a wrapping folder that repeats it.
+  // The root folder's own name doesn't always carry both the type and city
+  // keywords — e.g. a folder named "CALI 2026" only has the city, while the
+  // type ("Acuerdo") only shows up in each year subfolder's own name
+  // ("ACUERDOS 1962"). Searching across every distinct year-folder name too
+  // (in addition to rootFolderName) covers that real-world naming pattern.
   const yearFolderNames = Array.from(
-    new Set(segmentsByEntry.filter(({ segments }) => segments.length >= 2).map(({ segments }) => segments[0]))
+    new Set(rawEntries.filter((entry) => entry.yearFolder !== "").map((entry) => entry.yearFolder))
   );
 
   const config = detectConfig([rootFolderName, ...yearFolderNames].join(" "));
@@ -70,17 +70,13 @@ export async function analyzeZip(file: File): Promise<FormatterPlan> {
     throw new FormatterError(`No se reconoce el tipo de documento o la ciudad en «${rootFolderName}».`);
   }
 
-  const entries: FormatterEntry[] = segmentsByEntry.map(({ entry, segments }) => {
-    const filename = segments[segments.length - 1];
-
-    if (segments.length < 2) {
-      return { path: entry.name, yearFolder: "", filename, detectedYear: null, detectedNumber: null, reason: null };
+  const entries: FormatterEntry[] = rawEntries.map(({ path, yearFolder, filename, fileHandle }) => {
+    if (yearFolder === "") {
+      return { path, yearFolder, filename, fileHandle, detectedYear: null, detectedNumber: null, reason: null };
     }
-
-    const yearFolder = segments[0];
     const detectedYear = extractYear(yearFolder);
     const detectedNumber = detectedYear === null ? null : extractNumber(filename, detectedYear);
-    return { path: entry.name, yearFolder, filename, detectedYear, detectedNumber, reason: null };
+    return { path, yearFolder, filename, fileHandle, detectedYear, detectedNumber, reason: null };
   });
 
   markDuplicates(entries, config);
