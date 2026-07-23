@@ -44,6 +44,16 @@ describe("extractNumber", () => {
   it("returns the first number when year is null", () => {
     expect(extractNumber("acuerdo 7.pdf", null)).toBe(7);
   });
+
+  it("skips a lone '0' that follows 'N' as a typo'd/OCR'd 'No.' abbreviation, not the real number", () => {
+    expect(extractNumber("ACUERDO N0. 0402 DE 2016 PDF.pdf", 2016)).toBe(402);
+    expect(extractNumber("ACUERDO N0. 397 PDF1.PDF", 2016)).toBe(397);
+    expect(extractNumber("AC N0. 453 DE 2018.PDF", 2018)).toBe(453);
+  });
+
+  it("does not skip a multi-digit number even if it directly follows 'n'", () => {
+    expect(extractNumber("edicion0099.pdf", null)).toBe(99);
+  });
 });
 
 describe("padNumber", () => {
@@ -64,6 +74,11 @@ describe("fileExtension", () => {
 
   it("returns an empty string when there is no extension", () => {
     expect(fileExtension("archivo")).toBe("");
+  });
+
+  it("lowercases the extension so files differing only by extension case collide as duplicates", () => {
+    expect(fileExtension("archivo.PDF")).toBe(".pdf");
+    expect(fileExtension("archivo.Pdf")).toBe(".pdf");
   });
 });
 

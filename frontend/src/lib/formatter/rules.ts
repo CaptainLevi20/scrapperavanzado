@@ -34,11 +34,19 @@ export function extractYear(folderName: string): number | null {
 }
 
 export function extractNumber(filename: string, year: number | null): number | null {
-  const matches = filename.match(/\d+/g);
-  if (!matches) return null;
-  for (const raw of matches) {
+  for (const match of filename.matchAll(/\d+/g)) {
+    const raw = match[0];
     const value = Number(raw);
-    if (year === null || value !== year) return value;
+    if (year !== null && value === year) continue;
+
+    // A lone "0" immediately after "N" (as in "N0." for "Acuerdo N0. 402") is a
+    // typo'd/OCR'd "No." (Número) abbreviation, not the acuerdo number itself —
+    // skip it and keep looking for the real number later in the filename.
+    const precedingChar = filename[match.index - 1];
+    const isNoAbbreviation = raw === "0" && precedingChar?.toLowerCase() === "n";
+    if (isNoAbbreviation) continue;
+
+    return value;
   }
   return null;
 }
@@ -49,7 +57,10 @@ export function padNumber(value: number): string {
 
 export function fileExtension(filename: string): string {
   const match = /\.[^./\\]+$/.exec(filename);
-  return match ? match[0] : "";
+  // Lowercased so two files differing only by extension case (".pdf" vs ".PDF")
+  // produce the same final name and are correctly caught as a collision instead
+  // of one silently slipping through as "ready" with the wrong number.
+  return match ? match[0].toLowerCase() : "";
 }
 
 export function buildFileName(config: FormatterConfig, number: number, year: number, ext: string): string {
