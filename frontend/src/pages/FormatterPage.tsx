@@ -65,7 +65,14 @@ export function FormatterPage() {
     const resolvedNames = new Map<string, string>();
     for (const entry of resolvedPlan.entries) {
       const name = computeFinalName(resolvedPlan.config, entry);
-      if (name) resolvedNames.set(entry.path, name);
+      if (name) {
+        resolvedNames.set(entry.path, name);
+      } else if (entry.reason === "no-number") {
+        // No number could be determined and the user didn't correct it — copy
+        // the file through with its original name instead of blocking the
+        // whole batch on a number nobody can reliably guess.
+        resolvedNames.set(entry.path, entry.filename);
+      }
     }
 
     let outputRoot: FileSystemDirectoryHandle;
@@ -142,17 +149,23 @@ export function FormatterPage() {
       {state.step === "loaded" &&
         (() => {
           const resolvedPlan = applyCorrections(state.plan, state.corrections);
-          const pending = resolvedPlan.entries.filter((entry) => entry.reason !== null);
+          // A "no-number" entry never blocks the copy on its own — left uncorrected,
+          // it just passes through with its original filename (see handleCopy).
+          const pending = resolvedPlan.entries.filter((entry) => entry.reason !== null && entry.reason !== "no-number");
+          const passthrough = resolvedPlan.entries.filter((entry) => entry.reason === "no-number");
           const visibleRows = resolvedPlan.entries.filter(
             (entry) => entry.reason !== null || state.corrections.has(entry.path)
           );
-          const ready = resolvedPlan.entries.length - pending.length;
+          const ready = resolvedPlan.entries.length - pending.length - passthrough.length;
           const canCopy = pending.length === 0;
 
           return (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {ready} archivo{ready === 1 ? "" : "s"} listo{ready === 1 ? "" : "s"}
+                {passthrough.length > 0
+                  ? `, ${passthrough.length} sin número (se copiarán con su nombre original)`
+                  : ""}
                 {pending.length > 0 ? `, ${pending.length} por revisar` : ""}.
               </p>
 

@@ -156,6 +156,34 @@ describe("markDuplicates auto-resolution", () => {
     expect(names).toEqual(["A_CONCALI_0402_2016_anexo1.rar", "A_CONCALI_0402_2016_anexo2.rar"]);
   });
 
+  it("auto-resolves a collision where one file is a 'nulidad' ruling about the other, appending _nulidad", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1998": {
+        "acdo32-98.pdf": "x",
+        "NULIDAD ARTICULO 16 DEL ACUERDO 032 DE 1998 PDF1.PDF": "x",
+      },
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries.every((entry) => entry.reason === null)).toBe(true);
+    const names = plan.entries.map((entry) => computeFinalName(plan.config, entry)).sort();
+    expect(names).toEqual(["A_CONCALI_0032_1998.pdf", "A_CONCALI_0032_1998_nulidad.pdf"]);
+  });
+
+  it("still requires manual review when every colliding file mentions 'nulidad' (nothing to distinguish them)", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1998": {
+        "NULIDAD PARCIAL ACUERDO 032 DE 1998.pdf": "x",
+        "NULIDAD TOTAL ACUERDO 032 DE 1998.pdf": "x",
+      },
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries.every((entry) => entry.reason === "duplicate")).toBe(true);
+  });
+
   it("still requires manual review when neither the '(N)' nor the 'anexo' pattern disambiguates a collision", async () => {
     const root = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 1962": {

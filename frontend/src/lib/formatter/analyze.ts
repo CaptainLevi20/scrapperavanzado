@@ -119,26 +119,44 @@ function parenMarker(filename: string): string | null {
   return match ? match[1] : null;
 }
 
-// Some collisions have an unambiguous resolution baked into the original
-// filenames themselves, so they don't need a human to look at them:
-//   - Every colliding file mentions "anexo" (an attachment) → number them
-//     _anexo1, _anexo2, ... in a stable order.
-//   - Exactly one colliding file has a plain name and the rest carry a
-//     Windows-style "(N)" copy marker → the plain one keeps its name, the
-//     copies get "_N" appended.
-// Returns true if the whole group was resolved (each entry's `suffix` is set
-// and all entries now have distinct final names); false if it still needs
-// manual review, in which case no entry's `suffix` is touched.
-function tryAutoResolveCollision(group: FormatterEntry[], config: FormatterConfig): boolean {
+function tryAnexoResolution(group: FormatterEntry[]): boolean {
   const hasAnexo = group.some((entry) => normalizeForMatch(entry.filename).includes("anexo"));
-  if (hasAnexo) {
-    const sorted = [...group].sort((a, b) => a.filename.localeCompare(b.filename));
-    sorted.forEach((entry, index) => {
-      entry.suffix = `_anexo${index + 1}`;
-    });
-    return true;
+  if (!hasAnexo) return false;
+  const sorted = [...group].sort((a, b) => a.filename.localeCompare(b.filename));
+  sorted.forEach((entry, index) => {
+    entry.suffix = `_anexo${index + 1}`;
+  });
+  return true;
+}
+
+// A file whose name flags it as a special designation about another one in the
+// same collision (e.g. a "nulidad" ruling that cites the acuerdo it concerns)
+// gets that keyword appended as a suffix, while the plain file it refers to
+// keeps its name as-is. Only resolves the group if the keyword actually
+// distinguishes every member — if two colliding files both carry it (or
+// neither does), there's nothing to disambiguate them and it's left for review.
+function tryKeywordSuffixResolution(
+  group: FormatterEntry[],
+  config: FormatterConfig,
+  keyword: string,
+  suffix: string
+): boolean {
+  const hasKeyword = group.some((entry) => normalizeForMatch(entry.filename).includes(keyword));
+  if (!hasKeyword) return false;
+
+  for (const entry of group) {
+    entry.suffix = normalizeForMatch(entry.filename).includes(keyword) ? suffix : "";
   }
 
+  const resolvedNames = new Set(group.map((entry) => computeFinalName(config, entry)));
+  if (resolvedNames.size !== group.length) {
+    for (const entry of group) entry.suffix = "";
+    return false;
+  }
+  return true;
+}
+
+function tryParenMarkerResolution(group: FormatterEntry[], config: FormatterConfig): boolean {
   const canonicalCount = group.filter((entry) => parenMarker(entry.filename) === null).length;
   if (canonicalCount !== 1) return false;
 
@@ -153,6 +171,19 @@ function tryAutoResolveCollision(group: FormatterEntry[], config: FormatterConfi
     return false;
   }
   return true;
+}
+
+// Some collisions have an unambiguous resolution baked into the original
+// filenames themselves, so they don't need a human to look at them. Tried in
+// order; the first strategy that fully disambiguates the group wins. Returns
+// true if the whole group was resolved (each entry's `suffix` is set and all
+// entries now have distinct final names); false if it still needs manual
+// review, in which case no entry's `suffix` is touched.
+function tryAutoResolveCollision(group: FormatterEntry[], config: FormatterConfig): boolean {
+  if (tryAnexoResolution(group)) return true;
+  if (tryKeywordSuffixResolution(group, config, "nulidad", "_nulidad")) return true;
+  if (tryParenMarkerResolution(group, config)) return true;
+  return false;
 }
 
 export function markDuplicates(entries: FormatterEntry[], config: FormatterConfig): void {
