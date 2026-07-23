@@ -61,6 +61,45 @@ describe("analyzeDirectory", () => {
     expect(plan.entries[0]).toMatchObject({ yearFolder: "", reason: "no-year" });
   });
 
+  it("extracts the year from the filename itself when the batch has no year subfolders at all", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "Acuerdo 0005 de 1962.pdf": "x",
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.entries).toHaveLength(1);
+    expect(plan.entries[0]).toMatchObject({
+      yearFolder: "1962",
+      detectedYear: 1962,
+      detectedNumber: 5,
+      reason: null,
+    });
+    expect(computeFinalName(plan.config, plan.entries[0])).toBe("A_CONCALI_0005_1962.pdf");
+  });
+
+  it("detects config from filenames when the batch is flat and the root folder name alone lacks the keywords", async () => {
+    const root = fakeInputDirectory("Lote 2026", {
+      "Acuerdo 0005 de Cali 1962.pdf": "x",
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    expect(plan.config).toEqual({ typeCode: "A", cityCode: "CONCALI" });
+  });
+
+  it("does not extract a year from a stray root file's name when the batch also uses year subfolders elsewhere", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": { "Acuerdo 0005 de 1962.pdf": "x" },
+      "suelto de 1998.pdf": "x",
+    });
+
+    const plan = await analyzeDirectory(root);
+
+    const strayEntry = plan.entries.find((entry) => entry.filename === "suelto de 1998.pdf")!;
+    expect(strayEntry).toMatchObject({ yearFolder: "", detectedYear: null, reason: "no-year" });
+  });
+
   it("marks files without a detectable number as no-number", async () => {
     const root = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 1962": { "sin numero.pdf": "x" },

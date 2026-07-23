@@ -36,12 +36,14 @@ interface RawEntry {
 export async function analyzeDirectory(root: FileSystemDirectoryHandle): Promise<FormatterPlan> {
   const rootFolderName = root.name;
   const rawEntries: RawEntry[] = [];
+  let hasYearFolders = false;
 
   for await (const handle of root.values()) {
     if (handle.kind === "file") {
       rawEntries.push({ path: handle.name, yearFolder: "", filename: handle.name, fileHandle: handle });
       continue;
     }
+    hasYearFolders = true;
     for await (const child of handle.values()) {
       if (child.kind !== "file") continue;
       rawEntries.push({
@@ -61,18 +63,42 @@ export async function analyzeDirectory(root: FileSystemDirectoryHandle): Promise
   // keywords — e.g. a folder named "CALI 2026" only has the city, while the
   // type ("Acuerdo") only shows up in each year subfolder's own name
   // ("ACUERDOS 1962"). Searching across every distinct year-folder name too
-  // (in addition to rootFolderName) covers that real-world naming pattern.
+  // (in addition to rootFolderName) covers that real-world naming pattern. A
+  // fully flat batch (no year subfolders at all) has nowhere else to carry
+  // those keywords, so filenames themselves join the search instead.
   const yearFolderNames = Array.from(
     new Set(rawEntries.filter((entry) => entry.yearFolder !== "").map((entry) => entry.yearFolder))
   );
+  const detectionText = hasYearFolders
+    ? [rootFolderName, ...yearFolderNames].join(" ")
+    : [rootFolderName, ...rawEntries.map((entry) => entry.filename)].join(" ");
 
-  const config = detectConfig([rootFolderName, ...yearFolderNames].join(" "));
+  const config = detectConfig(detectionText);
   if (!config) {
     throw new FormatterError(`No se reconoce el tipo de documento o la ciudad en «${rootFolderName}».`);
   }
 
   const entries: FormatterEntry[] = rawEntries.map(({ path, yearFolder, filename, fileHandle }) => {
     if (yearFolder === "") {
+      // A file directly in the root: if the batch has no year subfolders at
+      // all, this is the normal shape for this batch and the year has to come
+      // from the filename itself. If the batch DOES use year subfolders
+      // elsewhere, a file sitting outside all of them is more likely a
+      // mistake, so it's left for manual review instead of guessing.
+      if (!hasYearFolders) {
+        const detectedYear = extractYear(filename);
+        const detectedNumber = detectedYear === null ? null : extractNumber(filename, detectedYear);
+        return {
+          path,
+          yearFolder: detectedYear === null ? "" : String(detectedYear),
+          filename,
+          fileHandle,
+          detectedYear,
+          detectedNumber,
+          reason: null,
+          suffix: "",
+        };
+      }
       return {
         path,
         yearFolder,
