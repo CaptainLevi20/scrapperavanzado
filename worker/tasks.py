@@ -132,7 +132,7 @@ def scrape_source_task(self, run_source_id: int):
             for doc in docs:
                 if repository.is_cancel_requested(db, run.id):
                     break
-                doc_id = compute_doc_id(doc)
+                doc_id = compute_doc_id(doc, include_publication_date=scraper.doc_id_uses_publication_date)
                 existing = repository.get_document_by_doc_id(db, doc_id)
                 if existing is None:
                     pending.append((doc_id, doc))

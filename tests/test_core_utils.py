@@ -23,6 +23,38 @@ def test_compute_doc_id_falls_back_to_url_without_body_path():
     assert compute_doc_id(doc) == make_doc_id("https://x/1", "2026-01-01")
 
 
+def test_compute_doc_id_ignores_publication_date_when_told_to():
+    # Rama Judicial: the same underlying file can be re-listed under a new
+    # f_public (the site republishes an unclaimed "estado" the next day). The
+    # doc_id must stay identical across that date change so the
+    # republication-detection check in worker/tasks.py actually fires.
+    doc_day_one = RawDocModel(
+        source="s", link={"url": "https://x/1", "method": "GET", "body": {"path": "same-uuid"}},
+        title="t", tipo="Auto", f_public="2026-06-10",
+    )
+    doc_day_two = RawDocModel(
+        source="s", link={"url": "https://x/1", "method": "GET", "body": {"path": "same-uuid"}},
+        title="t", tipo="Auto", f_public="2026-06-11",
+    )
+
+    assert compute_doc_id(doc_day_one, include_publication_date=False) == compute_doc_id(
+        doc_day_two, include_publication_date=False
+    )
+
+
+def test_compute_doc_id_still_varies_by_publication_date_by_default():
+    doc_day_one = RawDocModel(
+        source="s", link={"url": "https://x/1", "method": "GET", "body": {"path": "same-uuid"}},
+        title="t", tipo="Auto", f_public="2026-06-10",
+    )
+    doc_day_two = RawDocModel(
+        source="s", link={"url": "https://x/1", "method": "GET", "body": {"path": "same-uuid"}},
+        title="t", tipo="Auto", f_public="2026-06-11",
+    )
+
+    assert compute_doc_id(doc_day_one) != compute_doc_id(doc_day_two)
+
+
 def test_extract_filename_from_content_disposition():
     result = extract_filename('attachment; filename="doc.pdf"', "", "https://x/y", "fallback")
     assert result == {"filename": "doc", "extension": ".pdf"}

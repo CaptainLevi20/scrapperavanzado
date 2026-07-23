@@ -5,6 +5,7 @@ from typing import List
 import requests
 from bs4 import BeautifulSoup
 
+from core.downloader import check_remote_content_length
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
@@ -91,6 +92,14 @@ def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3)
 
 @register_family("rama_judicial")
 class ScrapRamaJudicial(BaseScrapper):
+    # f_public aquí es la fecha de la fila de listado ("estado"), no una fecha
+    # intrínseca del documento — el sitio repite la misma fila (mismo archivo)
+    # bajo una fecha nueva cuando la notificación no fue reclamada. Si doc_id
+    # incluyera f_public, el mismo archivo generaría un doc_id distinto cada
+    # vez que se re-lista, escondiendo la republicación para siempre del
+    # chequeo de tamaño/versionado en worker/tasks.py.
+    doc_id_uses_publication_date = False
+
     def __init__(self, dept_code: str = "", dept_name: str = "Rama Judicial", entidad_id: str = "22"):
         self.source = dept_name
         self.url = _TRIBUNALES_SUPERIORES_URL
@@ -155,6 +164,19 @@ class ScrapRamaJudicial(BaseScrapper):
         p_p_id = f"{_PORTLET}_{self._instance_id}"
 
         docs = []
+        # Un mismo archivo puede reaparecer bajo una fila de listado distinta
+        # (fecha distinta) cuando el sitio republica un "estado" no reclamado
+        # al día siguiente. doc_id_uses_publication_date=False hace que el
+        # identificador persistido (doc_id) dependa solo del uuid del archivo,
+        # no de esta fecha de listado que puede repetirse — así el mecanismo
+        # de detección de republicación (worker/tasks.py, igual que Corte
+        # Constitucional) sí lo detecta entre corridas distintas. Dentro de
+        # esta misma corrida, sin embargo, nunca se puede emitir dos
+        # RawDocModel con el mismo doc_id (violaría la restricción única de
+        # la tabla al insertar), así que se deduplica aquí por uuid,
+        # confirmando con un HEAD real que de verdad es el mismo archivo en
+        # vez de asumirlo solo por coincidencia de uuid.
+        tamanos_por_uuid: dict[str, int | None] = {}
         num_pag = 1
         max_pages = None
 
@@ -234,6 +256,10 @@ class ScrapRamaJudicial(BaseScrapper):
 
                     especialidad_raw = categorias.get("Especialidad", "sin-especialidad")
                     despacho_raw = categorias.get("Despacho", "")
+                    # Los "_dir" son solo para el segmento de carpeta (límite de ruta);
+                    # especialidad_raw/despacho_raw (sin acortar) son los que se guardan
+                    # como metadato real en especialidad/seccion — acortarlos ahí perdía
+                    # información a mitad de palabra (ej. "...DEL TRIBUNAL" -> "...DEL TRIB").
                     especialidad_dir = _INVALID_PATH_CHARS.sub("-", especialidad_raw)[:60]
                     despacho_dir = _INVALID_PATH_CHARS.sub("-", despacho_raw)[:60]
                     tipo_dir = _INVALID_PATH_CHARS.sub("-", tipo)
@@ -242,7 +268,9 @@ class ScrapRamaJudicial(BaseScrapper):
                     if not detail_url:
                         continue
 
-                    pending.append((fecha_p, tipo, tipo_dir, especialidad_dir, despacho_dir, detail_url))
+                    pending.append(
+                        (fecha_p, tipo, tipo_dir, especialidad_dir, despacho_dir, especialidad_raw, despacho_raw, detail_url)
+                    )
                 except Exception as e:
                     print(f"Error procesando fila: {e}")
                     continue
@@ -258,13 +286,30 @@ class ScrapRamaJudicial(BaseScrapper):
                 for future in as_completed(future_to_meta):
                     if stop_event is not None and stop_event.is_set():
                         return docs
-                    fecha_p, tipo, tipo_dir, especialidad_dir, despacho_dir, _ = future_to_meta[future]
+                    fecha_p, tipo, tipo_dir, especialidad_dir, despacho_dir, especialidad_raw, despacho_raw, _ = (
+                        future_to_meta[future]
+                    )
                     try:
                         archivos = future.result()
                     except Exception:
                         continue
 
                     for filename, download_url, file_uuid in archivos:
+                        if file_uuid in tamanos_por_uuid:
+                            tamano_anterior = tamanos_por_uuid[file_uuid]
+                            tamano_actual = check_remote_content_length(download_url)
+                            if (
+                                tamano_anterior is not None
+                                and tamano_actual is not None
+                                and tamano_actual != tamano_anterior
+                            ):
+                                print(
+                                    f"Advertencia: {file_uuid} cambió de tamaño entre listados "
+                                    f"({tamano_anterior} -> {tamano_actual} bytes); se conserva la primera aparición."
+                                )
+                            continue
+                        tamanos_por_uuid[file_uuid] = check_remote_content_length(download_url)
+
                         name_no_ext = (filename.rsplit(".", 1)[0] if "." in filename else filename).strip()
                         doc_name = _INVALID_PATH_CHARS.sub("-", name_no_ext)
                         # mismo orden que las demás fuentes: clasificación → fecha → tipo
@@ -276,8 +321,8 @@ class ScrapRamaJudicial(BaseScrapper):
                             link={"url": download_url, "method": "GET", "body": {"path": file_uuid}},
                             title=name_no_ext,
                             tipo=tipo,
-                            especialidad=especialidad_dir,
-                            seccion=despacho_dir,
+                            especialidad=especialidad_raw,
+                            seccion=despacho_raw,
                             f_public=fecha_p,
                             save_path=save_path,
                         ))

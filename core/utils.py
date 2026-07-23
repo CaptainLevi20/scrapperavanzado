@@ -8,9 +8,11 @@ def make_doc_id(key: str, f_public: str) -> str:
     return hashlib.sha1(f"{key}_{f_public}".encode()).hexdigest()
 
 
-def compute_doc_id(doc: RawDocModel) -> str:
+def compute_doc_id(doc: RawDocModel, include_publication_date: bool = True) -> str:
     body = doc.link.get("body") or {}
     key = body["path"] if "path" in body else doc.link["url"]
+    if not include_publication_date:
+        return hashlib.sha1(key.encode()).hexdigest()
     return make_doc_id(key, doc.f_public)
 
 

@@ -17,6 +17,18 @@ class BaseScrapper:
     # shared POST endpoint, or an indirect JWT hop).
     checks_for_republication = True
 
+    # Whether doc_id (the DB identity used to look up "does this document
+    # already exist") should fold in f_public. True by default, since for
+    # most families f_public is a fixed, intrinsic attribute of the document
+    # (e.g. a court decision's own publication date) that never changes for
+    # the same underlying file. A family opts out when f_public instead
+    # reflects a listing occurrence that the source can repeat for the same
+    # file under a new date (e.g. Rama Judicial re-listing an unclaimed
+    # "estado" the next business day) — folding a churning date into doc_id
+    # would make the same file produce a different identity every time it's
+    # re-listed, permanently hiding it from the republication check above.
+    doc_id_uses_publication_date = True
+
     def scrap(self, fini, ffin, q="", limit=100, stop_event=None, on_progress=None):
         raise NotImplementedError("Subclasses must implement this method.")
 
