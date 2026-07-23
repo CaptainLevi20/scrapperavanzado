@@ -4,15 +4,16 @@
 export type DirectoryEntries = { [key: string]: string | DirectoryEntries };
 
 function buildFileHandle(name: string, content: string): FileSystemFileHandle {
-  return {
+  const handle = {
     kind: "file",
     name,
-    isSameEntry: async () => false,
+    isSameEntry: async (other: FileSystemHandle) => other === handle,
     getFile: async () => new File([content], name),
     createWritable: async () => {
       throw new Error("Read-only fake file handle: createWritable is not supported.");
     },
   } as unknown as FileSystemFileHandle;
+  return handle;
 }
 
 function buildDirectoryHandle(name: string, entries: DirectoryEntries): FileSystemDirectoryHandle {
@@ -24,10 +25,10 @@ function buildDirectoryHandle(name: string, entries: DirectoryEntries): FileSyst
     );
   }
 
-  return {
+  const handle = {
     kind: "directory",
     name,
-    isSameEntry: async () => false,
+    isSameEntry: async (other: FileSystemHandle) => other === handle,
     values: () => {
       const iterator = children.values();
       return {
@@ -44,6 +45,7 @@ function buildDirectoryHandle(name: string, entries: DirectoryEntries): FileSyst
       throw new Error("Read-only fake directory handle: getFileHandle is not supported.");
     },
   } as unknown as FileSystemDirectoryHandle;
+  return handle;
 }
 
 export function fakeInputDirectory(name: string, entries: DirectoryEntries): FileSystemDirectoryHandle {
@@ -65,10 +67,10 @@ export function fakeOutputDirectory(name: string): RecordingDirectory {
   const root: RecordingNode = { kind: "directory", children: new Map() };
 
   function wrapFile(node: RecordingNode, fileName: string): FileSystemFileHandle {
-    return {
+    const handle = {
       kind: "file",
       name: fileName,
-      isSameEntry: async () => false,
+      isSameEntry: async (other: FileSystemHandle) => other === handle,
       getFile: async () => new File([node.content ?? new ArrayBuffer(0)], fileName),
       createWritable: async () => {
         return {
@@ -79,13 +81,14 @@ export function fakeOutputDirectory(name: string): RecordingDirectory {
         } as unknown as FileSystemWritableFileStream;
       },
     } as unknown as FileSystemFileHandle;
+    return handle;
   }
 
   function wrapDir(node: RecordingNode, dirName: string): FileSystemDirectoryHandle {
-    return {
+    const handle = {
       kind: "directory",
       name: dirName,
-      isSameEntry: async () => false,
+      isSameEntry: async (other: FileSystemHandle) => other === handle,
       values: () => {
         throw new Error("fakeOutputDirectory does not support iteration — it's write-only for copy.ts.");
       },
@@ -110,6 +113,7 @@ export function fakeOutputDirectory(name: string): RecordingDirectory {
         return wrapFile(child, childName);
       },
     } as unknown as FileSystemDirectoryHandle;
+    return handle;
   }
 
   function flatten(node: RecordingNode, prefix: string, out: Record<string, string>): void {

@@ -18,7 +18,7 @@ type FormatterState =
   | { step: "idle"; notice?: string }
   | { step: "unsupported" }
   | { step: "error"; message: string }
-  | { step: "loaded"; plan: FormatterPlan; corrections: Map<string, Correction> }
+  | { step: "loaded"; inputRoot: FileSystemDirectoryHandle; plan: FormatterPlan; corrections: Map<string, Correction> }
   | { step: "copying"; done: number; total: number };
 
 const REASON_LABEL: Record<string, string> = {
@@ -40,7 +40,7 @@ export function FormatterPage() {
     try {
       const root = await window.showDirectoryPicker();
       const plan = await analyzeDirectory(root);
-      setState({ step: "loaded", plan, corrections: new Map() });
+      setState({ step: "loaded", inputRoot: root, plan, corrections: new Map() });
     } catch (error) {
       if (isAbortError(error)) return;
       const message = error instanceof FormatterError ? error.message : "No se pudo leer la carpeta.";
@@ -74,6 +74,11 @@ export function FormatterPage() {
     } catch (error) {
       if (isAbortError(error)) return;
       setState({ step: "error", message: "No se pudo abrir la carpeta de salida." });
+      return;
+    }
+
+    if (await state.inputRoot.isSameEntry(outputRoot)) {
+      setState({ step: "error", message: "La carpeta de salida no puede ser la misma que la de entrada." });
       return;
     }
 

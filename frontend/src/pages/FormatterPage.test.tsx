@@ -50,6 +50,22 @@ describe("FormatterPage", () => {
     expect(output.readAll()).toEqual({ "ACUERDOS 1962/A_CONCALI_0012_1962.pdf": "contenido" });
   });
 
+  it("shows an error when the output folder is the same as the input folder", async () => {
+    const sameRoot = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": { "Acuerdo 0005 de 1962.pdf": "contenido" },
+    });
+    vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(sameRoot));
+
+    const user = userEvent.setup();
+    render(<FormatterPage />);
+    await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
+
+    await screen.findByText(/1 archivo listo/);
+    await user.click(screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i }));
+
+    expect(await screen.findByText(/la carpeta de salida no puede ser la misma/i)).toBeInTheDocument();
+  });
+
   it("shows an error banner for a folder whose name isn't recognized", async () => {
     const inputRoot = fakeInputDirectory("Resoluciones Bogota", { "2020": { "algo.pdf": "x" } });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(inputRoot));

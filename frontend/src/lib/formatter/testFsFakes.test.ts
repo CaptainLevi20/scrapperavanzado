@@ -30,6 +30,14 @@ describe("fakeInputDirectory", () => {
     }
     expect(fileContent).toBe("hola");
   });
+
+  it("isSameEntry returns true for the same handle and false for a different one", async () => {
+    const root = fakeInputDirectory("root", { "a.txt": "x" });
+    const other = fakeInputDirectory("root2", { "b.txt": "y" });
+
+    expect(await root.isSameEntry(root)).toBe(true);
+    expect(await root.isSameEntry(other)).toBe(false);
+  });
 });
 
 describe("fakeOutputDirectory", () => {
