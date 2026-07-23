@@ -131,7 +131,7 @@ export function FormatterPage() {
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
             {state.notice && <p className="text-xs text-muted-foreground">{state.notice}</p>}
             <p className="text-sm text-muted-foreground">
-              Elige la carpeta con los acuerdos (subcarpetas por año) para renombrar los archivos.
+              Elige la carpeta para renombrar los archivos.
             </p>
             <Button onClick={() => void handlePickInput()}>Elegir carpeta de entrada</Button>
           </div>
