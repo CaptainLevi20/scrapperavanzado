@@ -82,6 +82,15 @@ def test_list_documents_filters_by_downloaded_at_range(api_client, auth_header, 
         storage_key="b.pdf",
         downloaded_at=datetime(2026, 7, 22, 23, 59, 0, tzinfo=timezone.utc),
     )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-ingresado-manana",
+        source_id=source.id,
+        title="T-300/24",
+        storage_bucket="iurisync-test",
+        storage_key="c.pdf",
+        downloaded_at=datetime(2026, 7, 24, 0, 0, 1, tzinfo=timezone.utc),
+    )
 
     response = api_client.get(
         "/documents",
@@ -93,6 +102,7 @@ def test_list_documents_filters_by_downloaded_at_range(api_client, auth_header, 
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["doc_id"] == "doc-ingresado-hoy"
+    assert not any(item["doc_id"] == "doc-ingresado-manana" for item in body["items"])
 
 
 def test_list_documents_downloaded_at_range_is_inclusive_of_the_whole_end_day(api_client, auth_header, db_session):
@@ -111,6 +121,15 @@ def test_list_documents_downloaded_at_range_is_inclusive_of_the_whole_end_day(ap
         storage_key="c.pdf",
         downloaded_at=datetime(2026, 7, 23, 23, 59, 59, tzinfo=timezone.utc),
     )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-justo-fuera-del-rango",
+        source_id=source.id,
+        title="T-400/24",
+        storage_bucket="iurisync-test",
+        storage_key="d.pdf",
+        downloaded_at=datetime(2026, 7, 24, 0, 0, 0, tzinfo=timezone.utc),
+    )
 
     response = api_client.get(
         "/documents",
@@ -122,6 +141,7 @@ def test_list_documents_downloaded_at_range_is_inclusive_of_the_whole_end_day(ap
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["doc_id"] == "doc-fin-de-dia"
+    assert not any(item["doc_id"] == "doc-justo-fuera-del-rango" for item in body["items"])
 
 
 def test_get_document_tipos_returns_sorted_distinct_values(api_client, auth_header, db_session):
