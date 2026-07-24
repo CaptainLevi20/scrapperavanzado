@@ -1,6 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -130,6 +130,27 @@ def _normalize_title(name_no_ext: str, dept_code: str) -> str:
     n = match.group(1)
     radicado_segmentado = f"{n[0:5]}_{n[5:7]}_{n[7:9]}_{n[9:12]}_{n[12:16]}_{n[16:21]}_{n[21:23]}"
     return f"T_{codigo}_{radicado_segmentado}"
+
+
+_JUEZ_PREFIX = re.compile(r"^\s*(Dr|Dra)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]*")
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-záéíóúñ])(?=[A-ZÁÉÍÓÚÑ])")
+
+
+def _extract_detalle(name_no_ext: str) -> Optional[str]:
+    """Extrae una descripción legible de la acción (sin el juez) cuando el
+    nombre de archivo empieza con el radicado completo (23 dígitos). El
+    apellido del juez (prefijo "Dr"/"Dra") se descarta por completo; el resto
+    se separa en palabras por límites de CamelCase y guiones bajos. Si no hay
+    prefijo "Dr"/"Dra" (pasa en datos reales), se separa el resto completo tal
+    cual. Devuelve None cuando el nombre no calza con el patrón de radicado."""
+    match = _RADICADO_PREFIX.match(name_no_ext)
+    if not match:
+        return None
+
+    resto = name_no_ext[match.end():]
+    resto = _JUEZ_PREFIX.sub("", resto, count=1)
+    resto = resto.replace("_", " ")
+    return _CAMEL_CASE_BOUNDARY.sub(" ", resto).strip()
 
 
 def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3):
@@ -385,6 +406,7 @@ class ScrapRamaJudicial(BaseScrapper):
                             especialidad=especialidad_raw,
                             seccion=despacho_raw,
                             f_public=fecha_p,
+                            detalle=_extract_detalle(name_no_ext),
                             save_path=save_path,
                         ))
 
