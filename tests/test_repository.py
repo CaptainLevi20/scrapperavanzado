@@ -658,6 +658,35 @@ def test_list_documents_collapse_breaks_ties_by_id_when_f_public_is_null_on_both
     assert items[0].doc_id == "doc-b"
 
 
+def test_list_documents_collapse_prefers_a_real_date_over_a_null_one_regardless_of_id(db_session):
+    """A genuine f_public is stronger evidence of recency than the id tie-break,
+    which should only decide ties when dates are truly indistinguishable (equal
+    or both missing) — a NULL-dated sibling must never outrank a real-dated one
+    just for having a higher id."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    from datetime import date
+    dated = repository.insert_document(
+        db_session, doc_id="doc-dated", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 1, 1),
+    )
+    undated = repository.insert_document(
+        db_session, doc_id="doc-undated", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=None,
+    )
+    assert undated.id > dated.id  # sanity check: id alone would favor the wrong document
+
+    items, total = repository.list_documents(
+        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+    )
+
+    assert total == 1
+    assert items[0].doc_id == "doc-dated"
+
+
 def test_list_documents_collapse_does_not_apply_to_fallback_titles(db_session):
     """A magistrado-name fallback title repeated across unrelated documents must
     never be collapsed, even with collapse_rama_judicial_cases=True."""
