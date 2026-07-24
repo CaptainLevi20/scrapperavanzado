@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { formatBytes, formatDate, formatDateTime, todayDateString } from "./formatters";
 
 describe("formatBytes", () => {
@@ -30,21 +30,30 @@ describe("formatDate / formatDateTime", () => {
 });
 
 describe("todayDateString", () => {
-  it("returns today's local date as YYYY-MM-DD, not shifted by UTC conversion", () => {
+  const ORIGINAL_TZ = process.env.TZ;
+
+  beforeEach(() => {
+    // Pin to America/Bogota (UTC-5, this project's real users) so the assertion
+    // is deterministic regardless of the host machine's ambient timezone — CI
+    // runners (ubuntu-latest, UTC) would otherwise never catch a regression to
+    // the banned `toISOString().slice(0, 10)` pattern, since at UTC+0 both the
+    // correct and buggy implementations happen to agree.
+    process.env.TZ = "America/Bogota";
     vi.useFakeTimers();
-    // 2026-07-23T02:00:00 UTC is still 2026-07-22 in America/Bogota (UTC-5) —
-    // this pins system time to exercise exactly the shift formatDate's
-    // parseDateOnlyAsLocal comment already warns about, but for "today"
-    // instead of a parsed date string.
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.TZ = ORIGINAL_TZ;
+  });
+
+  it("returns today's local date as YYYY-MM-DD, shifted back a day from a UTC timestamp early in the UTC day", () => {
+    // 2026-07-23T02:00:00 UTC is 2026-07-22T21:00:00 in America/Bogota (UTC-5) —
+    // the exact discrepancy this helper exists to avoid (see the module's own
+    // comment). `new Date().toISOString().slice(0, 10)` would wrongly return
+    // "2026-07-23" here; the correct local-component answer is "2026-07-22".
     vi.setSystemTime(new Date("2026-07-23T02:00:00Z"));
 
-    const result = todayDateString();
-
-    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(result).toBe(
-      `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`
-    );
-
-    vi.useRealTimers();
+    expect(todayDateString()).toBe("2026-07-22");
   });
 });
