@@ -262,6 +262,8 @@ def list_documents(
     review_status: Optional[str] = None,
     f_public_from: Optional[date] = None,
     f_public_to: Optional[date] = None,
+    downloaded_from: Optional[date] = None,
+    downloaded_to: Optional[date] = None,
     title_contains: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -279,6 +281,15 @@ def list_documents(
         stmt = stmt.where(Document.f_public >= f_public_from)
     if f_public_to is not None:
         stmt = stmt.where(Document.f_public <= f_public_to)
+    if downloaded_from is not None:
+        stmt = stmt.where(
+            Document.downloaded_at >= datetime.combine(downloaded_from, datetime.min.time()).replace(tzinfo=timezone.utc)
+        )
+    if downloaded_to is not None:
+        stmt = stmt.where(
+            Document.downloaded_at
+            < datetime.combine(downloaded_to, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(days=1)
+        )
     if title_contains is not None:
         stmt = stmt.where(Document.title.ilike(f"%{title_contains}%"))
 

@@ -57,6 +57,73 @@ def test_list_documents_filters_by_publication_date_range(api_client, auth_heade
     assert body["items"][0]["doc_id"] == "doc-en-rango"
 
 
+def test_list_documents_filters_by_downloaded_at_range(api_client, auth_header, db_session):
+    from datetime import datetime, timezone
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session,
+        doc_id="doc-ingresado-hoy",
+        source_id=source.id,
+        title="T-100/24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+        downloaded_at=datetime(2026, 7, 23, 15, 0, 0, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-ingresado-ayer",
+        source_id=source.id,
+        title="T-200/24",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+        downloaded_at=datetime(2026, 7, 22, 23, 59, 0, tzinfo=timezone.utc),
+    )
+
+    response = api_client.get(
+        "/documents",
+        params={"downloaded_from": "2026-07-23", "downloaded_to": "2026-07-23"},
+        headers=auth_header,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["doc_id"] == "doc-ingresado-hoy"
+
+
+def test_list_documents_downloaded_at_range_is_inclusive_of_the_whole_end_day(api_client, auth_header, db_session):
+    from datetime import datetime, timezone
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session,
+        doc_id="doc-fin-de-dia",
+        source_id=source.id,
+        title="T-300/24",
+        storage_bucket="iurisync-test",
+        storage_key="c.pdf",
+        downloaded_at=datetime(2026, 7, 23, 23, 59, 59, tzinfo=timezone.utc),
+    )
+
+    response = api_client.get(
+        "/documents",
+        params={"downloaded_from": "2026-07-23", "downloaded_to": "2026-07-23"},
+        headers=auth_header,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["doc_id"] == "doc-fin-de-dia"
+
+
 def test_get_document_tipos_returns_sorted_distinct_values(api_client, auth_header, db_session):
     from core.db import repository
 
