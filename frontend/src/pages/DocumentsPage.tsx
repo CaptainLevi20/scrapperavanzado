@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
@@ -12,7 +12,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { NativeSelect } from "../components/ui/native-select";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
-import { formatDate } from "../lib/formatters";
+import { formatDate, todayDateString } from "../lib/formatters";
 
 const PAGE_SIZE = 50;
 
@@ -43,21 +43,30 @@ export function DocumentsPage() {
   const [fPublicFrom, setFPublicFrom] = useState("");
   const [fPublicTo, setFPublicTo] = useState("");
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
+  const location = useLocation();
+  const seedToday = (location.state as { downloadedToday?: boolean } | null)?.downloadedToday === true;
+  const [downloadedFrom, setDownloadedFrom] = useState(() => (seedToday ? todayDateString() : ""));
+  const [downloadedTo, setDownloadedTo] = useState(() => (seedToday ? todayDateString() : ""));
+  const [downloadedFilterOpen, setDownloadedFilterOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   const dateFilterRef = useRef<HTMLDivElement>(null);
+  const downloadedFilterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!dateFilterOpen) return;
+    if (!dateFilterOpen && !downloadedFilterOpen) return;
     function handleClickOutside(event: MouseEvent) {
-      if (dateFilterRef.current && !dateFilterRef.current.contains(event.target as Node)) {
+      if (dateFilterOpen && dateFilterRef.current && !dateFilterRef.current.contains(event.target as Node)) {
         setDateFilterOpen(false);
+      }
+      if (downloadedFilterOpen && downloadedFilterRef.current && !downloadedFilterRef.current.contains(event.target as Node)) {
+        setDownloadedFilterOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [dateFilterOpen]);
+  }, [dateFilterOpen, downloadedFilterOpen]);
 
   const sourcesQuery = useQuery({
     queryKey: ["sources", "for-documents-filter"],
@@ -88,7 +97,7 @@ export function DocumentsPage() {
   );
 
   const documentsQuery = useQuery({
-    queryKey: ["documents", title, tipo, sourceId, reviewStatus, fPublicFrom, fPublicTo, page],
+    queryKey: ["documents", title, tipo, sourceId, reviewStatus, fPublicFrom, fPublicTo, downloadedFrom, downloadedTo, page],
     queryFn: () =>
       fetchDocuments({
         title: title || undefined,
@@ -97,6 +106,8 @@ export function DocumentsPage() {
         review_status: reviewStatus || undefined,
         f_public_from: fPublicFrom || undefined,
         f_public_to: fPublicTo || undefined,
+        downloaded_from: downloadedFrom || undefined,
+        downloaded_to: downloadedTo || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       }),
@@ -109,6 +120,7 @@ export function DocumentsPage() {
   });
 
   const hasDateFilter = !!fPublicFrom || !!fPublicTo;
+  const hasDownloadedFilter = !!downloadedFrom || !!downloadedTo;
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -229,6 +241,62 @@ export function DocumentsPage() {
                   onClick={() => {
                     setFPublicFrom("");
                     setFPublicTo("");
+                    setPage(0);
+                  }}
+                  className="text-left text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="relative" ref={downloadedFilterRef}>
+          <button
+            onClick={() => setDownloadedFilterOpen((open) => !open)}
+            className={`flex h-9 items-center gap-1.5 rounded-md border-[1.5px] px-3 text-sm font-medium transition-colors ${
+              hasDownloadedFilter
+                ? "border-sello/50 bg-sello/10 text-sello-ink"
+                : "border-input bg-background text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Calendar className="size-3.5" aria-hidden="true" />
+            {formatDateFilterLabel(downloadedFrom, downloadedTo) === "Fecha de publicación"
+              ? "Agregado"
+              : `Agregado: ${formatDateFilterLabel(downloadedFrom, downloadedTo)}`}
+          </button>
+          {downloadedFilterOpen && (
+            <div className="absolute top-full left-0 z-20 mt-2 flex w-64 flex-col gap-3 rounded-lg border border-border bg-card p-3 shadow-md">
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Desde
+                <input
+                  type="date"
+                  value={downloadedFrom}
+                  onChange={(event) => {
+                    setDownloadedFrom(event.target.value);
+                    setPage(0);
+                  }}
+                  className="h-8 rounded-md border-[1.5px] border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Hasta
+                <input
+                  type="date"
+                  value={downloadedTo}
+                  onChange={(event) => {
+                    setDownloadedTo(event.target.value);
+                    setPage(0);
+                  }}
+                  className="h-8 rounded-md border-[1.5px] border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
+                />
+              </label>
+              {hasDownloadedFilter && (
+                <button
+                  onClick={() => {
+                    setDownloadedFrom("");
+                    setDownloadedTo("");
                     setPage(0);
                   }}
                   className="text-left text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"

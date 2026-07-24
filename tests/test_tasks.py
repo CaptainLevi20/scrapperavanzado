@@ -493,6 +493,62 @@ def test_scrape_source_task_applies_auto_review_status_from_family_params_on_rep
 
 
 @responses.activate
+def test_scrape_source_task_does_not_forward_auto_review_status_to_scraper_constructor(
+    db_session, test_engine, monkeypatch
+):
+    """family_params={"auto_review_status": ...} is orchestration-only metadata
+    read directly by scrape_source_task (see the auto_review_status tests above) -
+    it must not also be forwarded into resolve_scraper's cls(**params) call. Real
+    family scrapers (ScrapConstitucional, Cndj, Jep, ...) take no **kwargs, so any
+    orchestration-only key leaking through blows up their __init__ with an
+    unexpected keyword argument. StrictFamilyScraper (unlike DummyFamilyScraper)
+    reproduces that real constructor shape."""
+    from tests.conftest import StrictFamilyScraper
+
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-strict", display_name="Strict")
+    source = repository.create_source(
+        db_session, family_key="test-strict", name="Strict Source", family_params={"auto_review_status": "useful"}
+    )
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    StrictFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Strict Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "completed", refreshed.error_message
+        items, _ = repository.list_documents(assertion_session, source_id=source.id)
+        [document] = items
+        assert document.review_status == "useful"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
 def test_scrape_source_task_skips_unchanged_existing_document_without_downloading(db_session, test_engine, monkeypatch):
     celery_app.conf.task_always_eager = True
 

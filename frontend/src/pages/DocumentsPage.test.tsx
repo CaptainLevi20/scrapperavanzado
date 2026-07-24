@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { DocumentsPage } from "./DocumentsPage";
+import { todayDateString, formatDate } from "../lib/formatters";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -14,6 +15,17 @@ function renderPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
+        <DocumentsPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function renderPageWithTodayState() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[{ pathname: "/documents", state: { downloadedToday: true } }]}>
         <DocumentsPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -438,5 +450,30 @@ describe("DocumentsPage", () => {
 
     await waitFor(() => expect(bulkDownloadCreated).toBe(true));
     expect(await screen.findByText("Página de descargas masivas")).toBeInTheDocument();
+  });
+
+  it("seeds the Agregado filter with today's date when arriving with downloadedToday state, and sends it to the API", async () => {
+    mockFilterEndpoints();
+    let capturedUrl: URL | undefined;
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        capturedUrl = new URL(request.url);
+        return HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 });
+      })
+    );
+
+    renderPageWithTodayState();
+
+    await screen.findByText("Sentencia C-001-26");
+
+    const today = todayDateString();
+    const todayFormatted = formatDate(today);
+
+    await waitFor(() => expect(capturedUrl?.searchParams.get("downloaded_from")).toBe(today));
+    expect(capturedUrl?.searchParams.get("downloaded_to")).toBe(today);
+
+    const agregadoButton = screen.getByRole("button", { name: /Agregado/ });
+    expect(agregadoButton.className).toMatch(/border-sello/);
+    expect(agregadoButton.textContent).toContain(todayFormatted);
   });
 });

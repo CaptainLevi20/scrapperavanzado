@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { DashboardPage } from "./DashboardPage";
 import type { Document } from "../api/types";
+import { todayDateString } from "../lib/formatters";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -66,6 +68,28 @@ function renderPage() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <DashboardPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+// Renders the Dashboard alongside a stand-in /documents route that surfaces
+// the navigation `state` it received, so tests can assert on the state a
+// <Link> actually carries — not just its resolved `href`.
+function LocationStateProbe() {
+  const location = useLocation();
+  return <div data-testid="location-state">{JSON.stringify(location.state)}</div>;
+}
+
+function renderPageWithDocumentsRoute() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/documents" element={<LocationStateProbe />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -164,6 +188,60 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(within(novedadesSection).getByText("Circular 1")).toBeInTheDocument());
     expect(within(novedadesSection).getByText("Consejo de Estado")).toBeInTheDocument();
     expect(within(novedadesSection).getByText("Útil")).toBeInTheDocument();
+  });
+
+  it("requests Novedades scoped to today's downloaded_at range, and shows a today-specific empty state", async () => {
+    mockBaselines();
+    // Captured here (not asserted inside the resolver) — an expect() thrown
+    // inside an MSW resolver becomes a network-level fetch error rather than
+    // an HTTP response, so novedadesQuery would just error out and render
+    // the same empty novedades=[] as a genuine zero-results response. That
+    // makes the assertion below the only thing that can actually fail if a
+    // regression drops the downloaded_from/downloaded_to params. Mirrors the
+    // lastUrl-capture-then-assert-outside pattern in DocumentsPage.test.tsx.
+    let novedadesUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json(STATS)),
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("review_status") === "pending") {
+          return HttpResponse.json({ items: [], total: 2, limit: 1, offset: 0 });
+        }
+        if (url.searchParams.get("limit") === "1") {
+          return HttpResponse.json({ items: [], total: 12, limit: 1, offset: 0 });
+        }
+        // novedades fetch (limit=8)
+        novedadesUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 8, offset: 0 });
+      })
+    );
+
+    renderPage();
+
+    const novedadesHeading = await screen.findByText("Novedades");
+    const novedadesSection = novedadesHeading.closest("div.space-y-3") as HTMLElement;
+    await waitFor(() => expect(within(novedadesSection).getByText("No han llegado documentos hoy.")).toBeInTheDocument());
+
+    await waitFor(() => expect(novedadesUrl).not.toBe(""));
+    const url = new URL(novedadesUrl);
+    const today = todayDateString();
+    await waitFor(() => expect(url.searchParams.get("downloaded_from")).toBe(today));
+    expect(url.searchParams.get("downloaded_to")).toBe(today);
+  });
+
+  it("passes state={{ downloadedToday: true }} through the 'Ver todos' link to the Documents route", async () => {
+    mockBaselines();
+    mockDocuments();
+    const user = userEvent.setup();
+
+    renderPageWithDocumentsRoute();
+
+    const link = await screen.findByRole("link", { name: /Ver todos/ });
+    expect(link).toHaveAttribute("href", "/documents");
+
+    await user.click(link);
+
+    expect(await screen.findByTestId("location-state")).toHaveTextContent(JSON.stringify({ downloadedToday: true }));
   });
 
   it("renders the most recent runs", async () => {

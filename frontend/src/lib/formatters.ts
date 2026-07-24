@@ -20,6 +20,18 @@ function parseDateOnlyAsLocal(value: string): Date {
   return new Date(Number(year), Number(month) - 1, Number(day));
 }
 
+// Mirrors parseDateOnlyAsLocal's fix in reverse: build "today" from local
+// Y/M/D components instead of `new Date().toISOString().slice(0, 10)`, which
+// truncates to UTC and would report yesterday's date in the evening in
+// America/Bogota (UTC-5).
+export function todayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function formatDate(value: string | null): string {
   if (!value) return "—";
   return parseDateOnlyAsLocal(value).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
