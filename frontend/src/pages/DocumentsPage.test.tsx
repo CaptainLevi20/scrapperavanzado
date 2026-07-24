@@ -266,6 +266,27 @@ describe("DocumentsPage", () => {
     await waitFor(() => expect(lastUrl).toContain("source_id=1"));
   });
 
+  it("clicking a document's title filters the table to that exact title", async () => {
+    mockFilterEndpoints();
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [DOCUMENT, DOCUMENT_2], total: 2, limit: 50, offset: 0 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    await user.click(screen.getByText("Sentencia C-001-26"));
+
+    await waitFor(() =>
+      expect(lastUrl).toContain(`title=${encodeURIComponent("Sentencia C-001-26")}`)
+    );
+    expect(screen.getByPlaceholderText("Buscar por título")).toHaveValue("Sentencia C-001-26");
+  });
+
   it("does not show a Familia filter", async () => {
     mockFilterEndpoints();
     server.use(
