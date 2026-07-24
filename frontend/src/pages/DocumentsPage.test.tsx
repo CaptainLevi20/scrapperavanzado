@@ -559,6 +559,18 @@ describe("DocumentsPage", () => {
     // share) proves findIndex located the clicked document itself rather than a
     // hardcoded 0 (which would show CASE_DOCUMENT_1's 2026-06-16 instead).
     expect(within(dialog).getByText(formatDate(CASE_DOCUMENT_2.f_public), { exact: false })).toBeInTheDocument();
+
+    // Clicking "next" from the middle document must move forward chronologically
+    // to CASE_DOCUMENT_3 (2026-07-17, the newest). If the array were left in its
+    // original newest-first API order (i.e. .reverse() were removed), "next" from
+    // index 1 would instead move toward CASE_DOCUMENT_1 (the oldest), so this
+    // assertion would fail — unlike asserting only the initial index, which can't
+    // distinguish the two orderings.
+    await user.click(within(dialog).getByRole("button", { name: "Siguiente" }));
+
+    expect(
+      await within(dialog).findByText(formatDate(CASE_DOCUMENT_3.f_public), { exact: false })
+    ).toBeInTheDocument();
   });
 
   it("keeps the existing filter-by-title click behavior for documents without a case", async () => {
