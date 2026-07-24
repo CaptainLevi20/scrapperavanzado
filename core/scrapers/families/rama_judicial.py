@@ -1,6 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -110,15 +110,21 @@ TRIBUNAL_CODES = {
     "99": "VICH",
 }
 
-_RADICADO_PREFIX = re.compile(r"^(\d{23})_")
+_RADICADO_PREFIX = re.compile(r"^(?:\d{2}-\d{2}-\d{4}\s+)?(\d{23})(?:[ _]|$)")
 
 
 def _normalize_title(name_no_ext: str, dept_code: str) -> str:
     """Reemplaza el nombre de archivo crudo por "T_{CODIGO}_{radicado segmentado}"
-    cuando empieza con el radicado completo (23 dígitos) y el tribunal tiene un
-    código conocido. El resto del nombre original (juez, acción) se descarta.
-    Si no calza (nombre de persona, aviso genérico "ESTADO...", tribunal sin
-    código, o el prefijo no tiene exactamente 23 dígitos), se deja tal cual."""
+    cuando el nombre trae el radicado completo (23 dígitos) y el tribunal tiene
+    un código conocido. El radicado puede venir al principio del nombre, o
+    precedido de una fecha "DD-MM-YYYY " (caso real: Acciones de Tutela en
+    Tribunal Superior de Antioquia). El separador después del radicado varía
+    según el despacho: "_" (ej. Bogotá), un espacio, o nada — el radicado
+    puede venir solo, sin ninguna acción después (casos reales de Tribunal
+    Superior de Antioquia). El resto del nombre original (juez, acción) se
+    descarta. Si no calza (nombre de persona, aviso genérico "ESTADO...",
+    tribunal sin código, o el prefijo no tiene exactamente 23 dígitos), se deja
+    tal cual."""
     codigo = TRIBUNAL_CODES.get(dept_code)
     if codigo is None:
         return name_no_ext
@@ -130,6 +136,29 @@ def _normalize_title(name_no_ext: str, dept_code: str) -> str:
     n = match.group(1)
     radicado_segmentado = f"{n[0:5]}_{n[5:7]}_{n[7:9]}_{n[9:12]}_{n[12:16]}_{n[16:21]}_{n[21:23]}"
     return f"T_{codigo}_{radicado_segmentado}"
+
+
+_JUEZ_PREFIX = re.compile(r"^\s*(Dr|Dra)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]*")
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-záéíóúñ])(?=[A-ZÁÉÍÓÚÑ])")
+
+
+def _extract_detalle(name_no_ext: str) -> Optional[str]:
+    """Extrae una descripción legible de la acción (sin el juez) cuando el
+    nombre de archivo empieza con el radicado completo (23 dígitos). El
+    apellido del juez (prefijo "Dr"/"Dra") se descarta por completo; el resto
+    se separa en palabras por límites de CamelCase y guiones bajos. Si no hay
+    prefijo "Dr"/"Dra" (pasa en datos reales), se separa el resto completo tal
+    cual. Devuelve None cuando el nombre no calza con el patrón de radicado, o
+    cuando el radicado no viene acompañado de ninguna acción (nombre de
+    archivo que es solo el radicado, sin texto después)."""
+    match = _RADICADO_PREFIX.match(name_no_ext)
+    if not match:
+        return None
+
+    resto = name_no_ext[match.end():]
+    resto = _JUEZ_PREFIX.sub("", resto, count=1)
+    resto = resto.replace("_", " ")
+    return _CAMEL_CASE_BOUNDARY.sub(" ", resto).strip() or None
 
 
 def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3):
@@ -385,6 +414,7 @@ class ScrapRamaJudicial(BaseScrapper):
                             especialidad=especialidad_raw,
                             seccion=despacho_raw,
                             f_public=fecha_p,
+                            detalle=_extract_detalle(name_no_ext),
                             save_path=save_path,
                         ))
 
