@@ -247,7 +247,12 @@ class Downloader:
 
                 with response as r:
                     r.raise_for_status()
-                    content_type = r.headers.get("Content-Type", "")
+                    # Some sources (Rama Judicial's tribunal sites) send parameters
+                    # after the MIME type (e.g. "application/pdf;charset=UTF-8").
+                    # Stored verbatim, that breaks every exact-match consumer downstream
+                    # (the preview endpoint's `== "application/pdf"` check, in particular)
+                    # even though the file itself is a perfectly valid, previewable PDF.
+                    content_type = r.headers.get("Content-Type", "").split(";", 1)[0].strip()
                     if content_type.lower().startswith("text/html"):
                         raise FileNotFoundError(
                             f"El servidor devolvió una página HTML en vez del archivo: {doc.link['url']}"
