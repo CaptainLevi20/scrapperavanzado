@@ -491,3 +491,85 @@ def test_set_document_preview_key_returns_none_when_document_missing(db_session)
     from core.db import repository
 
     assert repository.set_document_preview_key(db_session, 999999, "some/key.pdf") is None
+
+
+def test_list_documents_filters_by_title_exact_not_substring(db_session):
+    """title_exact must be a real equality filter, unlike the existing
+    title_contains (ilike '%...%'), which would incorrectly match both of these
+    since one title is a superstring of the other."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-exact",
+        source_id=source.id,
+        title="T_BTA_11001_31_03_048_2022_00418_02",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-superstring",
+        source_id=source.id,
+        title="T_BTA_11001_31_03_048_2022_00418_02X",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+    )
+
+    items, total = repository.list_documents(db_session, title_exact="T_BTA_11001_31_03_048_2022_00418_02")
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-exact"]
+
+
+def test_get_source_family_keys_returns_a_mapping_for_the_given_ids(db_session):
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    rama_source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    jep_source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    result = repository.get_source_family_keys(db_session, [rama_source.id, jep_source.id])
+
+    assert result == {rama_source.id: "rama_judicial", jep_source.id: "jep"}
+
+
+def test_get_source_family_keys_returns_empty_dict_for_empty_input(db_session):
+    assert repository.get_source_family_keys(db_session, []) == {}
+
+
+def test_count_rama_judicial_documents_by_title_groups_within_the_family_only(db_session):
+    """The same title in a DIFFERENT family must not be counted together with the
+    rama_judicial ones — a coincidental title collision across families isn't the
+    same case."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    rama_source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    jep_source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-3", source_id=jep_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="c.pdf",
+    )
+
+    result = repository.count_rama_judicial_documents_by_title(db_session, [shared_title])
+
+    assert result == {shared_title: 2}
+
+
+def test_count_rama_judicial_documents_by_title_returns_empty_dict_for_empty_input(db_session):
+    assert repository.count_rama_judicial_documents_by_title(db_session, []) == {}

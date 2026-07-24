@@ -265,6 +265,7 @@ def list_documents(
     downloaded_from: Optional[date] = None,
     downloaded_to: Optional[date] = None,
     title_contains: Optional[str] = None,
+    title_exact: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Document], int]:
@@ -292,10 +293,31 @@ def list_documents(
         )
     if title_contains is not None:
         stmt = stmt.where(Document.title.ilike(f"%{title_contains}%"))
+    if title_exact is not None:
+        stmt = stmt.where(Document.title == title_exact)
 
     total = len(list(db.scalars(stmt).all()))
     stmt = stmt.order_by(Document.f_public.desc().nulls_last(), Document.id.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all()), total
+
+
+def get_source_family_keys(db: Session, source_ids: list[int]) -> dict[int, str]:
+    if not source_ids:
+        return {}
+    stmt = select(Source.id, Source.family_key).where(Source.id.in_(source_ids))
+    return dict(db.execute(stmt).all())
+
+
+def count_rama_judicial_documents_by_title(db: Session, titles: list[str]) -> dict[str, int]:
+    if not titles:
+        return {}
+    stmt = (
+        select(Document.title, func.count(Document.id))
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == "rama_judicial", Document.title.in_(titles))
+        .group_by(Document.title)
+    )
+    return dict(db.execute(stmt).all())
 
 
 def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
