@@ -3,6 +3,16 @@ import re
 
 from core.models import RawDocModel
 
+# Espejo del formato que produce core/scrapers/families/rama_judicial.py::_normalize_title
+# (T_{CODIGO}_{radicado segmentado en 23 dígitos}). No importa TRIBUNAL_CODES desde el
+# módulo del scraper para no acoplar esta capa a uno de familia específico — el rango de
+# 2-5 letras mayúsculas cubre los códigos reales (3-4 letras) con margen.
+RADICADO_TITLE_PATTERN = re.compile(r"^T_[A-Z]{2,5}_\d{5}_\d{2}_\d{2}_\d{3}_\d{4}_\d{5}_\d{2}$")
+
+
+def is_radicado_title(title: str) -> bool:
+    return bool(RADICADO_TITLE_PATTERN.match(title))
+
 
 def make_doc_id(key: str, f_public: str) -> str:
     return hashlib.sha1(f"{key}_{f_public}".encode()).hexdigest()
