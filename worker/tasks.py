@@ -106,12 +106,17 @@ def scrape_source_task(self, run_source_id: int):
         # A source can declare in family_params that every document it produces
         # should land already reviewed (e.g. the sources team confirming
         # everything from Corte Constitucional is useful) instead of "pending".
-        auto_review_status = (source.family_params or {}).get("auto_review_status")
+        family_params = source.family_params or {}
+        auto_review_status = family_params.get("auto_review_status")
+        # auto_review_status is orchestration-only metadata consumed above, not a
+        # scraper constructor argument - resolve_scraper forwards it to cls(**params),
+        # and real family scrapers (unlike this dict) take no **kwargs catch-all.
+        scraper_params = {k: v for k, v in family_params.items() if k != "auto_review_status"}
 
         repository.set_run_source_status(db, run_source_id, "running", started_at=datetime.now(timezone.utc))
 
         try:
-            scraper = resolve_scraper(source.family_key, source.family_params or {})
+            scraper = resolve_scraper(source.family_key, scraper_params)
             fini = _default_date_str(run.fini)
             ffin = _default_date_str(run.ffin)
             docs = scraper.scrap(fini=fini, ffin=ffin)

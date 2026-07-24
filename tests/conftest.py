@@ -51,6 +51,23 @@ class DummyFamilyScraper(BaseScrapper):
         return DummyFamilyScraper.docs_to_return
 
 
+@register_family("test-strict")
+class StrictFamilyScraper(BaseScrapper):
+    """Registered once at test-collection time. Unlike DummyFamilyScraper, its
+    __init__ takes no **kwargs catch-all — mirroring every real family scraper
+    (ScrapConstitucional, Cndj, Jep, etc.), which accept only their own named
+    constructor params, if any. Used to catch orchestration-only family_params
+    keys (e.g. auto_review_status) leaking into scraper construction."""
+
+    docs_to_return: list[RawDocModel] = []
+
+    def __init__(self):
+        pass
+
+    def scrap(self, fini, ffin, **kwargs):
+        return StrictFamilyScraper.docs_to_return
+
+
 @pytest.fixture()
 def api_client(db_session):
     from fastapi.testclient import TestClient
