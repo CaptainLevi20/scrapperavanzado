@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { DocumentsPage } from "./DocumentsPage";
+import { todayDateString, formatDate } from "../lib/formatters";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -464,10 +465,15 @@ describe("DocumentsPage", () => {
     renderPageWithTodayState();
 
     await screen.findByText("Sentencia C-001-26");
-    await waitFor(() => expect(capturedUrl?.searchParams.get("downloaded_from")).toMatch(/^\d{4}-\d{2}-\d{2}$/));
-    expect(capturedUrl?.searchParams.get("downloaded_to")).toBe(capturedUrl?.searchParams.get("downloaded_from"));
+
+    const today = todayDateString();
+    const todayFormatted = formatDate(today);
+
+    await waitFor(() => expect(capturedUrl?.searchParams.get("downloaded_from")).toBe(today));
+    expect(capturedUrl?.searchParams.get("downloaded_to")).toBe(today);
 
     const agregadoButton = screen.getByRole("button", { name: /Agregado/ });
     expect(agregadoButton.className).toMatch(/border-sello/);
+    expect(agregadoButton.textContent).toContain(todayFormatted);
   });
 });
