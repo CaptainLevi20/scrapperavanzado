@@ -78,6 +78,7 @@ def get_documents(
         downloaded_to=downloaded_to,
         title_contains=title,
         title_exact=title_exact,
+        collapse_rama_judicial_cases=title_exact is None,
         limit=limit,
         offset=offset,
     )

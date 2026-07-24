@@ -573,3 +573,140 @@ def test_count_rama_judicial_documents_by_title_groups_within_the_family_only(db
 
 def test_count_rama_judicial_documents_by_title_returns_empty_dict_for_empty_input(db_session):
     assert repository.count_rama_judicial_documents_by_title(db_session, []) == {}
+
+
+def test_list_documents_collapse_keeps_only_the_most_recent_actuacion(db_session):
+    """The Documents table should show only the newest actuación of a shared
+    radicado by default — the older ones remain fetchable via title_exact for
+    the case-view modal, they just don't clutter the general listing."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    from datetime import date
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 1, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-mid", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 2, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="c.pdf", f_public=date(2026, 3, 1),
+    )
+
+    items, total = repository.list_documents(
+        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+    )
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-new"]
+
+
+def test_list_documents_collapse_breaks_ties_by_id_when_f_public_matches(db_session):
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    from datetime import date
+    first = repository.insert_document(
+        db_session, doc_id="doc-a", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 1, 1),
+    )
+    second = repository.insert_document(
+        db_session, doc_id="doc-b", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 1, 1),
+    )
+    assert second.id > first.id  # sanity check on the tie-break assumption
+
+    items, total = repository.list_documents(
+        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+    )
+
+    assert total == 1
+    assert items[0].doc_id == "doc-b"
+
+
+def test_list_documents_collapse_does_not_apply_to_fallback_titles(db_session):
+    """A magistrado-name fallback title repeated across unrelated documents must
+    never be collapsed, even with collapse_rama_judicial_cases=True."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Antioquia", family_params={}
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="DR. WILLIAM SANTA MARIN",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="DR. WILLIAM SANTA MARIN",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    items, total = repository.list_documents(
+        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+    )
+
+    assert total == 2
+
+
+def test_list_documents_collapse_does_not_affect_other_families_with_a_coincidental_title(db_session):
+    """A non-rama_judicial document sharing a radicado-shaped title with an older
+    rama_judicial actuación must never be excluded by the collapse — it isn't
+    part of that case."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    rama_source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    jep_source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    from datetime import date
+    repository.insert_document(
+        db_session, doc_id="doc-rama-old", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 1, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-rama-new", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 2, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-jep", source_id=jep_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="c.pdf", f_public=date(2026, 1, 15),
+    )
+
+    items, total = repository.list_documents(db_session, collapse_rama_judicial_cases=True)
+
+    doc_ids = {d.doc_id for d in items}
+    assert "doc-rama-old" not in doc_ids
+    assert "doc-rama-new" in doc_ids
+    assert "doc-jep" in doc_ids
+    assert total == 2
+
+
+def test_list_documents_collapse_defaults_to_false(db_session):
+    """Without explicitly requesting collapse, every existing caller of
+    list_documents keeps seeing every document — backward compatible default."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    from datetime import date
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 1, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 2, 1),
+    )
+
+    items, total = repository.list_documents(db_session, family_key="rama_judicial")
+
+    assert total == 2

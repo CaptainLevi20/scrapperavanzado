@@ -986,3 +986,62 @@ def test_get_document_version_download_returns_signed_url(api_client, auth_heade
 
     assert response.status_code == 200
     assert "url" in response.json()
+
+
+def test_get_documents_general_listing_shows_only_the_most_recent_actuacion(api_client, auth_header, db_session):
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 6, 16),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 7, 17),
+    )
+
+    response = api_client.get("/documents", params={"family_key": "rama_judicial"}, headers=auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["doc_id"] == "doc-new"
+    assert body["items"][0]["case_document_count"] == 2
+
+
+def test_get_documents_title_exact_still_returns_every_actuacion_uncollapsed(api_client, auth_header, db_session):
+    """The case-view modal fetches a case's members via title_exact — that fetch
+    must never be collapsed, or the modal would only ever show one document."""
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 6, 16),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 7, 17),
+    )
+
+    response = api_client.get(
+        "/documents", params={"family_key": "rama_judicial", "title_exact": shared_title}, headers=auth_header
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert {item["doc_id"] for item in body["items"]} == {"doc-old", "doc-new"}

@@ -2,11 +2,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import cast, func, select, update
+from sqlalchemy import and_, cast, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.utils import RADICADO_TITLE_PATTERN
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -266,6 +267,7 @@ def list_documents(
     downloaded_to: Optional[date] = None,
     title_contains: Optional[str] = None,
     title_exact: Optional[str] = None,
+    collapse_rama_judicial_cases: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Document], int]:
@@ -295,6 +297,38 @@ def list_documents(
         stmt = stmt.where(Document.title.ilike(f"%{title_contains}%"))
     if title_exact is not None:
         stmt = stmt.where(Document.title == title_exact)
+    if collapse_rama_judicial_cases:
+        # Only affects rama_judicial documents whose title genuinely matches the
+        # radicado format (never a scraper fallback title like a magistrado's name,
+        # which can legitimately repeat without being the same case) — a document
+        # is dropped from the general listing only if a NEWER actuación (by f_public,
+        # ties broken by id) sharing that exact radicado exists within rama_judicial.
+        # Every other document (any other family, or a non-radicado title) is
+        # entirely unaffected by this clause regardless of what it happens to share
+        # a title string with.
+        OuterSource = aliased(Source)
+        OtherDoc = aliased(Document)
+        OtherSource = aliased(Source)
+        has_newer_sibling = (
+            select(OtherDoc.id)
+            .join(OtherSource, OtherSource.id == OtherDoc.source_id)
+            .where(
+                OtherSource.family_key == "rama_judicial",
+                OtherDoc.title == Document.title,
+                or_(
+                    OtherDoc.f_public > Document.f_public,
+                    and_(OtherDoc.f_public == Document.f_public, OtherDoc.id > Document.id),
+                ),
+            )
+            .exists()
+        )
+        stmt = stmt.join(OuterSource, OuterSource.id == Document.source_id).where(
+            or_(
+                OuterSource.family_key != "rama_judicial",
+                ~Document.title.op("~")(RADICADO_TITLE_PATTERN.pattern),
+                ~has_newer_sibling,
+            )
+        )
 
     total = len(list(db.scalars(stmt).all()))
     stmt = stmt.order_by(Document.f_public.desc().nulls_last(), Document.id.desc()).limit(limit).offset(offset)
