@@ -521,6 +521,25 @@ describe("DocumentPreviewDialog", () => {
     expect(screen.getByTitle("Vista previa de Actual")).toBeInTheDocument();
   });
 
+  it("shows an error banner when marking another actuación from the list fails, without disturbing the current document", async () => {
+    const documents = [
+      makeDocument({ id: 62, title: "Actual" }),
+      makeDocument({ id: 63, title: "Otra Actuación", detalle: "Auto Anterior" }),
+    ];
+    mockPreviewUrl(62);
+    server.use(http.patch(`${BASE_URL}/documents/63`, () => new HttpResponse(null, { status: 500 })));
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0, vi.fn(), true);
+    await screen.findByTitle("Vista previa de Actual");
+
+    const listRow = screen.getByText(/Auto Anterior/).closest("li")!;
+    await user.click(within(listRow).getByRole("button", { name: /^útil$/i }));
+
+    await screen.findByText("Error al marcar la actuación");
+    expect(screen.getByTitle("Vista previa de Actual")).toBeInTheDocument();
+  });
+
   it("downloading another actuación's file from the list works independently of the currently displayed one", async () => {
     const documents = [
       makeDocument({ id: 70, title: "Actual" }),

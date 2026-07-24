@@ -48,6 +48,10 @@ export function DocumentPreviewDialog({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [markError, setMarkError] = useState<string | null>(null);
   const [lastMarkAttempt, setLastMarkAttempt] = useState<DocumentReviewStatus | null>(null);
+  const [markOtherError, setMarkOtherError] = useState<string | null>(null);
+  const [lastMarkOtherAttempt, setLastMarkOtherAttempt] = useState<{ id: number; status: DocumentReviewStatus } | null>(
+    null
+  );
   const [documentsSnapshot, setDocumentsSnapshot] = useState(documents);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -68,6 +72,8 @@ export function DocumentPreviewDialog({
     setDownloadError(null);
     setIsEditingTitle(false);
     setRenameError(null);
+    setMarkOtherError(null);
+    setLastMarkOtherAttempt(null);
   }, [currentIndex]);
 
   const currentDocument = documentsSnapshot[currentIndex];
@@ -109,6 +115,7 @@ export function DocumentPreviewDialog({
   const markOtherMutation = useMutation({
     mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
     onSuccess: (updated) => {
+      setMarkOtherError(null);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       setDocumentsSnapshot((snapshot) =>
         snapshot.map((doc) =>
@@ -116,7 +123,13 @@ export function DocumentPreviewDialog({
         )
       );
     },
+    onError: () => setMarkOtherError("Error al marcar la actuación"),
   });
+
+  function handleMarkOther(id: number, status: DocumentReviewStatus) {
+    setLastMarkOtherAttempt({ id, status });
+    markOtherMutation.mutate({ id, status });
+  }
 
   const renameMutation = useMutation({
     mutationFn: ({ id, title }: { id: number; title: string }) => updateDocumentTitle(id, title),
@@ -320,14 +333,20 @@ export function DocumentPreviewDialog({
                       {doc.detalle ?? "—"} · {formatDate(doc.f_public)}
                     </span>
                     <div className="flex shrink-0 gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setCurrentIndex(index)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={markOtherMutation.isPending}
+                        onClick={() => setCurrentIndex(index)}
+                      >
                         <Eye className="size-3.5" aria-hidden="true" />
                         Previsualizar
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => markOtherMutation.mutate({ id: doc.id, status: "useful" })}
+                        disabled={markOtherMutation.isPending}
+                        onClick={() => handleMarkOther(doc.id, "useful")}
                         className="border-verde/50 text-verde hover:bg-verde-bg"
                       >
                         Útil
@@ -335,7 +354,8 @@ export function DocumentPreviewDialog({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => markOtherMutation.mutate({ id: doc.id, status: "not_useful" })}
+                        disabled={markOtherMutation.isPending}
+                        onClick={() => handleMarkOther(doc.id, "not_useful")}
                         className="border-rojo/50 text-rojo hover:bg-rojo-bg"
                       >
                         No útil
@@ -349,6 +369,14 @@ export function DocumentPreviewDialog({
                 )
               )}
             </ul>
+            {markOtherError && (
+              <div className="mt-2">
+                <ErrorBanner
+                  message={markOtherError}
+                  onRetry={() => lastMarkOtherAttempt && handleMarkOther(lastMarkOtherAttempt.id, lastMarkOtherAttempt.status)}
+                />
+              </div>
+            )}
           </div>
         )}
 
