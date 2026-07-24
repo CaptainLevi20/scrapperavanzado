@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { createBulkDownload } from "../api/bulkDownloads";
 import { fetchDocuments, fetchDocumentTipos } from "../api/documents";
-import { fetchAllActiveSources } from "../api/sources";
+import { fetchAllActiveSourcesWithDocuments } from "../api/sources";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -79,7 +79,7 @@ export function DocumentsPage() {
 
   const sourcesQuery = useQuery({
     queryKey: ["sources", "for-documents-filter"],
-    queryFn: fetchAllActiveSources,
+    queryFn: fetchAllActiveSourcesWithDocuments,
   });
 
   const sortedSources = useMemo(
