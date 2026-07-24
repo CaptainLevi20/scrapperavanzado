@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { DashboardPage } from "./DashboardPage";
 import type { Document } from "../api/types";
+import { todayDateString } from "../lib/formatters";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -223,8 +224,9 @@ describe("DashboardPage", () => {
 
     await waitFor(() => expect(novedadesUrl).not.toBe(""));
     const url = new URL(novedadesUrl);
-    expect(url.searchParams.get("downloaded_from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(url.searchParams.get("downloaded_to")).toBe(url.searchParams.get("downloaded_from"));
+    const today = todayDateString();
+    await waitFor(() => expect(url.searchParams.get("downloaded_from")).toBe(today));
+    expect(url.searchParams.get("downloaded_to")).toBe(today);
   });
 
   it("passes state={{ downloadedToday: true }} through the 'Ver todos' link to the Documents route", async () => {
