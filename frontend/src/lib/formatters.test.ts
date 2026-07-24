@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { formatBytes, formatDate, formatDateTime } from "./formatters";
+import { describe, expect, it, vi } from "vitest";
+import { formatBytes, formatDate, formatDateTime, todayDateString } from "./formatters";
 
 describe("formatBytes", () => {
   it("formats bytes under 1KB", () => expect(formatBytes(500)).toBe("500 B"));
@@ -26,5 +26,25 @@ describe("formatDate / formatDateTime", () => {
     // displayed 2026-07-15).
     expect(formatDate("2026-07-16")).toContain("16");
     expect(formatDate("2026-07-16")).not.toContain("15");
+  });
+});
+
+describe("todayDateString", () => {
+  it("returns today's local date as YYYY-MM-DD, not shifted by UTC conversion", () => {
+    vi.useFakeTimers();
+    // 2026-07-23T02:00:00 UTC is still 2026-07-22 in America/Bogota (UTC-5) —
+    // this pins system time to exercise exactly the shift formatDate's
+    // parseDateOnlyAsLocal comment already warns about, but for "today"
+    // instead of a parsed date string.
+    vi.setSystemTime(new Date("2026-07-23T02:00:00Z"));
+
+    const result = todayDateString();
+
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(result).toBe(
+      `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`
+    );
+
+    vi.useRealTimers();
   });
 });

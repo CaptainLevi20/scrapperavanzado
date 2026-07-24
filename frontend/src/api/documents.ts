@@ -11,6 +11,8 @@ export interface ListDocumentsParams {
   review_status?: DocumentReviewStatus;
   f_public_from?: string;
   f_public_to?: string;
+  downloaded_from?: string;
+  downloaded_to?: string;
   limit?: number;
   offset?: number;
   [key: string]: string | number | boolean | undefined;
