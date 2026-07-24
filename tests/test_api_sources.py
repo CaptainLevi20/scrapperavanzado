@@ -30,6 +30,29 @@ def test_create_and_list_source(api_client, auth_header, db_session):
     assert patch_response.json()["active"] is False
 
 
+def test_get_sources_filters_by_has_documents(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    with_docs = repository.create_source(
+        db_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+    repository.create_source(db_session, family_key="constitucional", name="Fuente Vacía", family_params={})
+    repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=with_docs.id,
+        title="T-100/24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    response = api_client.get("/sources", params={"has_documents": "true"}, headers=auth_header)
+
+    assert response.status_code == 200
+    assert [s["name"] for s in response.json()] == ["Corte Constitucional"]
+
+
 def test_get_source_families_reports_which_filter_by_publication_date(api_client, auth_header, db_session):
     """The 'Nuevo run' UI needs to tell the user, per source, whether the fini/ffin
     range will be matched against fecha de publicación or fecha de providencia —

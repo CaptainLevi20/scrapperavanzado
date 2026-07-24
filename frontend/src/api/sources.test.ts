@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { fetchAllActiveSources, fetchSources, updateSource } from "./sources";
+import { fetchAllActiveSources, fetchAllActiveSourcesWithDocuments, fetchSources, updateSource } from "./sources";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -65,6 +65,41 @@ describe("fetchAllActiveSources", () => {
     );
 
     const sources = await fetchAllActiveSources();
+
+    expect(sources).toHaveLength(101);
+    expect(sources[100].id).toBe(101);
+  });
+});
+
+describe("fetchAllActiveSourcesWithDocuments", () => {
+  it("requests active sources that have at least one document", async () => {
+    let receivedUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/sources`, ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json([makeSource(1)]);
+      })
+    );
+
+    const sources = await fetchAllActiveSourcesWithDocuments();
+
+    expect(receivedUrl).toContain("active=true");
+    expect(receivedUrl).toContain("has_documents=true");
+    expect(sources).toHaveLength(1);
+  });
+
+  it("keeps paginating past 100 items instead of truncating the result", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, ({ request }) => {
+        const offset = Number(new URL(request.url).searchParams.get("offset") ?? "0");
+        if (offset === 0) {
+          return HttpResponse.json(Array.from({ length: 100 }, (_, index) => makeSource(index + 1)));
+        }
+        return HttpResponse.json([makeSource(101)]);
+      })
+    );
+
+    const sources = await fetchAllActiveSourcesWithDocuments();
 
     expect(sources).toHaveLength(101);
     expect(sources[100].id).toBe(101);
