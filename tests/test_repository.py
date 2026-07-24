@@ -631,6 +631,33 @@ def test_list_documents_collapse_breaks_ties_by_id_when_f_public_matches(db_sess
     assert items[0].doc_id == "doc-b"
 
 
+def test_list_documents_collapse_breaks_ties_by_id_when_f_public_is_null_on_both(db_session):
+    """f_public is nullable — a naive SQL comparison against NULL is never true,
+    so two NULL-f_public siblings could otherwise both survive the collapse
+    (neither provably "older" than the other). The id tie-break must still apply."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    first = repository.insert_document(
+        db_session, doc_id="doc-a", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=None,
+    )
+    second = repository.insert_document(
+        db_session, doc_id="doc-b", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=None,
+    )
+    assert second.id > first.id
+
+    items, total = repository.list_documents(
+        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+    )
+
+    assert total == 1
+    assert items[0].doc_id == "doc-b"
+
+
 def test_list_documents_collapse_does_not_apply_to_fallback_titles(db_session):
     """A magistrado-name fallback title repeated across unrelated documents must
     never be collapsed, even with collapse_rama_judicial_cases=True."""

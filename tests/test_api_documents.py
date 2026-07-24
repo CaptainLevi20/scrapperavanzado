@@ -162,8 +162,12 @@ def test_get_documents_reports_case_document_count_for_a_shared_radicado(api_cli
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body["items"]) == 3
-    assert all(item["case_document_count"] == 3 for item in body["items"])
+    # The general listing collapses a shared radicado to its most recent actuación
+    # (doc-3, the last/highest-id one here since none set an explicit f_public) —
+    # the badge still reports the true count across all 3.
+    assert len(body["items"]) == 1
+    assert body["items"][0]["doc_id"] == "doc-3"
+    assert body["items"][0]["case_document_count"] == 3
 
 
 def test_get_documents_reports_null_case_document_count_for_a_unique_radicado(api_client, auth_header, db_session):
@@ -251,10 +255,15 @@ def test_get_documents_computes_case_document_count_per_title_not_page_wide(api_
 
     assert response.status_code == 200
     items = response.json()["items"]
+    # The shared radicado collapses to its one most-recent actuación in the general
+    # listing (doc "shared-2", higher id since neither set an explicit f_public) —
+    # this still proves per-title computation: the two titles get different counts
+    # (2 vs None), which a page-wide/uniform-count bug could not reproduce.
     shared_items = [item for item in items if item["title"] == shared_title]
     singleton_items = [item for item in items if item["title"] == singleton_title]
-    assert len(shared_items) == 2
-    assert all(item["case_document_count"] == 2 for item in shared_items)
+    assert len(shared_items) == 1
+    assert shared_items[0]["doc_id"] == "shared-2"
+    assert shared_items[0]["case_document_count"] == 2
     assert len(singleton_items) == 1
     assert singleton_items[0]["case_document_count"] is None
 

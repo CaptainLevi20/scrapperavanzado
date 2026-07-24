@@ -309,6 +309,12 @@ def list_documents(
         OuterSource = aliased(Source)
         OtherDoc = aliased(Document)
         OtherSource = aliased(Source)
+        # f_public is nullable — a bare comparison against NULL is never true in SQL,
+        # so two NULL-f_public siblings could otherwise both "have no newer sibling"
+        # and both survive. Coalescing to date.min treats a missing publication date
+        # as the oldest possible, so the id tie-break still deterministically applies.
+        other_f_public = func.coalesce(OtherDoc.f_public, date.min)
+        this_f_public = func.coalesce(Document.f_public, date.min)
         has_newer_sibling = (
             select(OtherDoc.id)
             .join(OtherSource, OtherSource.id == OtherDoc.source_id)
@@ -316,8 +322,8 @@ def list_documents(
                 OtherSource.family_key == "rama_judicial",
                 OtherDoc.title == Document.title,
                 or_(
-                    OtherDoc.f_public > Document.f_public,
-                    and_(OtherDoc.f_public == Document.f_public, OtherDoc.id > Document.id),
+                    other_f_public > this_f_public,
+                    and_(other_f_public == this_f_public, OtherDoc.id > Document.id),
                 ),
             )
             .exists()
