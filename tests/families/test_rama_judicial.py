@@ -126,6 +126,22 @@ def test_normalize_title_leaves_titles_unchanged_when_digit_prefix_is_not_23_lon
     assert _normalize_title(original, "11") == original
 
 
+def test_normalize_title_builds_prefix_when_radicado_is_followed_by_a_space():
+    # caso real de Tribunal Superior de Antioquia (18% de sus documentos):
+    # el despacho separa el radicado de la acción con un espacio, no "_".
+    assert _normalize_title("05001310300220250025101 AutoResuelveRecursoDeApelacion", "05") == (
+        "T_ANTI_05001_31_03_002_2025_00251_01"
+    )
+
+
+def test_normalize_title_builds_prefix_for_a_bare_radicado_with_nothing_after():
+    # caso real de Tribunal Superior de Antioquia (35% de sus documentos): el
+    # nombre de archivo es solo el radicado, sin acción ni separador después.
+    assert _normalize_title("05579310300120250001701", "05") == (
+        "T_ANTI_05579_31_03_001_2025_00017_01"
+    )
+
+
 def test_extract_detalle_strips_judge_prefix_and_splits_camel_case():
     assert _extract_detalle("11001310302020220015001_DraGonzalezAutoAdmiteRecurso") == (
         "Auto Admite Recurso"
@@ -162,6 +178,19 @@ def test_extract_detalle_returns_none_for_generic_estado_titles():
 
 def test_extract_detalle_returns_none_when_digit_prefix_is_not_23_long():
     assert _extract_detalle("1234567890123456789012_DraGonzalezAutoAdmiteRecurso") is None  # 22 dígitos
+
+
+def test_extract_detalle_splits_action_when_radicado_is_followed_by_a_space():
+    # caso real de Tribunal Superior de Antioquia (ver test_normalize_title
+    # equivalente arriba)
+    assert _extract_detalle("05001310302120220029802 AutoDeclaraInadmisibleRecursoDeApelacion") == (
+        "Auto Declara Inadmisible Recurso De Apelacion"
+    )
+
+
+def test_extract_detalle_returns_none_for_a_bare_radicado_with_nothing_after():
+    # caso real: sin acción que extraer, no debe devolver "" sino None
+    assert _extract_detalle("05579310300120250001701") is None
 
 
 @responses.activate
