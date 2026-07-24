@@ -44,7 +44,11 @@ describe("todayDateString", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    process.env.TZ = ORIGINAL_TZ;
+    if (ORIGINAL_TZ === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = ORIGINAL_TZ;
+    }
   });
 
   it("returns today's local date as YYYY-MM-DD, shifted back a day from a UTC timestamp early in the UTC day", () => {
