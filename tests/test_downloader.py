@@ -45,6 +45,27 @@ def test_download_get_writes_temp_file_and_builds_default_storage_key(tmp_path):
 
 
 @responses.activate
+def test_download_strips_charset_parameter_from_content_type(tmp_path):
+    """Regression test: Rama Judicial's tribunal sites send `Content-Type:
+    application/pdf;charset=UTF-8` (verified for real against Tribunal Superior
+    de Bogotá/Antioquia/Cauca documents), and the raw header was being stored
+    verbatim — the preview endpoint's exact-match check (`== "application/pdf"`)
+    then silently 404'd on otherwise-valid, previewable PDFs. content_type must
+    be normalized to just the MIME type, discarding any `;param=value` suffix."""
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=b"%PDF-1.4 contenido de prueba",
+        headers={"Content-Type": "application/pdf;charset=UTF-8"},
+        status=200,
+    )
+    downloader = Downloader()
+    result = downloader.download(_doc(), tmp_path)
+
+    assert result.content_type == "application/pdf"
+
+
+@responses.activate
 def test_download_post_sends_json_body(tmp_path):
     responses.add(
         responses.POST,
