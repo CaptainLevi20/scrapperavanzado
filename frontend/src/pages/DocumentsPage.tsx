@@ -284,7 +284,16 @@ export function DocumentsPage() {
             {documentsQuery.data?.items.map((document, index) => (
               <tr key={document.id} className={TBODY_ROW}>
                 <td className={`${TD} font-medium whitespace-nowrap text-foreground`} title={document.detalle ?? undefined}>
-                  {document.title}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitle(document.title);
+                      setPage(0);
+                    }}
+                    className="underline-offset-2 hover:underline"
+                  >
+                    {document.title}
+                  </button>
                 </td>
                 <td className={`${TD} whitespace-nowrap`}>{sourceNameById.get(document.source_id) ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.tipo ?? "—"}</td>

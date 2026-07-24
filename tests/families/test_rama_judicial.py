@@ -5,6 +5,7 @@ from core.scrapers.families.rama_judicial import (
     SUPERIORES_DEPTS,
     TRIBUNAL_CODES,
     ScrapRamaJudicial,
+    _extract_detalle,
     _normalize_title,
 )
 from core.scrapers.registry import FAMILY_REGISTRY
@@ -125,6 +126,44 @@ def test_normalize_title_leaves_titles_unchanged_when_digit_prefix_is_not_23_lon
     assert _normalize_title(original, "11") == original
 
 
+def test_extract_detalle_strips_judge_prefix_and_splits_camel_case():
+    assert _extract_detalle("11001310302020220015001_DraGonzalezAutoAdmiteRecurso") == (
+        "Auto Admite Recurso"
+    )
+
+
+def test_extract_detalle_splits_the_whole_suffix_when_there_is_no_judge_prefix():
+    # caso real: el despacho subió el archivo sin "Dr"/"Dra" antes del apellido
+    assert _extract_detalle("11001310303320170034203_ValenzuelaSentenciaSegundaInstancia") == (
+        "Valenzuela Sentencia Segunda Instancia"
+    )
+
+
+def test_extract_detalle_treats_underscore_as_a_word_boundary():
+    assert _extract_detalle("11001310301620170055608_DrAtshanAutoOrdenaRemitir_Cumplase") == (
+        "Auto Ordena Remitir Cumplase"
+    )
+
+
+def test_extract_detalle_tolerates_a_stray_space_after_the_radicado():
+    # caso real: espacio extra antes de "Dr"
+    assert _extract_detalle("11001310300220230031101_ DrZamudioAutoResuelevApelacion") == (
+        "Auto Resuelev Apelacion"
+    )
+
+
+def test_extract_detalle_returns_none_for_person_name_titles():
+    assert _extract_detalle("033-2025-00417-01 PAOLA ANDREA NARANJO QUINTANA") is None
+
+
+def test_extract_detalle_returns_none_for_generic_estado_titles():
+    assert _extract_detalle("ESTADO E-0109 DEL 26 DE JUNIO DE 2026") is None
+
+
+def test_extract_detalle_returns_none_when_digit_prefix_is_not_23_long():
+    assert _extract_detalle("1234567890123456789012_DraGonzalezAutoAdmiteRecurso") is None  # 22 dígitos
+
+
 @responses.activate
 def test_fetch_detail_parses_file_table():
     responses.add(responses.GET, _BASE_DOMAIN + "/detalle/1", body=_DETAIL_HTML, status=200)
@@ -199,6 +238,58 @@ def test_scrap_normalizes_title_for_documents_with_a_23_digit_radicado(monkeypat
 
     assert len(docs) == 1
     assert docs[0].title == "T_BTA_11001_31_03_020_2022_00150_01"
+
+
+@responses.activate
+def test_scrap_populates_detalle_for_documents_with_a_23_digit_radicado(monkeypatch):
+    responses.add(
+        responses.GET,
+        "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio",
+        body=_LISTING_HTML,
+        status=200,
+    )
+
+    scraper = ScrapRamaJudicial(dept_code="11", dept_name="Tribunal Superior de Bogotá", entidad_id="22")
+    monkeypatch.setattr(scraper, "_get_instance_id", lambda session, headers: "XYZ")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_detail",
+        lambda headers, url: [
+            (
+                "11001310302020220015001_DraGonzalezAutoAdmiteRecurso.pdf",
+                _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-999",
+                "abc-999",
+            )
+        ],
+    )
+
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].detalle == "Auto Admite Recurso"
+
+
+@responses.activate
+def test_scrap_leaves_detalle_none_for_a_non_matching_title(monkeypatch):
+    responses.add(
+        responses.GET,
+        "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio",
+        body=_LISTING_HTML,
+        status=200,
+    )
+
+    scraper = ScrapRamaJudicial(dept_code="05", dept_name="Tribunal Superior de Antioquia", entidad_id="22")
+    monkeypatch.setattr(scraper, "_get_instance_id", lambda session, headers: "XYZ")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_detail",
+        lambda headers, url: [("Auto_2024.pdf", _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123", "abc-123")],
+    )
+
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].detalle is None
 
 
 @responses.activate
