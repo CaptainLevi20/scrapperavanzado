@@ -72,6 +72,7 @@ export interface Document {
   review_status: DocumentReviewStatus;
   reviewed_at: string | null;
   downloaded_at: string;
+  case_document_count?: number | null;
 }
 
 export interface PaginatedDocuments {

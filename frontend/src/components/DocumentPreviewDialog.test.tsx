@@ -35,11 +35,22 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
   };
 }
 
-function renderDialog(documents: Document[], initialIndex: number, onOpenChange = vi.fn()) {
+function renderDialog(
+  documents: Document[],
+  initialIndex: number,
+  onOpenChange = vi.fn(),
+  showCaseActuaciones = false
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <DocumentPreviewDialog documents={documents} initialIndex={initialIndex} open onOpenChange={onOpenChange} />
+      <DocumentPreviewDialog
+        documents={documents}
+        initialIndex={initialIndex}
+        open
+        onOpenChange={onOpenChange}
+        showCaseActuaciones={showCaseActuaciones}
+      />
     </QueryClientProvider>
   );
   return { onOpenChange };
@@ -430,6 +441,136 @@ describe("DocumentPreviewDialog", () => {
 
     await screen.findByText("Error al renombrar el documento");
     expect(screen.getByLabelText(/nuevo título del documento/i)).toBeInTheDocument();
+  });
+
+  it("shows the case's other actuaciones (excluding the currently displayed one) when showCaseActuaciones is true", async () => {
+    const documents = [
+      makeDocument({ id: 40, title: "Caso X", detalle: "Auto Actual", f_public: "2026-07-17" }),
+      makeDocument({ id: 41, title: "Caso X", detalle: "Auto Anterior", f_public: "2026-06-30" }),
+      makeDocument({ id: 42, title: "Caso X", detalle: "Sentencia Previa", f_public: "2026-06-16" }),
+    ];
+    mockPreviewUrl(40);
+
+    renderDialog(documents, 0, vi.fn(), true);
+
+    await screen.findByTitle("Vista previa de Caso X");
+    expect(screen.getByText(/Auto Anterior/)).toBeInTheDocument();
+    expect(screen.getByText(/Sentencia Previa/)).toBeInTheDocument();
+    // The currently-displayed document's own detalle must not be duplicated in the list.
+    expect(screen.queryByText(/Auto Actual/)).not.toBeInTheDocument();
+  });
+
+  it("does not show the case-actuaciones list when showCaseActuaciones is not set, even with multiple documents", async () => {
+    const documents = [
+      makeDocument({ id: 43, title: "Doc 1", detalle: "Detalle 1" }),
+      makeDocument({ id: 44, title: "Doc 2", detalle: "Detalle 2" }),
+    ];
+    mockPreviewUrl(43);
+
+    renderDialog(documents, 0);
+
+    await screen.findByTitle("Vista previa de Doc 1");
+    expect(screen.queryByText(/Detalle 2/)).not.toBeInTheDocument();
+  });
+
+  it("clicking Previsualizar on another actuación switches the main preview to it", async () => {
+    const documents = [
+      makeDocument({ id: 50, title: "Actual" }),
+      makeDocument({ id: 51, title: "Otra Actuación", detalle: "Auto Anterior" }),
+    ];
+    mockPreviewUrl(50);
+    mockPreviewUrl(51);
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0, vi.fn(), true);
+    await screen.findByTitle("Vista previa de Actual");
+
+    await user.click(screen.getByRole("button", { name: /previsualizar/i }));
+
+    expect(await screen.findByTitle("Vista previa de Otra Actuación")).toBeInTheDocument();
+  });
+
+  it("marking another actuación as useful from the list updates only that document, without advancing past the current one", async () => {
+    const documents = [
+      makeDocument({ id: 60, title: "Actual" }),
+      makeDocument({ id: 61, title: "Otra Actuación", detalle: "Auto Anterior", review_status: "pending" }),
+    ];
+    mockPreviewUrl(60);
+    let patchedId: number | null = null;
+    server.use(
+      http.patch(`${BASE_URL}/documents/61`, async ({ request }) => {
+        patchedId = 61;
+        const body = (await request.json()) as { review_status: string };
+        return HttpResponse.json({ ...documents[1], review_status: body.review_status });
+      })
+    );
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0, vi.fn(), true);
+    await screen.findByTitle("Vista previa de Actual");
+
+    // Scoped to the list row: the footer also has an "Útil" button for the
+    // currently-displayed document, which a bare screen.getByRole would match too.
+    const listRow = screen.getByText(/Auto Anterior/).closest("li")!;
+    await user.click(within(listRow).getByRole("button", { name: /^útil$/i }));
+
+    await waitFor(() => expect(patchedId).toBe(61));
+    // The dialog must still show "Actual" — marking a sibling from the list must
+    // not advance currentIndex or close the dialog (unlike marking the current
+    // document via the footer's Útil/No útil buttons).
+    expect(screen.getByTitle("Vista previa de Actual")).toBeInTheDocument();
+  });
+
+  it("shows an error banner when marking another actuación from the list fails, without disturbing the current document", async () => {
+    const documents = [
+      makeDocument({ id: 62, title: "Actual" }),
+      makeDocument({ id: 63, title: "Otra Actuación", detalle: "Auto Anterior" }),
+    ];
+    mockPreviewUrl(62);
+    server.use(http.patch(`${BASE_URL}/documents/63`, () => new HttpResponse(null, { status: 500 })));
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0, vi.fn(), true);
+    await screen.findByTitle("Vista previa de Actual");
+
+    const listRow = screen.getByText(/Auto Anterior/).closest("li")!;
+    await user.click(within(listRow).getByRole("button", { name: /^útil$/i }));
+
+    await screen.findByText("Error al marcar la actuación");
+    expect(screen.getByTitle("Vista previa de Actual")).toBeInTheDocument();
+  });
+
+  it("downloading another actuación's file from the list works independently of the currently displayed one", async () => {
+    const documents = [
+      makeDocument({ id: 70, title: "Actual" }),
+      makeDocument({ id: 71, title: "Otra Actuación", detalle: "Auto Anterior", storage_key: "otra.pdf" }),
+    ];
+    mockPreviewUrl(70);
+    server.use(
+      http.get(`${BASE_URL}/documents/71/download`, () => new HttpResponse(new Blob(["contenido"], { type: "application/pdf" })))
+    );
+    const clickSpy = vi.fn();
+    let capturedFilename: string | null = null;
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") {
+        element.click = clickSpy;
+        clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
+          capturedFilename = this.download;
+        });
+      }
+      return element;
+    });
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0, vi.fn(), true);
+    await screen.findByTitle("Vista previa de Actual");
+
+    await user.click(screen.getByRole("button", { name: /^descargar$/i }));
+
+    await waitFor(() => expect(capturedFilename).toBe("Otra Actuación.pdf"));
+    createElementSpy.mockRestore();
   });
 
   it("does not show a version history section when the document has no prior versions", async () => {

@@ -61,6 +61,33 @@ const DOCUMENT_2 = {
   title: "Sentencia C-002-26",
 };
 
+const CASE_DOCUMENT_1 = {
+  ...DOCUMENT,
+  id: 10,
+  doc_id: "case-1",
+  title: "T_BTA_11001_31_03_048_2022_00418_02",
+  f_public: "2026-06-16",
+  case_document_count: 3,
+};
+
+const CASE_DOCUMENT_2 = {
+  ...DOCUMENT,
+  id: 11,
+  doc_id: "case-2",
+  title: "T_BTA_11001_31_03_048_2022_00418_02",
+  f_public: "2026-06-30",
+  case_document_count: 3,
+};
+
+const CASE_DOCUMENT_3 = {
+  ...DOCUMENT,
+  id: 12,
+  doc_id: "case-3",
+  title: "T_BTA_11001_31_03_048_2022_00418_02",
+  f_public: "2026-07-17",
+  case_document_count: 3,
+};
+
 const SOURCE = { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true };
 const FAMILY = { key: "constitucional", display_name: "Corte Constitucional", description: null };
 
@@ -475,5 +502,133 @@ describe("DocumentsPage", () => {
     const agregadoButton = screen.getByRole("button", { name: /Agregado/ });
     expect(agregadoButton.className).toMatch(/border-sello/);
     expect(agregadoButton.textContent).toContain(todayFormatted);
+  });
+
+  it("shows a case badge only for documents with case_document_count over 1, and opens the preview dialog with the case's members in chronological order on click", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("title_exact")) {
+          // The API returns newest-first by default — the frontend must reverse this.
+          return HttpResponse.json({
+            items: [CASE_DOCUMENT_3, CASE_DOCUMENT_2, CASE_DOCUMENT_1],
+            total: 3,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        // CASE_DOCUMENT_2 (the middle document chronologically, not the first
+        // or last) is the row rendered/clicked here — this proves the dialog's
+        // initial index is computed from the clicked document's own position,
+        // not hardcoded to 0 (which CASE_DOCUMENT_1, the oldest, could mask).
+        return HttpResponse.json({
+          items: [CASE_DOCUMENT_2, DOCUMENT],
+          total: 2,
+          limit: 50,
+          offset: 0,
+        });
+      }),
+      // Opening DocumentPreviewDialog fires these two queries (content_type is
+      // "application/pdf", so the preview query is enabled) — both must be mocked
+      // or MSW's onUnhandledRequest: "error" setup (src/test/setup.ts) fails the test
+      // on the real click, independent of whether the case-grouping logic is correct.
+      http.get(`${BASE_URL}/documents/:id/preview`, () => HttpResponse.json({ url: "https://example.com/preview.pdf" })),
+      http.get(`${BASE_URL}/documents/:id/versions`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    const user = userEvent.setup();
+    const caseTitleButton = await screen.findByRole("button", { name: "T_BTA_11001_31_03_048_2022_00418_02" });
+
+    // Exactly one badge among the two rendered rows (CASE_DOCUMENT_2 has a case,
+    // the plain DOCUMENT fixture has no case_document_count set at all) — proves
+    // the badge is conditional, not just present in the fixture, and doesn't fire
+    // when case_document_count is undefined.
+    expect(screen.getAllByText(/^\d+ actuaciones$/)).toHaveLength(1);
+    expect(screen.getByText("3 actuaciones")).toBeInTheDocument();
+
+    await user.click(caseTitleButton);
+
+    const dialog = await screen.findByRole("dialog");
+    // CASE_DOCUMENT_2 (2026-06-30) is the middle document chronologically —
+    // index 1 after reversing the newest-first [CASE_DOCUMENT_3, CASE_DOCUMENT_2,
+    // CASE_DOCUMENT_1] array to [CASE_DOCUMENT_1, CASE_DOCUMENT_2, CASE_DOCUMENT_3].
+    // Asserting on its exact formatted date (not just "jun", which both June dates
+    // share) proves findIndex located the clicked document itself rather than a
+    // hardcoded 0 (which would show CASE_DOCUMENT_1's 2026-06-16 instead).
+    expect(within(dialog).getByText(formatDate(CASE_DOCUMENT_2.f_public), { exact: false })).toBeInTheDocument();
+
+    // Clicking "next" from the middle document must move forward chronologically
+    // to CASE_DOCUMENT_3 (2026-07-17, the newest). If the array were left in its
+    // original newest-first API order (i.e. .reverse() were removed), "next" from
+    // index 1 would instead move toward CASE_DOCUMENT_1 (the oldest), so this
+    // assertion would fail — unlike asserting only the initial index, which can't
+    // distinguish the two orderings.
+    await user.click(within(dialog).getByRole("button", { name: "Siguiente" }));
+
+    expect(
+      await within(dialog).findByText(formatDate(CASE_DOCUMENT_3.f_public), { exact: false })
+    ).toBeInTheDocument();
+  });
+
+  it("opens the case dialog (not the single-document one) when clicking Previsualizar on a case row", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("title_exact")) {
+          return HttpResponse.json({
+            items: [CASE_DOCUMENT_3, CASE_DOCUMENT_2, CASE_DOCUMENT_1],
+            total: 3,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        // The general listing is already collapsed to just this one row for the
+        // case (server-side behavior) — this is the only item, so if the
+        // "Previsualizar" button opened the OLD single-document dialog (bound to
+        // this list), there would be nothing to navigate to at all.
+        return HttpResponse.json({ items: [CASE_DOCUMENT_2], total: 1, limit: 50, offset: 0 });
+      }),
+      http.get(`${BASE_URL}/documents/:id/preview`, () => HttpResponse.json({ url: "https://example.com/preview.pdf" })),
+      http.get(`${BASE_URL}/documents/:id/versions`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    const user = userEvent.setup();
+    const previsualizarButton = await screen.findByRole("button", { name: /Previsualizar/ });
+    await user.click(previsualizarButton);
+
+    const dialog = await screen.findByRole("dialog");
+    // Proves the dialog opened with the whole case, not just CASE_DOCUMENT_2 alone:
+    // "Siguiente" must move to CASE_DOCUMENT_3, which is only possible if the
+    // dialog's document list came from the title_exact fetch (3 items), not the
+    // single-item general listing.
+    await user.click(within(dialog).getByRole("button", { name: "Siguiente" }));
+
+    expect(
+      await within(dialog).findByText(formatDate(CASE_DOCUMENT_3.f_public), { exact: false })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the existing filter-by-title click behavior for documents without a case", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })
+      )
+    );
+
+    renderPage();
+
+    const user = userEvent.setup();
+    const titleButton = await screen.findByRole("button", { name: DOCUMENT.title });
+    await user.click(titleButton);
+
+    const searchInput = screen.getByPlaceholderText("Buscar por título");
+    expect(searchInput).toHaveValue(DOCUMENT.title);
   });
 });

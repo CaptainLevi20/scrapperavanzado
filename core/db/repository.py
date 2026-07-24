@@ -2,11 +2,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import cast, exists, func, select, update
+from sqlalchemy import and_, cast, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.utils import RADICADO_TITLE_PATTERN
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -269,6 +270,8 @@ def list_documents(
     downloaded_from: Optional[date] = None,
     downloaded_to: Optional[date] = None,
     title_contains: Optional[str] = None,
+    title_exact: Optional[str] = None,
+    collapse_rama_judicial_cases: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Document], int]:
@@ -296,10 +299,69 @@ def list_documents(
         )
     if title_contains is not None:
         stmt = stmt.where(Document.title.ilike(f"%{title_contains}%"))
+    if title_exact is not None:
+        stmt = stmt.where(Document.title == title_exact)
+    if collapse_rama_judicial_cases:
+        # Only affects rama_judicial documents whose title genuinely matches the
+        # radicado format (never a scraper fallback title like a magistrado's name,
+        # which can legitimately repeat without being the same case) — a document
+        # is dropped from the general listing only if a NEWER actuación (by f_public,
+        # ties broken by id) sharing that exact radicado exists within rama_judicial.
+        # Every other document (any other family, or a non-radicado title) is
+        # entirely unaffected by this clause regardless of what it happens to share
+        # a title string with.
+        OuterSource = aliased(Source)
+        OtherDoc = aliased(Document)
+        OtherSource = aliased(Source)
+        # f_public is nullable — a bare comparison against NULL is never true in SQL,
+        # so two NULL-f_public siblings could otherwise both "have no newer sibling"
+        # and both survive. Coalescing to date.min treats a missing publication date
+        # as the oldest possible, so the id tie-break still deterministically applies.
+        other_f_public = func.coalesce(OtherDoc.f_public, date.min)
+        this_f_public = func.coalesce(Document.f_public, date.min)
+        has_newer_sibling = (
+            select(OtherDoc.id)
+            .join(OtherSource, OtherSource.id == OtherDoc.source_id)
+            .where(
+                OtherSource.family_key == "rama_judicial",
+                OtherDoc.title == Document.title,
+                or_(
+                    other_f_public > this_f_public,
+                    and_(other_f_public == this_f_public, OtherDoc.id > Document.id),
+                ),
+            )
+            .exists()
+        )
+        stmt = stmt.join(OuterSource, OuterSource.id == Document.source_id).where(
+            or_(
+                OuterSource.family_key != "rama_judicial",
+                ~Document.title.op("~")(RADICADO_TITLE_PATTERN.pattern),
+                ~has_newer_sibling,
+            )
+        )
 
     total = len(list(db.scalars(stmt).all()))
     stmt = stmt.order_by(Document.f_public.desc().nulls_last(), Document.id.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all()), total
+
+
+def get_source_family_keys(db: Session, source_ids: list[int]) -> dict[int, str]:
+    if not source_ids:
+        return {}
+    stmt = select(Source.id, Source.family_key).where(Source.id.in_(source_ids))
+    return dict(db.execute(stmt).all())
+
+
+def count_rama_judicial_documents_by_title(db: Session, titles: list[str]) -> dict[str, int]:
+    if not titles:
+        return {}
+    stmt = (
+        select(Document.title, func.count(Document.id))
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == "rama_judicial", Document.title.in_(titles))
+        .group_by(Document.title)
+    )
+    return dict(db.execute(stmt).all())
 
 
 def count_documents_by_family(db: Session) -> list[tuple[str, int]]:

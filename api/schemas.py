@@ -85,6 +85,7 @@ class DocumentOut(BaseModel):
     review_status: str
     reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
+    case_document_count: Optional[int] = None
 
 
 class DocumentReviewUpdate(BaseModel):

@@ -7,7 +7,7 @@ import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { createBulkDownload } from "../api/bulkDownloads";
 import { fetchDocuments, fetchDocumentTipos } from "../api/documents";
 import { fetchAllActiveSourcesWithDocuments } from "../api/sources";
-import type { DocumentReviewStatus } from "../api/types";
+import type { Document, DocumentReviewStatus } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { NativeSelect } from "../components/ui/native-select";
@@ -26,6 +26,13 @@ function ReviewBadge({ status }: { status: DocumentReviewStatus }) {
     return <span className={`${REVIEW_BADGE_BASE} border-rojo/50 bg-rojo-bg text-rojo`}>No útil</span>;
   }
   return <span className={`${REVIEW_BADGE_BASE} border-border bg-card text-muted-foreground`}>Sin revisar</span>;
+}
+
+const CASE_BADGE_CLASS =
+  "inline-block rounded-md border-[1.5px] border-sello/50 bg-sello/10 px-2 py-1 text-xs font-semibold text-sello-ink";
+
+function CaseBadge({ count }: { count: number }) {
+  return <span className={CASE_BADGE_CLASS}>{count} actuaciones</span>;
 }
 
 function formatDateFilterLabel(from: string, to: string): string {
@@ -50,6 +57,8 @@ export function DocumentsPage() {
   const [downloadedFilterOpen, setDownloadedFilterOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [caseDocuments, setCaseDocuments] = useState<Document[] | null>(null);
+  const [caseInitialIndex, setCaseInitialIndex] = useState(0);
 
   const dateFilterRef = useRef<HTMLDivElement>(null);
   const downloadedFilterRef = useRef<HTMLDivElement>(null);
@@ -121,6 +130,41 @@ export function DocumentsPage() {
 
   const hasDateFilter = !!fPublicFrom || !!fPublicTo;
   const hasDownloadedFilter = !!downloadedFrom || !!downloadedTo;
+
+  async function openCaseDialog(document: Document) {
+    const response = await fetchDocuments({
+      family_key: "rama_judicial",
+      title_exact: document.title,
+      limit: 50,
+    });
+    // The API's default order is f_public DESC (newest first); a case's actuaciones
+    // read as a timeline, oldest first, so the fetched array is reversed here.
+    const chronological = [...response.items].reverse();
+    const clickedIndex = chronological.findIndex((item) => item.id === document.id);
+    setCaseDocuments(chronological);
+    setCaseInitialIndex(clickedIndex === -1 ? 0 : clickedIndex);
+  }
+
+  async function handleTitleClick(document: Document) {
+    if (!document.case_document_count || document.case_document_count <= 1) {
+      setTitle(document.title);
+      setPage(0);
+      return;
+    }
+    await openCaseDialog(document);
+  }
+
+  // The general listing is server-collapsed to one row per case (only the most
+  // recent actuación), so "Previsualizar" on a case row must also open the case
+  // dialog (fetching every actuación via title_exact) instead of the single-item
+  // dialog bound to the general list — otherwise there'd be nothing to navigate to.
+  async function handlePreviewClick(document: Document, index: number) {
+    if (!document.case_document_count || document.case_document_count <= 1) {
+      setPreviewIndex(index);
+      return;
+    }
+    await openCaseDialog(document);
+  }
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -354,14 +398,16 @@ export function DocumentsPage() {
                 <td className={`${TD} font-medium whitespace-nowrap text-foreground`} title={document.detalle ?? undefined}>
                   <button
                     type="button"
-                    onClick={() => {
-                      setTitle(document.title);
-                      setPage(0);
-                    }}
+                    onClick={() => handleTitleClick(document)}
                     className="underline-offset-2 hover:underline"
                   >
                     {document.title}
                   </button>
+                  {!!document.case_document_count && document.case_document_count > 1 && (
+                    <div className="mt-1">
+                      <CaseBadge count={document.case_document_count} />
+                    </div>
+                  )}
                 </td>
                 <td className={`${TD} whitespace-nowrap`}>{sourceNameById.get(document.source_id) ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.tipo ?? "—"}</td>
@@ -374,7 +420,7 @@ export function DocumentsPage() {
                   <ReviewBadge status={document.review_status} />
                 </td>
                 <td className={TD}>
-                  <Button variant="outline" size="sm" onClick={() => setPreviewIndex(index)}>
+                  <Button variant="outline" size="sm" onClick={() => handlePreviewClick(document, index)}>
                     <Eye className="size-3.5" aria-hidden="true" />
                     Previsualizar
                   </Button>
@@ -415,6 +461,18 @@ export function DocumentsPage() {
           open={previewIndex !== null}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setPreviewIndex(null);
+          }}
+        />
+      )}
+
+      {caseDocuments !== null && (
+        <DocumentPreviewDialog
+          documents={caseDocuments}
+          initialIndex={caseInitialIndex}
+          open={caseDocuments !== null}
+          showCaseActuaciones
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setCaseDocuments(null);
           }}
         />
       )}
