@@ -131,12 +131,7 @@ export function DocumentsPage() {
   const hasDateFilter = !!fPublicFrom || !!fPublicTo;
   const hasDownloadedFilter = !!downloadedFrom || !!downloadedTo;
 
-  async function handleTitleClick(document: Document) {
-    if (!document.case_document_count || document.case_document_count <= 1) {
-      setTitle(document.title);
-      setPage(0);
-      return;
-    }
+  async function openCaseDialog(document: Document) {
     const response = await fetchDocuments({
       family_key: "rama_judicial",
       title_exact: document.title,
@@ -148,6 +143,27 @@ export function DocumentsPage() {
     const clickedIndex = chronological.findIndex((item) => item.id === document.id);
     setCaseDocuments(chronological);
     setCaseInitialIndex(clickedIndex === -1 ? 0 : clickedIndex);
+  }
+
+  async function handleTitleClick(document: Document) {
+    if (!document.case_document_count || document.case_document_count <= 1) {
+      setTitle(document.title);
+      setPage(0);
+      return;
+    }
+    await openCaseDialog(document);
+  }
+
+  // The general listing is server-collapsed to one row per case (only the most
+  // recent actuación), so "Previsualizar" on a case row must also open the case
+  // dialog (fetching every actuación via title_exact) instead of the single-item
+  // dialog bound to the general list — otherwise there'd be nothing to navigate to.
+  async function handlePreviewClick(document: Document, index: number) {
+    if (!document.case_document_count || document.case_document_count <= 1) {
+      setPreviewIndex(index);
+      return;
+    }
+    await openCaseDialog(document);
   }
 
   return (
@@ -404,7 +420,7 @@ export function DocumentsPage() {
                   <ReviewBadge status={document.review_status} />
                 </td>
                 <td className={TD}>
-                  <Button variant="outline" size="sm" onClick={() => setPreviewIndex(index)}>
+                  <Button variant="outline" size="sm" onClick={() => handlePreviewClick(document, index)}>
                     <Eye className="size-3.5" aria-hidden="true" />
                     Previsualizar
                   </Button>

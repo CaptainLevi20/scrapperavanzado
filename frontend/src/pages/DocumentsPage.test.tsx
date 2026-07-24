@@ -573,6 +573,47 @@ describe("DocumentsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens the case dialog (not the single-document one) when clicking Previsualizar on a case row", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("title_exact")) {
+          return HttpResponse.json({
+            items: [CASE_DOCUMENT_3, CASE_DOCUMENT_2, CASE_DOCUMENT_1],
+            total: 3,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        // The general listing is already collapsed to just this one row for the
+        // case (server-side behavior) — this is the only item, so if the
+        // "Previsualizar" button opened the OLD single-document dialog (bound to
+        // this list), there would be nothing to navigate to at all.
+        return HttpResponse.json({ items: [CASE_DOCUMENT_2], total: 1, limit: 50, offset: 0 });
+      }),
+      http.get(`${BASE_URL}/documents/:id/preview`, () => HttpResponse.json({ url: "https://example.com/preview.pdf" })),
+      http.get(`${BASE_URL}/documents/:id/versions`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    const user = userEvent.setup();
+    const previsualizarButton = await screen.findByRole("button", { name: /Previsualizar/ });
+    await user.click(previsualizarButton);
+
+    const dialog = await screen.findByRole("dialog");
+    // Proves the dialog opened with the whole case, not just CASE_DOCUMENT_2 alone:
+    // "Siguiente" must move to CASE_DOCUMENT_3, which is only possible if the
+    // dialog's document list came from the title_exact fetch (3 items), not the
+    // single-item general listing.
+    await user.click(within(dialog).getByRole("button", { name: "Siguiente" }));
+
+    expect(
+      await within(dialog).findByText(formatDate(CASE_DOCUMENT_3.f_public), { exact: false })
+    ).toBeInTheDocument();
+  });
+
   it("keeps the existing filter-by-title click behavior for documents without a case", async () => {
     mockFilterEndpoints();
     server.use(
