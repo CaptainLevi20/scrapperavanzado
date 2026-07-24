@@ -142,6 +142,14 @@ def test_normalize_title_builds_prefix_for_a_bare_radicado_with_nothing_after():
     )
 
 
+def test_normalize_title_builds_prefix_when_radicado_is_preceded_by_a_date():
+    # caso real de Tribunal Superior de Antioquia (Acciones de Tutela): el
+    # nombre de archivo empieza con "DD-MM-YYYY " antes del radicado.
+    assert _normalize_title("01-06-2026 05000222100020261001900", "05") == (
+        "T_ANTI_05000_22_21_000_2026_10019_00"
+    )
+
+
 def test_extract_detalle_strips_judge_prefix_and_splits_camel_case():
     assert _extract_detalle("11001310302020220015001_DraGonzalezAutoAdmiteRecurso") == (
         "Auto Admite Recurso"
@@ -191,6 +199,10 @@ def test_extract_detalle_splits_action_when_radicado_is_followed_by_a_space():
 def test_extract_detalle_returns_none_for_a_bare_radicado_with_nothing_after():
     # caso real: sin acción que extraer, no debe devolver "" sino None
     assert _extract_detalle("05579310300120250001701") is None
+
+
+def test_extract_detalle_returns_none_when_radicado_is_preceded_by_a_date_and_nothing_follows():
+    assert _extract_detalle("01-06-2026 05000222100020261001900") is None
 
 
 @responses.activate

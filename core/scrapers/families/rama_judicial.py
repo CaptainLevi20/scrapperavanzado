@@ -110,15 +110,17 @@ TRIBUNAL_CODES = {
     "99": "VICH",
 }
 
-_RADICADO_PREFIX = re.compile(r"^(\d{23})(?:[ _]|$)")
+_RADICADO_PREFIX = re.compile(r"^(?:\d{2}-\d{2}-\d{4}\s+)?(\d{23})(?:[ _]|$)")
 
 
 def _normalize_title(name_no_ext: str, dept_code: str) -> str:
     """Reemplaza el nombre de archivo crudo por "T_{CODIGO}_{radicado segmentado}"
-    cuando empieza con el radicado completo (23 dígitos) y el tribunal tiene un
-    código conocido. El separador después del radicado varía según el
-    despacho: "_" (ej. Bogotá), un espacio, o nada — el radicado puede venir
-    solo, sin ninguna acción después (ambos casos reales, vistos en Tribunal
+    cuando el nombre trae el radicado completo (23 dígitos) y el tribunal tiene
+    un código conocido. El radicado puede venir al principio del nombre, o
+    precedido de una fecha "DD-MM-YYYY " (caso real: Acciones de Tutela en
+    Tribunal Superior de Antioquia). El separador después del radicado varía
+    según el despacho: "_" (ej. Bogotá), un espacio, o nada — el radicado
+    puede venir solo, sin ninguna acción después (casos reales de Tribunal
     Superior de Antioquia). El resto del nombre original (juez, acción) se
     descarta. Si no calza (nombre de persona, aviso genérico "ESTADO...",
     tribunal sin código, o el prefijo no tiene exactamente 23 dígitos), se deja
