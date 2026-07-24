@@ -8,6 +8,7 @@ export interface ListDocumentsParams {
   family_key?: string;
   tipo?: string;
   title?: string;
+  title_exact?: string;
   review_status?: DocumentReviewStatus;
   f_public_from?: string;
   f_public_to?: string;

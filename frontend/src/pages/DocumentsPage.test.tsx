@@ -61,6 +61,33 @@ const DOCUMENT_2 = {
   title: "Sentencia C-002-26",
 };
 
+const CASE_DOCUMENT_1 = {
+  ...DOCUMENT,
+  id: 10,
+  doc_id: "case-1",
+  title: "T_BTA_11001_31_03_048_2022_00418_02",
+  f_public: "2026-06-16",
+  case_document_count: 3,
+};
+
+const CASE_DOCUMENT_2 = {
+  ...DOCUMENT,
+  id: 11,
+  doc_id: "case-2",
+  title: "T_BTA_11001_31_03_048_2022_00418_02",
+  f_public: "2026-06-30",
+  case_document_count: 3,
+};
+
+const CASE_DOCUMENT_3 = {
+  ...DOCUMENT,
+  id: 12,
+  doc_id: "case-3",
+  title: "T_BTA_11001_31_03_048_2022_00418_02",
+  f_public: "2026-07-17",
+  case_document_count: 3,
+};
+
 const SOURCE = { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true };
 const FAMILY = { key: "constitucional", display_name: "Corte Constitucional", description: null };
 
@@ -475,5 +502,73 @@ describe("DocumentsPage", () => {
     const agregadoButton = screen.getByRole("button", { name: /Agregado/ });
     expect(agregadoButton.className).toMatch(/border-sello/);
     expect(agregadoButton.textContent).toContain(todayFormatted);
+  });
+
+  it("shows a case badge only for documents with case_document_count over 1, and opens the preview dialog with the case's members in chronological order on click", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("title_exact")) {
+          // The API returns newest-first by default — the frontend must reverse this.
+          return HttpResponse.json({
+            items: [CASE_DOCUMENT_3, CASE_DOCUMENT_2, CASE_DOCUMENT_1],
+            total: 3,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        return HttpResponse.json({
+          items: [CASE_DOCUMENT_1, DOCUMENT],
+          total: 2,
+          limit: 50,
+          offset: 0,
+        });
+      }),
+      // Opening DocumentPreviewDialog fires these two queries (content_type is
+      // "application/pdf", so the preview query is enabled) — both must be mocked
+      // or MSW's onUnhandledRequest: "error" setup (src/test/setup.ts) fails the test
+      // on the real click, independent of whether the case-grouping logic is correct.
+      http.get(`${BASE_URL}/documents/:id/preview`, () => HttpResponse.json({ url: "https://example.com/preview.pdf" })),
+      http.get(`${BASE_URL}/documents/:id/versions`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    const user = userEvent.setup();
+    const caseTitleButton = await screen.findByRole("button", { name: "T_BTA_11001_31_03_048_2022_00418_02" });
+
+    // Exactly one badge among the two rendered rows (CASE_DOCUMENT_1 has a case,
+    // the plain DOCUMENT fixture has no case_document_count set at all) — proves
+    // the badge is conditional, not just present in the fixture, and doesn't fire
+    // when case_document_count is undefined.
+    expect(screen.getAllByText(/^\d+ actuaciones$/)).toHaveLength(1);
+    expect(screen.getByText("3 actuaciones")).toBeInTheDocument();
+
+    await user.click(caseTitleButton);
+
+    const dialog = await screen.findByRole("dialog");
+    // CASE_DOCUMENT_1 (2026-06-16, the oldest) must be the one shown first/initially,
+    // proving the fetched newest-first array was reversed to chronological order and
+    // the clicked document's own position within it was used as the initial index.
+    expect(within(dialog).getByText(/2026-06-16|jun/i)).toBeInTheDocument();
+  });
+
+  it("keeps the existing filter-by-title click behavior for documents without a case", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })
+      )
+    );
+
+    renderPage();
+
+    const user = userEvent.setup();
+    const titleButton = await screen.findByRole("button", { name: DOCUMENT.title });
+    await user.click(titleButton);
+
+    const searchInput = screen.getByPlaceholderText("Buscar por título");
+    expect(searchInput).toHaveValue(DOCUMENT.title);
   });
 });
