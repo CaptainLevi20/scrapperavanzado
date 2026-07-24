@@ -20,6 +20,17 @@ function renderPage() {
   );
 }
 
+function renderPageWithTodayState() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[{ pathname: "/documents", state: { downloadedToday: true } }]}>
+        <DocumentsPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
 const DOCUMENT = {
   id: 1,
   doc_id: "abc",
@@ -438,5 +449,25 @@ describe("DocumentsPage", () => {
 
     await waitFor(() => expect(bulkDownloadCreated).toBe(true));
     expect(await screen.findByText("Página de descargas masivas")).toBeInTheDocument();
+  });
+
+  it("seeds the Agregado filter with today's date when arriving with downloadedToday state, and sends it to the API", async () => {
+    mockFilterEndpoints();
+    let capturedUrl: URL | undefined;
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        capturedUrl = new URL(request.url);
+        return HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 });
+      })
+    );
+
+    renderPageWithTodayState();
+
+    await screen.findByText("Sentencia C-001-26");
+    await waitFor(() => expect(capturedUrl?.searchParams.get("downloaded_from")).toMatch(/^\d{4}-\d{2}-\d{2}$/));
+    expect(capturedUrl?.searchParams.get("downloaded_to")).toBe(capturedUrl?.searchParams.get("downloaded_from"));
+
+    const agregadoButton = screen.getByRole("button", { name: /Agregado/ });
+    expect(agregadoButton.className).toMatch(/border-sello/);
   });
 });
