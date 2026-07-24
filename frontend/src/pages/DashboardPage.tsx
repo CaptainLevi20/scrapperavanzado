@@ -8,7 +8,7 @@ import { fetchAllActiveSources } from "../api/sources";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
-import { formatDateTime, formatRelativeTime } from "../lib/formatters";
+import { formatDateTime, formatRelativeTime, todayDateString } from "../lib/formatters";
 import { familyCountsToBuckets, tipoCountsToBuckets, type CountBucket } from "../lib/dashboardStats";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { NativeSelect } from "../components/ui/native-select";
@@ -125,9 +125,10 @@ export function DashboardPage() {
     queryFn: () => fetchDocuments({ review_status: "pending", limit: 1 }),
   });
 
+  const today = todayDateString();
   const novedadesQuery = useQuery({
-    queryKey: ["documents", "novedades"],
-    queryFn: () => fetchDocuments({ limit: 8 }),
+    queryKey: ["documents", "novedades", today],
+    queryFn: () => fetchDocuments({ downloaded_from: today, downloaded_to: today, limit: 8 }),
   });
 
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -222,7 +223,7 @@ export function DashboardPage() {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-lg font-semibold text-foreground">Novedades</h2>
-          <Link to="/documents" className="text-sm font-medium text-sello-ink hover:underline">
+          <Link to="/documents" state={{ downloadedToday: true }} className="text-sm font-medium text-sello-ink hover:underline">
             Ver todos →
           </Link>
         </div>
@@ -253,7 +254,7 @@ export function DashboardPage() {
               </tbody>
             </table>
           </div>
-          {novedades.length === 0 && <EmptyState message="Todavía no ha llegado ningún documento." />}
+          {novedades.length === 0 && <EmptyState message="No han llegado documentos hoy." />}
         </div>
       </div>
 

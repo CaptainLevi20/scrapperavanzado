@@ -166,6 +166,32 @@ describe("DashboardPage", () => {
     expect(within(novedadesSection).getByText("Útil")).toBeInTheDocument();
   });
 
+  it("requests Novedades scoped to today's downloaded_at range, and shows a today-specific empty state", async () => {
+    mockBaselines();
+    server.use(
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json(STATS)),
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("review_status") === "pending") {
+          return HttpResponse.json({ items: [], total: 2, limit: 1, offset: 0 });
+        }
+        if (url.searchParams.get("limit") === "1") {
+          return HttpResponse.json({ items: [], total: 12, limit: 1, offset: 0 });
+        }
+        // novedades fetch (limit=8) — assert it now carries the today range
+        expect(url.searchParams.get("downloaded_from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(url.searchParams.get("downloaded_to")).toBe(url.searchParams.get("downloaded_from"));
+        return HttpResponse.json({ items: [], total: 0, limit: 8, offset: 0 });
+      })
+    );
+
+    renderPage();
+
+    const novedadesHeading = await screen.findByText("Novedades");
+    const novedadesSection = novedadesHeading.closest("div.space-y-3") as HTMLElement;
+    await waitFor(() => expect(within(novedadesSection).getByText("No han llegado documentos hoy.")).toBeInTheDocument());
+  });
+
   it("renders the most recent runs", async () => {
     server.use(
       http.get(`${BASE_URL}/sources`, () => HttpResponse.json(SOURCES)),
