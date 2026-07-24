@@ -144,6 +144,113 @@ def test_list_documents_downloaded_at_range_is_inclusive_of_the_whole_end_day(ap
     assert not any(item["doc_id"] == "doc-justo-fuera-del-rango" for item in body["items"])
 
 
+def test_get_documents_reports_case_document_count_for_a_shared_radicado(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    for doc_id in ("doc-1", "doc-2", "doc-3"):
+        repository.insert_document(
+            db_session, doc_id=doc_id, source_id=source.id, title=shared_title,
+            storage_bucket="iurisync-test", storage_key=f"{doc_id}.pdf",
+        )
+
+    response = api_client.get("/documents", params={"family_key": "rama_judicial"}, headers=auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 3
+    assert all(item["case_document_count"] == 3 for item in body["items"])
+
+
+def test_get_documents_reports_null_case_document_count_for_a_unique_radicado(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-only", source_id=source.id, title="T_BTA_11001_31_03_048_2022_00418_02",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    response = api_client.get("/documents", params={"family_key": "rama_judicial"}, headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["case_document_count"] is None
+
+
+def test_get_documents_does_not_group_repeated_fallback_titles(api_client, auth_header, db_session):
+    """A magistrado-name fallback title repeated across unrelated documents must
+    never be reported as a case."""
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Antioquia", family_params={}
+    )
+    for doc_id in ("doc-1", "doc-2"):
+        repository.insert_document(
+            db_session, doc_id=doc_id, source_id=source.id, title="DR. WILLIAM SANTA MARIN",
+            storage_bucket="iurisync-test", storage_key=f"{doc_id}.pdf",
+        )
+
+    response = api_client.get("/documents", params={"family_key": "rama_judicial"}, headers=auth_header)
+
+    assert response.status_code == 200
+    assert all(item["case_document_count"] is None for item in response.json()["items"])
+
+
+def test_get_documents_does_not_group_across_families(api_client, auth_header, db_session):
+    """The same radicado-shaped title in a non-rama_judicial family must not be
+    counted or grouped."""
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    for doc_id in ("doc-1", "doc-2"):
+        repository.insert_document(
+            db_session, doc_id=doc_id, source_id=source.id, title=shared_title,
+            storage_bucket="iurisync-test", storage_key=f"{doc_id}.pdf",
+        )
+
+    response = api_client.get("/documents", params={"family_key": "jep"}, headers=auth_header)
+
+    assert response.status_code == 200
+    assert all(item["case_document_count"] is None for item in response.json()["items"])
+
+
+def test_get_documents_filters_by_title_exact(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-exact", source_id=source.id, title="T_BTA_11001_31_03_048_2022_00418_02",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-other", source_id=source.id, title="T_BTA_11001_31_03_048_2022_00418_03",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get(
+        "/documents", params={"title_exact": "T_BTA_11001_31_03_048_2022_00418_02"}, headers=auth_header
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["doc_id"] == "doc-exact"
+
+
 def test_get_document_tipos_returns_sorted_distinct_values(api_client, auth_header, db_session):
     from core.db import repository
 

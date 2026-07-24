@@ -21,6 +21,7 @@ from api.schemas import (
 from core.db import repository
 from core.db.models import Document
 from core.storage import presigned_url
+from core.utils import is_radicado_title
 from worker.tasks import generate_document_preview_pdf
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ def get_documents(
     family_key: Optional[str] = None,
     tipo: Optional[str] = None,
     title: Optional[str] = None,
+    title_exact: Optional[str] = None,
     review_status: Optional[str] = None,
     f_public_from: Optional[date] = None,
     f_public_to: Optional[date] = None,
@@ -75,9 +77,21 @@ def get_documents(
         downloaded_from=downloaded_from,
         downloaded_to=downloaded_to,
         title_contains=title,
+        title_exact=title_exact,
         limit=limit,
         offset=offset,
     )
+
+    family_keys = repository.get_source_family_keys(db, [d.source_id for d in items])
+    radicado_titles = [
+        d.title for d in items
+        if family_keys.get(d.source_id) == "rama_judicial" and is_radicado_title(d.title)
+    ]
+    counts = repository.count_rama_judicial_documents_by_title(db, radicado_titles)
+    for d in items:
+        count = counts.get(d.title)
+        d.case_document_count = count if count and count > 1 else None
+
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
