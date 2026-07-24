@@ -9,6 +9,32 @@ def test_create_and_list_sources(db_session):
     assert [s.name for s in sources] == ["Corte Constitucional"]
 
 
+def test_list_sources_filters_by_has_documents(db_session):
+    """The Documents page's Fuente filter should only offer sources that actually
+    have at least one document — a source with zero documents just clutters the
+    dropdown with an option that would always return an empty table."""
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    with_docs = repository.create_source(
+        db_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+    without_docs = repository.create_source(
+        db_session, family_key="constitucional", name="Fuente Vacía", family_params={}
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=with_docs.id,
+        title="T-100/24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    sources = repository.list_sources(db_session, has_documents=True)
+
+    assert [s.id for s in sources] == [with_docs.id]
+    assert without_docs.id not in [s.id for s in sources]
+
+
 def test_run_and_run_source_lifecycle(db_session):
     repository.create_source_family(db_session, key="samai", display_name="SAMAI")
     source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})

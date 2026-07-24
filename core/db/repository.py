@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import cast, func, select, update
+from sqlalchemy import cast, exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,7 @@ def list_sources(
     db: Session,
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
+    has_documents: Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[Source]:
@@ -37,6 +38,9 @@ def list_sources(
         stmt = stmt.where(Source.family_key == family_key)
     if active is not None:
         stmt = stmt.where(Source.active == active)
+    if has_documents is not None:
+        has_docs_clause = exists().where(Document.source_id == Source.id)
+        stmt = stmt.where(has_docs_clause if has_documents else ~has_docs_clause)
     stmt = stmt.order_by(Source.id).limit(limit).offset(offset)
     return list(db.scalars(stmt).all())
 
