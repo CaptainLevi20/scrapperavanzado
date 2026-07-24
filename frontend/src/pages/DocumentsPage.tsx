@@ -470,6 +470,7 @@ export function DocumentsPage() {
           documents={caseDocuments}
           initialIndex={caseInitialIndex}
           open={caseDocuments !== null}
+          showCaseActuaciones
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setCaseDocuments(null);
           }}

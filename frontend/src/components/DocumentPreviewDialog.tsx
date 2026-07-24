@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, Pencil, X } from "lucide-react";
+import { Check, Download, Eye, Pencil, X } from "lucide-react";
 import {
   buildDownloadFilename,
   buildPreviewDownloadFilename,
@@ -24,6 +24,11 @@ interface DocumentPreviewDialogProps {
   initialIndex: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // Shows a list of the case's other actuaciones (title/detalle/date + their own
+  // Previsualizar/Útil/No útil/Descargar actions) below the main preview — opt-in
+  // so the general single-document-at-a-time preview flow (browsing the Documents
+  // table) is entirely unaffected.
+  showCaseActuaciones?: boolean;
 }
 
 const PREVIEWABLE_CONTENT_TYPES = new Set([
@@ -33,7 +38,13 @@ const PREVIEWABLE_CONTENT_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenChange }: DocumentPreviewDialogProps) {
+export function DocumentPreviewDialog({
+  documents,
+  initialIndex,
+  open,
+  onOpenChange,
+  showCaseActuaciones = false,
+}: DocumentPreviewDialogProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [markError, setMarkError] = useState<string | null>(null);
   const [lastMarkAttempt, setLastMarkAttempt] = useState<DocumentReviewStatus | null>(null);
@@ -89,6 +100,22 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
       }
     },
     onError: () => setMarkError("Error al marcar el documento"),
+  });
+
+  // Marking a SIBLING actuación from the list (not the currently-displayed
+  // document) must only update that row in place — unlike the footer's
+  // markMutation, it never advances currentIndex or closes the dialog, since
+  // the user is still looking at a different document.
+  const markOtherMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      setDocumentsSnapshot((snapshot) =>
+        snapshot.map((doc) =>
+          doc.id === updated.id ? { ...doc, review_status: updated.review_status, reviewed_at: updated.reviewed_at } : doc
+        )
+      );
+    },
   });
 
   const renameMutation = useMutation({
@@ -149,6 +176,15 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
       await downloadFromUrl(previewUrlQuery.data, buildPreviewDownloadFilename(currentDocument));
     } catch {
       setDownloadError("Error al descargar el PDF");
+    }
+  }
+
+  async function handleDownloadOther(doc: Document) {
+    try {
+      setDownloadError(null);
+      await downloadDocumentFile(doc.id, buildDownloadFilename(doc));
+    } catch {
+      setDownloadError("Error al descargar el documento");
     }
   }
 
@@ -272,6 +308,49 @@ export function DocumentPreviewDialog({ documents, initialIndex, open, onOpenCha
             </div>
           )}
         </div>
+
+        {showCaseActuaciones && documentsSnapshot.length > 1 && (
+          <div className="rounded-md border border-border bg-secondary/40 p-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase">Otras actuaciones de este caso</p>
+            <ul className="mt-2 space-y-1.5">
+              {documentsSnapshot.map((doc, index) =>
+                index === currentIndex ? null : (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">
+                      {doc.detalle ?? "—"} · {formatDate(doc.f_public)}
+                    </span>
+                    <div className="flex shrink-0 gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setCurrentIndex(index)}>
+                        <Eye className="size-3.5" aria-hidden="true" />
+                        Previsualizar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => markOtherMutation.mutate({ id: doc.id, status: "useful" })}
+                        className="border-verde/50 text-verde hover:bg-verde-bg"
+                      >
+                        Útil
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => markOtherMutation.mutate({ id: doc.id, status: "not_useful" })}
+                        className="border-rojo/50 text-rojo hover:bg-rojo-bg"
+                      >
+                        No útil
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleDownloadOther(doc)}>
+                        <Download className="size-3.5" aria-hidden="true" />
+                        Descargar
+                      </Button>
+                    </div>
+                  </li>
+                )
+              )}
+            </ul>
+          </div>
+        )}
 
         {(versionsQuery.data?.length ?? 0) > 0 && (
           <div className="rounded-md border border-border bg-secondary/40 p-3">
