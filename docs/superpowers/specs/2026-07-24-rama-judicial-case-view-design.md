@@ -102,12 +102,13 @@ def get_documents(
     ]
     counts = repository.count_rama_judicial_documents_by_title(db, radicado_titles)
     for d in items:
-        d.case_document_count = counts.get(d.title) if d.title in radicado_titles else None
+        count = counts.get(d.title)
+        d.case_document_count = count if count and count > 1 else None
 
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 ```
 
-`case_document_count` se asigna como atributo dinámico sobre la instancia ORM de `Document` — Pydantic (`from_attributes=True`) lo lee vía `getattr`, igual que cualquier columna mapeada.
+`case_document_count` es `None` salvo que haya **más de 1** actuación bajo ese radicado — un radicado único que solo hace match del patrón pero no tiene hermanos no es un "caso" a mostrar, así que no vale la pena distinguirlo de "no es un radicado" desde la perspectiva del frontend (ambos son `None`, ninguno pinta insignia). Se asigna como atributo dinámico sobre la instancia ORM de `Document` — Pydantic (`from_attributes=True`) lo lee vía `getattr`, igual que cualquier columna mapeada.
 
 ### `api/schemas.py`
 
