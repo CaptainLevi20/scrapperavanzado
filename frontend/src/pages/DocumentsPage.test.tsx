@@ -281,9 +281,10 @@ describe("DocumentsPage", () => {
     await screen.findByText("Sentencia C-001-26");
     await user.click(screen.getByText("Sentencia C-001-26"));
 
-    await waitFor(() =>
-      expect(lastUrl).toContain(`title=${encodeURIComponent("Sentencia C-001-26")}`)
-    );
+    await waitFor(() => {
+      const url = new URL(lastUrl);
+      expect(url.searchParams.get("title")).toBe("Sentencia C-001-26");
+    });
     expect(screen.getByPlaceholderText("Buscar por título")).toHaveValue("Sentencia C-001-26");
   });
 
