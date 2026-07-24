@@ -518,8 +518,12 @@ describe("DocumentsPage", () => {
             offset: 0,
           });
         }
+        // CASE_DOCUMENT_2 (the middle document chronologically, not the first
+        // or last) is the row rendered/clicked here — this proves the dialog's
+        // initial index is computed from the clicked document's own position,
+        // not hardcoded to 0 (which CASE_DOCUMENT_1, the oldest, could mask).
         return HttpResponse.json({
-          items: [CASE_DOCUMENT_1, DOCUMENT],
+          items: [CASE_DOCUMENT_2, DOCUMENT],
           total: 2,
           limit: 50,
           offset: 0,
@@ -538,7 +542,7 @@ describe("DocumentsPage", () => {
     const user = userEvent.setup();
     const caseTitleButton = await screen.findByRole("button", { name: "T_BTA_11001_31_03_048_2022_00418_02" });
 
-    // Exactly one badge among the two rendered rows (CASE_DOCUMENT_1 has a case,
+    // Exactly one badge among the two rendered rows (CASE_DOCUMENT_2 has a case,
     // the plain DOCUMENT fixture has no case_document_count set at all) — proves
     // the badge is conditional, not just present in the fixture, and doesn't fire
     // when case_document_count is undefined.
@@ -548,10 +552,13 @@ describe("DocumentsPage", () => {
     await user.click(caseTitleButton);
 
     const dialog = await screen.findByRole("dialog");
-    // CASE_DOCUMENT_1 (2026-06-16, the oldest) must be the one shown first/initially,
-    // proving the fetched newest-first array was reversed to chronological order and
-    // the clicked document's own position within it was used as the initial index.
-    expect(within(dialog).getByText(/2026-06-16|jun/i)).toBeInTheDocument();
+    // CASE_DOCUMENT_2 (2026-06-30) is the middle document chronologically —
+    // index 1 after reversing the newest-first [CASE_DOCUMENT_3, CASE_DOCUMENT_2,
+    // CASE_DOCUMENT_1] array to [CASE_DOCUMENT_1, CASE_DOCUMENT_2, CASE_DOCUMENT_3].
+    // Asserting on its exact formatted date (not just "jun", which both June dates
+    // share) proves findIndex located the clicked document itself rather than a
+    // hardcoded 0 (which would show CASE_DOCUMENT_1's 2026-06-16 instead).
+    expect(within(dialog).getByText(formatDate(CASE_DOCUMENT_2.f_public), { exact: false })).toBeInTheDocument();
   });
 
   it("keeps the existing filter-by-title click behavior for documents without a case", async () => {
