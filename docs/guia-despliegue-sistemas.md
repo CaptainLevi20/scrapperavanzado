@@ -83,7 +83,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm ap
 ```
 
 ```
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d api worker beat caddy
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d frontend api worker beat caddy
 ```
 
 Para confirmar que todo quedó corriendo:
@@ -92,7 +92,7 @@ Para confirmar que todo quedó corriendo:
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 ```
 
-Deberías ver 7 servicios, todos en estado `running` o `healthy`. Si alguno
+Deberías ver 8 servicios, todos en estado `running` o `healthy`. Si alguno
 dice `restarting` repetidamente, avisa al equipo de desarrollo con el
 resultado de este comando (reemplaza `api` por el nombre del servicio que
 falla):
