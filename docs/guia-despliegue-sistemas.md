@@ -16,8 +16,12 @@ equipo de desarrollo antes de continuar.
 - [ ] Confirmar: ¿tienen una autoridad certificadora (CA) interna propia para
       emitir certificados HTTPS? Si no están seguros, la respuesta por
       defecto es "no" y esta guía funciona igual (ver sección 5).
-- [ ] Una regla de firewall que permita tráfico normal de navegación
-      (puertos 80 y 443) desde la red de la oficina hacia esta máquina.
+- [ ] Una regla de firewall que permita, desde la red de la oficina hacia esta
+      máquina, los puertos **80**, **443** y **9443**. Los dos primeros son el
+      tráfico normal de navegación; el 9443 es por donde el navegador descarga
+      y previsualiza los documentos. Si el 9443 queda cerrado, la herramienta
+      abre y deja iniciar sesión, pero ningún documento se puede abrir ni
+      descargar.
 
 ## 2. Copiar los archivos a la máquina
 
@@ -28,7 +32,26 @@ Descomprímela en una carpeta de tu elección en el servidor, por ejemplo
 - `docker-compose.prod.yml`
 - `Caddyfile`
 - `.env.production.example`
-- `frontend/dist/` (carpeta ya compilada, no requiere Node.js)
+- la carpeta `frontend` completa, que trae adentro una subcarpeta `dist`
+
+Los tres archivos y la carpeta `frontend` tienen que quedar **todos juntos en
+la misma carpeta**, y la estructura debe verse exactamente así (ojo: es la
+carpeta `frontend` la que se copia, con `dist` adentro — no la carpeta `dist`
+suelta):
+
+```
+C:\iurisync\
+├── docker-compose.prod.yml
+├── Caddyfile
+├── .env.production.example
+└── frontend\
+    └── dist\
+        ├── index.html
+        └── assets\
+```
+
+Si `dist` queda en otro lugar, la herramienta arranca pero la página se ve en
+blanco.
 
 ## 3. Configurar las variables de producción
 
@@ -38,6 +61,9 @@ sirve) y reemplaza cada valor que dice `CAMBIAR_ESTO` por uno propio:
 
 - `CADDY_DOMAIN` y `CORS_ORIGINS`: el subdominio interno real (el mismo en
   ambas líneas).
+- `S3_PUBLIC_ENDPOINT_URL`: el mismo subdominio otra vez, pero terminado en
+  `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`). Es la
+  dirección por la que el navegador de cada persona descarga los documentos.
 - `POSTGRES_PASSWORD` y la contraseña dentro de `DATABASE_URL`: deben ser
   **exactamente la misma contraseña**, elegida por ustedes, en ambos lugares.
 - `S3_ACCESS_KEY` / `S3_SECRET_KEY`: un usuario y contraseña nuevos, elegidos
@@ -45,6 +71,13 @@ sirve) y reemplaza cada valor que dice `CAMBIAR_ESTO` por uno propio:
 - `REGISTRATION_CODE`: el código que cada persona del equipo va a usar para
   crear su cuenta la primera vez. Compártanlo solo con quienes deban tener
   acceso.
+
+**Cómo tienen que ser las contraseñas:** las de `POSTGRES_PASSWORD` /
+`DATABASE_URL` y la de `S3_SECRET_KEY` deben usar **solo letras y números**
+(nada de `@ : / # ?` ni otros símbolos raros, porque la contraseña de Postgres
+va escrita dentro de la dirección de conexión `DATABASE_URL` y esos símbolos la
+parten por la mitad), y tener **al menos 12 caracteres** (el almacenamiento de
+documentos rechaza de plano cualquier clave de menos de 8).
 
 Guarda el archivo. **No lo compartas por correo ni lo subas a ningún sitio
 público** — contiene contraseñas.
@@ -102,6 +135,14 @@ Si su empresa sí tiene una autoridad certificadora interna propia, avisen al
 equipo de desarrollo — se puede reemplazar este certificado casero por uno
 oficial de la empresa, sin necesidad de rehacer el resto de la instalación.
 
+Opcional (no es necesario para que funcione): si prefieren que nadie vea nunca
+esa advertencia, pueden repartir el certificado raíz que genera esta
+instalación a todos los computadores de la oficina por directiva de grupo
+(Group Policy) o por el sistema de administración de equipos que usen. El
+archivo está dentro del volumen de Docker `caddy_data`, en la ruta
+`pki/authorities/local/root.crt`. Una vez instalado en cada máquina como
+autoridad de confianza, el candado aparece normal y sin advertencias.
+
 ## 6. Verificación final
 
 Desde un computador conectado a la red de la oficina, abre un navegador y
@@ -114,3 +155,75 @@ Si la página no carga, revisa en este orden: (1) que el DNS interno
 realmente apunte al servidor (`ping <subdominio>` desde otro computador de la
 oficina), (2) que el firewall deje pasar el puerto 443, (3) el resultado del
 comando `docker compose ... ps` del paso 4.
+
+Por último, **abre un documento** desde la herramienta (no basta con verlo en
+la lista: hay que darle click para descargarlo o previsualizarlo). Si la
+página carga y el listado se ve, pero al abrir un documento sale un error o la
+descarga nunca empieza, casi siempre es una de dos cosas: el puerto **9443**
+está cerrado en el firewall, o `S3_PUBLIC_ENDPOINT_URL` en `.env.production`
+no quedó con el subdominio correcto terminado en `:9443`.
+
+## 7. Mantenimiento: reiniciar, apagar y actualizar
+
+### Advertencia importante, vale para TODOS los comandos
+
+Cada vez que escribas un comando `docker compose` contra este archivo, tiene
+que llevar `--env-file .env.production`. Sin esa parte, Docker no lee las
+contraseñas y arranca la base de datos con la contraseña vacía; la herramienta
+falla después, de una forma confusa y difícil de diagnosticar. Es decir:
+
+- Correcto: `docker compose --env-file .env.production -f docker-compose.prod.yml up -d`
+- **Incorrecto**: `docker compose -f docker-compose.prod.yml up -d`
+
+Ubícate siempre en la carpeta donde copiaste los archivos antes de ejecutar
+cualquiera de estos comandos.
+
+### Qué sistema operativo usar en el servidor
+
+Recomendamos **Ubuntu Server (o cualquier Linux) con Docker Engine**, no
+Windows. En Windows, Docker solo funciona con Docker Desktop, que necesita que
+haya una sesión de usuario abierta en la máquina: si el servidor se reinicia
+solo (por una actualización, un corte de luz, etc.) y nadie inicia sesión, los
+contenedores **no vuelven a arrancar** y la herramienta queda caída sin que
+nadie se entere. En Linux con Docker Engine eso no pasa: el servicio arranca
+solo con la máquina.
+
+Si por políticas internas tiene que ser Windows sí o sí, entonces hay que
+configurar Docker Desktop para que se inicie automáticamente al iniciar sesión
+(Settings → General → "Start Docker Desktop when you sign in"), y dejar la
+sesión del usuario iniciada en el servidor.
+
+### Reiniciar la herramienta
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+Este mismo comando sirve tanto para levantar todo como para reiniciar lo que
+esté caído: Docker deja como están los contenedores que ya funcionan bien.
+
+### Apagar la herramienta
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml down
+```
+
+Esto apaga los contenedores sin borrar nada: los documentos y la base de datos
+quedan guardados y vuelven a estar disponibles al levantarla de nuevo.
+
+### Actualizar a una versión nueva
+
+Cuando el equipo de desarrollo avise que hay una versión nueva:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml pull
+```
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+Si además te entregan una carpeta `frontend` nueva, reemplaza la anterior
+antes de ejecutar esos dos comandos. Si la actualización incluye cambios en la
+base de datos, el equipo de desarrollo te lo indicará y habrá que repetir el
+comando de `alembic upgrade head` de la sección 4.
