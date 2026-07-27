@@ -69,7 +69,8 @@ Las imágenes `api`, `worker` y `beat` **ya existen** — el CI (`.github/workfl
 3. **`.env.prod.example`** — plantilla de variables de entorno de producción, basada en `.env.example` pero con:
    - `CORS_ORIGINS` apuntando al subdominio interno real.
    - Recordatorio explícito de generar credenciales nuevas para `S3_ACCESS_KEY`/`S3_SECRET_KEY`/`REGISTRATION_CODE` (no usar los valores de ejemplo `minioadmin`/`changeme`).
-   - `S3_ENDPOINT_URL` apuntando al contenedor MinIO interno (sin necesidad de `S3_PUBLIC_ENDPOINT_URL` porque todo, incluido el navegador del usuario, está dentro de la misma red interna).
+   - `S3_ENDPOINT_URL` apuntando al contenedor MinIO interno (`http://minio:9000`) — esa dirección solo la usa el backend, que sí está dentro de la red de Docker.
+   - `S3_PUBLIC_ENDPOINT_URL` apuntando al mismo subdominio en un puerto aparte (`https://<subdominio>:9443`), publicado por Caddy. **Es obligatorio aunque el despliegue sea solo de red interna**: la red interna de Docker y la red interna de la oficina no son la misma cosa. `core/storage.py::presigned_url` firma contra esta dirección los enlaces de descarga/previsualización que el backend le entrega al navegador, y el navegador de una estación de trabajo de la oficina no resuelve el nombre `minio` — sin esta variable, iniciar sesión y listar documentos funciona, pero abrir o descargar cualquier documento falla. No se puede resolver con un prefijo de ruta (`/s3/*`) sobre el mismo puerto 443 porque la firma SigV4 de S3 cubre la ruta completa: recortar el prefijo antes de reenviar invalida la firma (`SignatureDoesNotMatch`).
 
 4. **Guía de instalación para sistemas** (documento aparte, en lenguaje no técnico donde sea posible) con:
    - Requisitos de la máquina (mínimo 4 núcleos, 8 GB RAM, 100 GB disco).
