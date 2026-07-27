@@ -30,19 +30,30 @@ Backend SaaS de scraping de fuentes jurídicas/administrativas colombianas. Reut
 - `worker`: `celery -A worker.celery_app worker`.
 - `beat`: `celery -A worker.celery_app beat` (correr una sola instancia).
 
-```
-docker build --target api -t iurisync-api .
-docker build --target worker -t iurisync-worker .
-docker build --target beat -t iurisync-beat .
-```
+El CI (`.github/workflows/ci.yml`) publica automáticamente las tres imágenes a
+`ghcr.io/captainlevi20/scrapperavanzado-{api,worker,beat}` en cada push a
+`master`.
 
-Cada contenedor necesita las mismas variables de entorno que `core/config.py` (`DATABASE_URL`, `REDIS_URL`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `CORS_ORIGINS`) apuntando a Postgres/Redis/MinIO reales, no a `localhost`. Antes de levantar los contenedores hay que aplicar las migraciones una vez, por ejemplo:
+Para producción, `docker-compose.prod.yml` levanta los tres servicios (usando
+las imágenes de GHCR, sin reconstruir localmente) junto con Postgres, Redis,
+MinIO y un proxy Caddy que sirve el frontend compilado y reenvía `/api/*` al
+backend. Caddy también publica MinIO en el puerto 9443 del mismo dominio, que
+es a donde apuntan los enlaces firmados de descarga de documentos
+(`S3_PUBLIC_ENDPOINT_URL`); sin eso el navegador recibiría URLs
+`http://minio:9000`, resolubles solo dentro de Docker.
 
-```
-docker run --rm --env-file .env.production iurisync-api alembic upgrade head
-```
+El `frontend/dist` que monta ese compose no se versiona: se compila con
+`VITE_API_BASE_URL=/api npm run build` desde `frontend/` (la ruta relativa
+`/api` es la que el `Caddyfile` reenvía al backend bajo el mismo origen) y la
+carpeta `frontend/` resultante se copia al servidor junto a
+`docker-compose.prod.yml`.
 
-`docker-compose.yml` sigue siendo solo para infraestructura local (Postgres/Redis/MinIO); no define los servicios `api`/`worker`/`beat`.
+Ver `docs/guia-despliegue-sistemas.md` para la guía de instalación
+completa, y `docs/superpowers/specs/2026-07-27-despliegue-produccion-red-interna-design.md`
+para el diseño detrás de esas decisiones.
+
+`docker-compose.yml` (sin `.prod`) sigue siendo solo para infraestructura
+local de desarrollo (Postgres/Redis/MinIO).
 
 ## Alcance
 

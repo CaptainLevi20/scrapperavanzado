@@ -1,0 +1,24 @@
+{$CADDY_DOMAIN} {
+	tls internal
+
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Puerto aparte para el almacenamiento de documentos (MinIO).
+# El navegador del usuario descarga cada documento con un enlace firmado que
+# apunta aquí; ese enlace no puede pasar por /api porque la firma de AWS S3
+# incluye la ruta completa y recortarle un prefijo la invalidaría.
+# Debe coincidir con S3_PUBLIC_ENDPOINT_URL en .env.production.
+{$CADDY_DOMAIN}:9443 {
+	tls internal
+
+	reverse_proxy minio:9000
+}

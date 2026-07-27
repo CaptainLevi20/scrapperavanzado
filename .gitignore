@@ -3,6 +3,10 @@ venv/
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
+!.env.production.example
 .pytest_cache/
 .coverage
 graphify-out/
+.superpowers/
