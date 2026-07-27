@@ -1,0 +1,15 @@
+{$CADDY_DOMAIN} {
+	tls {
+		issuer internal
+	}
+
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
+}
