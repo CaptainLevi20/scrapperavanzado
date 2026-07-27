@@ -131,17 +131,34 @@ verificado" — es normal, hay que darle click en "Avanzado" y luego
 vez aceptado, el navegador no debería volver a preguntar en esa misma
 máquina.
 
+**Importante — la descarga y previsualización de documentos usa una segunda
+dirección** dentro del mismo servidor, terminada en `:9443` (ver sección 1).
+El navegador la usa automáticamente en segundo plano cuando alguien abre un
+documento — nadie entra ahí a propósito, como sí pasa con la página
+principal. Esto significa que aceptar la advertencia de seguridad en la
+página principal **no siempre cubre también esa segunda dirección**: en
+Chrome y Edge sí queda cubierta automáticamente, pero **en Firefox no** — ahí
+los documentos simplemente no se van a poder abrir (ni descargar ni
+previsualizar), aunque el resto de la herramienta funcione normal, y sin
+ningún aviso claro de por qué. Si en la oficina se usa Firefox, cada persona
+debe visitar **una sola vez, manualmente**, `https://` seguido del
+subdominio y `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`)
+y aceptar la advertencia ahí también — después de eso no vuelve a pedirlo en
+esa máquina.
+
 Si su empresa sí tiene una autoridad certificadora interna propia, avisen al
 equipo de desarrollo — se puede reemplazar este certificado casero por uno
 oficial de la empresa, sin necesidad de rehacer el resto de la instalación.
 
-Opcional (no es necesario para que funcione): si prefieren que nadie vea nunca
-esa advertencia, pueden repartir el certificado raíz que genera esta
-instalación a todos los computadores de la oficina por directiva de grupo
-(Group Policy) o por el sistema de administración de equipos que usen. El
-archivo está dentro del volumen de Docker `caddy_data`, en la ruta
+**Recomendado, sobre todo si en la oficina se usa Firefox:** para que nadie
+tenga que aceptar advertencias manualmente (ni en la página principal ni en
+la dirección `:9443` de arriba), pueden repartir el certificado raíz que
+genera esta instalación a todos los computadores de la oficina por directiva
+de grupo (Group Policy) o por el sistema de administración de equipos que
+usen. El archivo está dentro del volumen de Docker `caddy_data`, en la ruta
 `pki/authorities/local/root.crt`. Una vez instalado en cada máquina como
-autoridad de confianza, el candado aparece normal y sin advertencias.
+autoridad de confianza, el candado aparece normal y sin advertencias, en
+ambas direcciones.
 
 ## 6. Verificación final
 
@@ -159,9 +176,11 @@ comando `docker compose ... ps` del paso 4.
 Por último, **abre un documento** desde la herramienta (no basta con verlo en
 la lista: hay que darle click para descargarlo o previsualizarlo). Si la
 página carga y el listado se ve, pero al abrir un documento sale un error o la
-descarga nunca empieza, casi siempre es una de dos cosas: el puerto **9443**
-está cerrado en el firewall, o `S3_PUBLIC_ENDPOINT_URL` en `.env.production`
-no quedó con el subdominio correcto terminado en `:9443`.
+descarga nunca empieza, casi siempre es una de estas tres cosas: el puerto
+**9443** está cerrado en el firewall, `S3_PUBLIC_ENDPOINT_URL` en
+`.env.production` no quedó con el subdominio correcto terminado en `:9443`,
+o (si están en **Firefox**) todavía no se aceptó la advertencia de seguridad
+en esa segunda dirección — ver el aviso de Firefox en la sección 5.
 
 ## 7. Mantenimiento: reiniciar, apagar y actualizar
 

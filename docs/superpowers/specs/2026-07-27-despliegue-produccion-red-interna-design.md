@@ -37,9 +37,10 @@ Red interna de la oficina
 ┌─────────────────────────────────────────────┐
 │  Una sola máquina (física o VM), Docker      │
 │                                               │
-│   Caddy (puerto 443, HTTPS)                  │
+│   Caddy (puertos 443 y 9443, HTTPS)          │
 │    ├── /            → archivos del frontend  │
-│    └── /api/*        → contenedor API        │
+│    ├── /api/*        → contenedor API        │
+│    └── :9443         → MinIO (descargas)     │
 │                                               │
 │   Contenedores (docker-compose):             │
 │    - api      (imagen ya publicada en GHCR)  │
@@ -58,7 +59,7 @@ Las imágenes `api`, `worker` y `beat` **ya existen** — el CI (`.github/workfl
 1. **`docker-compose.prod.yml`** — variante de producción del `docker-compose.yml` actual. Diferencias clave frente al de desarrollo:
    - Usa las imágenes de GHCR (`ghcr.io/captainlevi20/scrapperavanzado-{api,worker,beat}:latest`) en vez de construir localmente.
    - Agrega el servicio Caddy.
-   - No expone los puertos de Postgres/Redis/MinIO fuera de la red interna de Docker (solo Caddy expone 443 hacia la red de la oficina).
+   - No expone los puertos de Postgres/Redis/MinIO fuera de la red interna de Docker (solo Caddy expone 443 y 9443 hacia la red de la oficina — 9443 es MinIO detrás de Caddy, para que el navegador pueda descargar/previsualizar documentos; ver `S3_PUBLIC_ENDPOINT_URL` más abajo).
    - Usa variables de entorno desde un archivo `.env` real (no las de ejemplo con `minioadmin`).
 
 2. **`Caddyfile`** — configuración del proxy inverso:
@@ -77,7 +78,7 @@ Las imágenes `api`, `worker` y `beat` **ya existen** — el CI (`.github/workfl
    - Cómo instalar Docker si no lo tienen.
    - Los archivos que deben copiar al servidor (`docker-compose.prod.yml`, `Caddyfile`, `.env` ya completado).
    - Los comandos exactos a ejecutar (`docker compose up -d`, verificación de que los contenedores están corriendo).
-   - Qué configurar de su lado: DNS interno del subdominio, certificado interno (si aplica), regla de firewall para el puerto 443 dentro de la red de oficina.
+   - Qué configurar de su lado: DNS interno del subdominio, certificado interno (si aplica), regla de firewall para los puertos 443 y 9443 dentro de la red de oficina.
 
 ## Preguntas pendientes para sistemas (no bloquean el inicio del trabajo)
 
