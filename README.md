@@ -42,11 +42,10 @@ es a donde apuntan los enlaces firmados de descarga de documentos
 (`S3_PUBLIC_ENDPOINT_URL`); sin eso el navegador recibiría URLs
 `http://minio:9000`, resolubles solo dentro de Docker.
 
-El `frontend/dist` que monta ese compose no se versiona: se compila con
-`VITE_API_BASE_URL=/api npm run build` desde `frontend/` (la ruta relativa
-`/api` es la que el `Caddyfile` reenvía al backend bajo el mismo origen) y la
-carpeta `frontend/` resultante se copia al servidor junto a
-`docker-compose.prod.yml`.
+El frontend se compila y publica automáticamente como una cuarta imagen
+(`ghcr.io/captainlevi20/scrapperavanzado-frontend`) por el mismo CI, desde
+`frontend/Dockerfile` — no requiere ningún paso manual de compilación ni
+copia de archivos.
 
 Ver `docs/guia-despliegue-sistemas.md` para la guía de instalación
 completa, y `docs/superpowers/specs/2026-07-27-despliegue-produccion-red-interna-design.md`

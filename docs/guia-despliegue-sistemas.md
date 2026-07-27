@@ -25,33 +25,13 @@ equipo de desarrollo antes de continuar.
 
 ## 2. Copiar los archivos a la máquina
 
-El equipo de desarrollo te entrega una carpeta comprimida con estos archivos.
-Descomprímela en una carpeta de tu elección en el servidor, por ejemplo
-`C:\iurisync\` o `/opt/iurisync/`:
+El equipo de desarrollo te entrega estos tres archivos. Cópialos en una
+carpeta de tu elección en el servidor, por ejemplo `C:\iurisync\` o
+`/opt/iurisync/`, todos juntos en la misma carpeta:
 
 - `docker-compose.prod.yml`
 - `Caddyfile`
 - `.env.production.example`
-- la carpeta `frontend` completa, que trae adentro una subcarpeta `dist`
-
-Los tres archivos y la carpeta `frontend` tienen que quedar **todos juntos en
-la misma carpeta**, y la estructura debe verse exactamente así (ojo: es la
-carpeta `frontend` la que se copia, con `dist` adentro — no la carpeta `dist`
-suelta):
-
-```
-C:\iurisync\
-├── docker-compose.prod.yml
-├── Caddyfile
-├── .env.production.example
-└── frontend\
-    └── dist\
-        ├── index.html
-        └── assets\
-```
-
-Si `dist` queda en otro lugar, la herramienta arranca pero la página se ve en
-blanco.
 
 ## 3. Configurar las variables de producción
 
@@ -242,7 +222,6 @@ docker compose --env-file .env.production -f docker-compose.prod.yml pull
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
-Si además te entregan una carpeta `frontend` nueva, reemplaza la anterior
-antes de ejecutar esos dos comandos. Si la actualización incluye cambios en la
-base de datos, el equipo de desarrollo te lo indicará y habrá que repetir el
-comando de `alembic upgrade head` de la sección 4.
+Si la actualización incluye cambios en la base de datos, el equipo de
+desarrollo te lo indicará y habrá que repetir el comando de `alembic upgrade
+head` de la sección 4.
