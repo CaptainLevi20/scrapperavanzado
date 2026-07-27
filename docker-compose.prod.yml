@@ -64,10 +64,13 @@ services:
 
   caddy:
     image: caddy:2-alpine
-    env_file: .env.production
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN}
     ports:
       - "80:80"
       - "443:443"
+      # Descarga de documentos desde el navegador (proxy a MinIO).
+      - "9443:9443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./frontend/dist:/srv/frontend:ro
