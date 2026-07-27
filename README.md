@@ -37,7 +37,18 @@ El CI (`.github/workflows/ci.yml`) publica automáticamente las tres imágenes a
 Para producción, `docker-compose.prod.yml` levanta los tres servicios (usando
 las imágenes de GHCR, sin reconstruir localmente) junto con Postgres, Redis,
 MinIO y un proxy Caddy que sirve el frontend compilado y reenvía `/api/*` al
-backend. Ver `docs/guia-despliegue-sistemas.md` para la guía de instalación
+backend. Caddy también publica MinIO en el puerto 9443 del mismo dominio, que
+es a donde apuntan los enlaces firmados de descarga de documentos
+(`S3_PUBLIC_ENDPOINT_URL`); sin eso el navegador recibiría URLs
+`http://minio:9000`, resolubles solo dentro de Docker.
+
+El `frontend/dist` que monta ese compose no se versiona: se compila con
+`VITE_API_BASE_URL=/api npm run build` desde `frontend/` (la ruta relativa
+`/api` es la que el `Caddyfile` reenvía al backend bajo el mismo origen) y la
+carpeta `frontend/` resultante se copia al servidor junto a
+`docker-compose.prod.yml`.
+
+Ver `docs/guia-despliegue-sistemas.md` para la guía de instalación
 completa, y `docs/superpowers/specs/2026-07-27-despliegue-produccion-red-interna-design.md`
 para el diseño detrás de esas decisiones.
 
