@@ -62,6 +62,10 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  frontend:
+    image: ghcr.io/captainlevi20/scrapperavanzado-frontend:latest
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     environment:
@@ -73,10 +77,10 @@ services:
       - "9443:9443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./frontend/dist:/srv/frontend:ro
       - caddy_data:/data
     depends_on:
       - api
+      - frontend
     restart: unless-stopped
 
 volumes:
