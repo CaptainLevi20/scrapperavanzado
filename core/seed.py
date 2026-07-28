@@ -30,63 +30,56 @@ _FAMILIES = {
 
 
 def seed_source_families_and_sources(db) -> None:
-    existing_families = {f.key for f in repository.list_source_families(db)}
+    # Each insert below is its own ON CONFLICT DO NOTHING (see
+    # create_source_family_if_missing/create_source_if_missing) rather than a
+    # "list what already exists, then create what's missing" pass: two seed
+    # runs racing each other (`python -m core.seed` launched twice at once, or
+    # a future multi-worker startup hook) would otherwise both see nothing
+    # existing yet, both try to create the same row, and the loser crashes on
+    # a duplicate-key IntegrityError partway through, leaving the catalog
+    # incomplete.
     for key, (display_name, description) in _FAMILIES.items():
-        if key not in existing_families:
-            repository.create_source_family(db, key=key, display_name=display_name, description=description)
+        repository.create_source_family_if_missing(db, key=key, display_name=display_name, description=description)
 
-    existing_sources = {s.name for s in repository.list_sources(db, limit=10_000)}
-
-    if "Corte Constitucional" not in existing_sources:
-        repository.create_source(db, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.create_source_if_missing(db, family_key="constitucional", name="Corte Constitucional", family_params={})
 
     for corp_code, corp_name in SAMAI_CORPS.items():
-        if corp_name not in existing_sources:
-            repository.create_source(
-                db, family_key="samai", name=corp_name, family_params={"corp_code": corp_code, "corp_name": corp_name}
-            )
-
-    if "CSJ" not in existing_sources:
-        repository.create_source(db, family_key="corte_suprema", name="CSJ", family_params={})
-
-    if "JEP" not in existing_sources:
-        repository.create_source(db, family_key="jep", name="JEP", family_params={})
-
-    if "Comisión Nacional de Disciplina Judicial" not in existing_sources:
-        repository.create_source(
-            db, family_key="cndj", name="Comisión Nacional de Disciplina Judicial", family_params={}
+        repository.create_source_if_missing(
+            db, family_key="samai", name=corp_name, family_params={"corp_code": corp_code, "corp_name": corp_name}
         )
 
-    if "Agencia de Desarrollo Rural" not in existing_sources:
-        repository.create_source(db, family_key="adr", name="Agencia de Desarrollo Rural", family_params={})
+    repository.create_source_if_missing(db, family_key="corte_suprema", name="CSJ", family_params={})
+
+    repository.create_source_if_missing(db, family_key="jep", name="JEP", family_params={})
+
+    repository.create_source_if_missing(
+        db, family_key="cndj", name="Comisión Nacional de Disciplina Judicial", family_params={}
+    )
+
+    repository.create_source_if_missing(db, family_key="adr", name="Agencia de Desarrollo Rural", family_params={})
 
     adres_name = "Administradora de los Recursos del Sistema General de Seguridad Social en Salud"
-    if adres_name not in existing_sources:
-        repository.create_source(db, family_key="adres", name=adres_name, family_params={})
+    repository.create_source_if_missing(db, family_key="adres", name=adres_name, family_params={})
 
-    if "Agencia Nacional del Espectro" not in existing_sources:
-        repository.create_source(db, family_key="ane", name="Agencia Nacional del Espectro", family_params={})
+    repository.create_source_if_missing(db, family_key="ane", name="Agencia Nacional del Espectro", family_params={})
 
-    if "Agencia Nacional de Hidrocarburos" not in existing_sources:
-        repository.create_source(db, family_key="anh", name="Agencia Nacional de Hidrocarburos", family_params={})
+    repository.create_source_if_missing(db, family_key="anh", name="Agencia Nacional de Hidrocarburos", family_params={})
 
     for dept_code, dept_name in SUPERIORES_DEPTS.items():
-        if dept_name not in existing_sources:
-            repository.create_source(
-                db,
-                family_key="rama_judicial",
-                name=dept_name,
-                family_params={"dept_code": dept_code, "dept_name": dept_name, "entidad_id": "22"},
-            )
+        repository.create_source_if_missing(
+            db,
+            family_key="rama_judicial",
+            name=dept_name,
+            family_params={"dept_code": dept_code, "dept_name": dept_name, "entidad_id": "22"},
+        )
 
     for juz_id, juz_name in JUZGADOS_ENTIDADES.items():
-        if juz_name not in existing_sources:
-            repository.create_source(
-                db,
-                family_key="rama_judicial",
-                name=juz_name,
-                family_params={"dept_code": "", "dept_name": juz_name, "entidad_id": juz_id},
-            )
+        repository.create_source_if_missing(
+            db,
+            family_key="rama_judicial",
+            name=juz_name,
+            family_params={"dept_code": "", "dept_name": juz_name, "entidad_id": juz_id},
+        )
 
 
 def main():

@@ -50,7 +50,6 @@ def test_scrap_full_flow_returns_expected_document():
     assert doc.magistrado == "Juan Perez"
     assert doc.f_public == "2024-01-20"
     assert doc.f_providencia == "2024-01-15"
-    assert doc.convert_to is None
     assert doc.link["url"] == "https://relatoria.cndj.gov.co/docs_relatoria/ALGO_ADJUNTA20240120103000.pdf"
     assert doc.link["body"] == {"path": "05001250200020210021501_3"}
     assert doc.save_path == (

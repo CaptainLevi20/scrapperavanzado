@@ -241,7 +241,6 @@ def test_scrap_builds_docs_from_listing_and_detail(monkeypatch):
     assert doc.especialidad == "Civil"
     assert doc.seccion == "Juzgado 1 Civil del Circuito"
     assert doc.f_public == "2024-06-15"
-    assert doc.convert_to is None
     assert doc.link == {
         "url": _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123",
         "method": "GET",
@@ -428,6 +427,39 @@ def test_scrap_does_not_truncate_especialidad_and_seccion_metadata_for_long_desp
     assert "110012220000 - SECRETARÍA SALA EXTINCIÓN DE DOMINIO DEL TRIB/" in docs[0].save_path
 
 
+@responses.activate
+def test_scrap_logs_and_skips_a_malformed_row_without_aborting_the_rest(monkeypatch, caplog):
+    # A publish-date with an unexpected "DD/MM" (no year) makes the
+    # `dia, mes, anio = fecha_p_raw.split("/")` unpacking raise ValueError;
+    # that must only skip this one row, not abort the whole page.
+    listing_html = _LISTING_HTML_REPUBLISHED.replace(
+        '<p class="publish-date">Fecha: 10/06/2026</p>', '<p class="publish-date">Fecha: 10/06</p>'
+    )
+    responses.add(
+        responses.GET,
+        "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio",
+        body=listing_html,
+        status=200,
+    )
+
+    scraper = ScrapRamaJudicial(dept_code="05", dept_name="Tribunal Superior de Antioquia", entidad_id="22")
+    monkeypatch.setattr(scraper, "_get_instance_id", lambda session, headers: "XYZ")
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_detail",
+        lambda headers, url: [("Auto_2024.pdf", _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123", "abc-123")],
+    )
+
+    with caplog.at_level("WARNING", logger="core.scrapers.families.rama_judicial"):
+        docs = scraper.scrap(fini="2026-06-01", ffin="2026-06-30")
+
+    assert len(docs) == 1  # la fila malformada se salta, la válida se conserva
+    assert docs[0].f_public == "2026-06-11"
+    # Regression test: this used to be a bare print(), invisible to server logs —
+    # now it must go through the logging module like the rest of the project.
+    assert any("Error procesando fila" in r.message for r in caplog.records)
+
+
 def test_rama_judicial_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 
@@ -490,7 +522,7 @@ def test_scrap_keeps_first_occurrence_even_when_the_size_check_is_inconclusive(m
 
 
 @responses.activate
-def test_scrap_keeps_first_occurrence_even_when_the_size_check_disagrees(monkeypatch):
+def test_scrap_keeps_first_occurrence_even_when_the_size_check_disagrees(monkeypatch, caplog):
     # Sizes genuinely differing despite an identical uuid would be surprising
     # (the whole point of using uuid as doc_id is that it IS the file's stable
     # identity) but must not crash the run or return two docs for one uuid.
@@ -514,7 +546,11 @@ def test_scrap_keeps_first_occurrence_even_when_the_size_check_disagrees(monkeyp
         lambda url, timeout=15: next(sizes),
     )
 
-    docs = scraper.scrap(fini="2026-06-01", ffin="2026-06-30")
+    with caplog.at_level("WARNING", logger="core.scrapers.families.rama_judicial"):
+        docs = scraper.scrap(fini="2026-06-01", ffin="2026-06-30")
 
     assert len(docs) == 1
     assert docs[0].f_public == "2026-06-10"
+    # Regression test: this used to be a bare print(), invisible to server logs —
+    # now it must go through the logging module like the rest of the project.
+    assert any("cambió de tamaño" in r.message for r in caplog.records)

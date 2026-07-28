@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
@@ -32,8 +32,8 @@ def get_sources(
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
     has_documents: Optional[bool] = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     return repository.list_sources(

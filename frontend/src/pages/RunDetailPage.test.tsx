@@ -3,8 +3,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
+import { MAX_POLL_AGE_MS } from "../lib/runStatus";
 import { RunDetailPage } from "./RunDetailPage";
 
 const BASE_URL = "http://localhost:8000";
@@ -31,7 +32,9 @@ const RUN = {
   cancel_requested: false,
   started_at: "2026-07-10T00:00:00Z",
   finished_at: null,
-  created_at: "2026-07-10T00:00:00Z",
+  // Freshly created — well under the 30-minute stale-poll cutoff, so tests
+  // that expect polling to keep going aren't accidentally starved by it.
+  created_at: new Date().toISOString(),
 };
 
 const RUN_SOURCE = { id: 1, run_id: 1, source_id: 5, status: "failed", docs_new: 2, docs_updated: 0, docs_errors: 1, error_message: "timeout" };
@@ -50,9 +53,48 @@ describe("RunDetailPage", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
+  it("does not show 'no sources processed' while the first request is still in flight", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json(RUN)),
+      http.get(`${BASE_URL}/runs/1/sources`, async () => {
+        await delay(50);
+        return HttpResponse.json([]);
+      })
+    );
+
+    renderPage();
+
+    expect(screen.queryByText("Todavía no hay fuentes procesadas en este run.")).not.toBeInTheDocument();
+    expect(await screen.findByText("Todavía no hay fuentes procesadas en este run.")).toBeInTheDocument();
+  });
+
   it("shows the cancel button only while the run is not completed", async () => {
     server.use(
       http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "completed" })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    await screen.findByText("Run #1");
+    expect(screen.queryByText("Cancelar run")).not.toBeInTheDocument();
+  });
+
+  it("also hides the cancel button once the run is failed, not just completed", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "failed" })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    await screen.findByText("Run #1");
+    expect(screen.queryByText("Cancelar run")).not.toBeInTheDocument();
+  });
+
+  it("also hides the cancel button once the run is cancelled", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "cancelled" })),
       http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([]))
     );
 
@@ -107,6 +149,37 @@ describe("RunDetailPage", () => {
     await waitFor(() => expect(sourcesCallCount).toBeGreaterThan(1));
 
     expect(await screen.findByText("timeout")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("stops polling and warns instead of hammering the server when a run is stuck", async () => {
+    // Regression test: a worker process that dies outright (killed, crashed,
+    // container restarted) never writes "failed" — the run just stays
+    // "running" forever. Before this fix, polling every 4s would continue
+    // for as long as the tab stayed open.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const staleCreatedAt = new Date(Date.now() - MAX_POLL_AGE_MS - 60_000).toISOString();
+    let runCallCount = 0;
+    let sourcesCallCount = 0;
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => {
+        runCallCount += 1;
+        return HttpResponse.json({ ...RUN, status: "running", created_at: staleCreatedAt });
+      }),
+      http.get(`${BASE_URL}/runs/1/sources`, () => {
+        sourcesCallCount += 1;
+        return HttpResponse.json([]);
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(runCallCount).toBe(1));
+    expect(await screen.findByText(/lleva mucho tiempo sin actualizarse/)).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(runCallCount).toBe(1); // no repitió ninguna de las dos consultas automáticas
+    expect(sourcesCallCount).toBe(1);
+
     vi.useRealTimers();
   });
 

@@ -1,5 +1,6 @@
+import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import requests
@@ -9,10 +10,19 @@ from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
 
+logger = logging.getLogger(__name__)
+
 _CORTE_SUPREMA_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
 _DOWNLOAD_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/"
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
+
+# Fixed UTC-5, not zoneinfo("America/Bogota") — Colombia has had no DST since
+# 1993, so a fixed offset is exactly as correct while side-stepping any
+# dependency on the host having an IANA tz database available (Windows dev
+# machines don't ship one; the Linux prod containers do, but there's no reason
+# to depend on that either way for an offset that never changes).
+_COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 # The document's own code (e.g. "ATP428-2026", "STL5177-2026") is always at
 # the very start of the title. A bracketed/parenthesized reference number
@@ -174,7 +184,10 @@ class ScrapCorteSuprema(BaseScrapper):
         try:
             texto = _extraer_texto_primera_pagina(local_path, content_type)
         except Exception as e:
-            print(f"No se pudo leer la primera página de {local_path.name} para recuperar el título: {e}")
+            logger.warning(
+                "No se pudo leer la primera página de %s para recuperar el título: %s",
+                local_path.name, e,
+            )
             return
 
         codigo = _codigo_desde_texto(texto)
@@ -236,7 +249,16 @@ class ScrapCorteSuprema(BaseScrapper):
 
                     for item in search_results:
                         try:
-                            fecha_obj = datetime.fromisoformat(item["fechaCreacion"].replace("Z", "+00:00"))
+                            # fechaCreacion comes back as a UTC instant; fini/ffin (and
+                            # therefore fecha_inicio/fecha_fin) are Colombia calendar
+                            # dates. Converting to Colombia's own offset before taking
+                            # .date() is what makes the two comparable — comparing UTC's
+                            # .date() directly against them shifted the whole window by
+                            # 5 hours, losing anything published after ~7pm COT and
+                            # picking up the previous day's after-7pm items instead.
+                            fecha_obj = datetime.fromisoformat(item["fechaCreacion"].replace("Z", "+00:00")).astimezone(
+                                _COLOMBIA_TZ
+                            )
 
                             if fecha_obj.date() > fecha_fin:
                                 continue
@@ -306,7 +328,8 @@ class ScrapCorteSuprema(BaseScrapper):
                                 stop = True
                                 break
                         except (KeyError, IndexError) as e:
-                            print(f"Error: campo inesperado en resultado de '{tipo}': {e}")
+                            if on_progress:
+                                on_progress(f"[{self.source}] Error: campo inesperado en resultado de '{tipo}': {e}")
                             continue
 
                     start += 10
@@ -315,7 +338,8 @@ class ScrapCorteSuprema(BaseScrapper):
                     msg = str(e)
                     if "502" in msg or "503" in msg or "504" in msg:
                         msg += " Para el caso puntual de la Corte Suprema de Justicia no se puede realizar ningún cambio por el momento ya que ambas URLs apuntan a un mismo servidor que actualmente está caído."
-                    print(f"Error scraping tipo '{tipo}': {msg}")
+                    if on_progress:
+                        on_progress(f"[{self.source}] Error scraping tipo '{tipo}': {msg}")
                     stop = True
 
         return docs

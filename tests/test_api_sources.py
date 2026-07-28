@@ -100,6 +100,12 @@ def test_get_sources_respects_limit_and_offset(api_client, auth_header, db_sessi
     assert len(response.json()) == 1
 
 
+def test_get_sources_rejects_out_of_range_limit_and_offset(api_client, auth_header):
+    assert api_client.get("/sources?offset=-1", headers=auth_header).status_code == 422
+    assert api_client.get("/sources?limit=0", headers=auth_header).status_code == 422
+    assert api_client.get("/sources?limit=1000000", headers=auth_header).status_code == 422
+
+
 def test_authenticated_request_updates_session_last_used_at(api_client, auth_header, db_session):
     from core.db import repository
     from core.security import hash_session_token

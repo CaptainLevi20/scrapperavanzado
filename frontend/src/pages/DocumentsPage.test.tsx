@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { DocumentsPage } from "./DocumentsPage";
 import { todayDateString, formatDate } from "../lib/formatters";
@@ -88,6 +88,24 @@ const CASE_DOCUMENT_3 = {
   case_document_count: 3,
 };
 
+const CASE_B_DOCUMENT_1 = {
+  ...DOCUMENT,
+  id: 20,
+  doc_id: "case-b-1",
+  title: "T_BTA_11001_99_99_099_2022_00999_02",
+  f_public: "2026-05-01",
+  case_document_count: 2,
+};
+
+const CASE_B_DOCUMENT_2 = {
+  ...DOCUMENT,
+  id: 21,
+  doc_id: "case-b-2",
+  title: "T_BTA_11001_99_99_099_2022_00999_02",
+  f_public: "2026-05-15",
+  case_document_count: 2,
+};
+
 const SOURCE = { id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true };
 const FAMILY = { key: "constitucional", display_name: "Corte Constitucional", description: null };
 
@@ -109,6 +127,53 @@ describe("DocumentsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Sentencia C-001-26")).toBeInTheDocument();
+  });
+
+  it("disables Siguiente on a full last page, even though the page itself came back full", async () => {
+    // Regression test: the button used to only check whether the CURRENT page
+    // came back full (items.length < PAGE_SIZE) — a full last page (total
+    // exactly divisible by PAGE_SIZE, e.g. exactly 50 of 50) used to leave it
+    // wrongly enabled, leading to an empty page if clicked. The backend does
+    // return a real `total`, which the button now compares against instead.
+    mockFilterEndpoints();
+    const items = Array.from({ length: 50 }, (_, i) => ({ ...DOCUMENT, id: i + 1, doc_id: `doc-${i + 1}` }));
+    server.use(http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items, total: 50, limit: 50, offset: 0 })));
+
+    renderPage();
+
+    expect(await screen.findAllByText("Sentencia C-001-26")).toHaveLength(50);
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
+  });
+
+  it("enables Siguiente when there are more matching documents beyond the current page", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [DOCUMENT], total: 120, limit: 50, offset: 0 }))
+    );
+
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeEnabled();
+  });
+
+  it("does not show 'no documents' while the first request is still in flight", async () => {
+    // Regression test: the empty-state check used to only look at
+    // data?.items.length, which is 0/undefined while loading too — so it
+    // flashed "No hay documentos" for every page load, even ones that end up
+    // with real results.
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, async () => {
+        await delay(50);
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      })
+    );
+
+    renderPage();
+
+    expect(screen.queryByText("No hay documentos que coincidan con estos filtros.")).not.toBeInTheDocument();
+    expect(await screen.findByText("No hay documentos que coincidan con estos filtros.")).toBeInTheDocument();
   });
 
   it("does not show a file size column — it's tracked but not meant to be displayed here", async () => {
@@ -571,6 +636,86 @@ describe("DocumentsPage", () => {
     expect(
       await within(dialog).findByText(formatDate(CASE_DOCUMENT_3.f_public), { exact: false })
     ).toBeInTheDocument();
+  });
+
+  it("shows the most recently clicked case, not a stale response from a case clicked just before it", async () => {
+    // Regression test: opening a case dialog was a loose async call with no
+    // token identifying the latest request. Clicking case A and then quickly
+    // case B — with A's response arriving LATER than B's — used to let A's
+    // stale response overwrite B's dialog once it finally resolved.
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, async ({ request }) => {
+        const url = new URL(request.url);
+        const titleExact = url.searchParams.get("title_exact");
+        if (titleExact === CASE_DOCUMENT_1.title) {
+          await delay(50); // case A: clicked first, resolves LAST
+          return HttpResponse.json({
+            items: [CASE_DOCUMENT_3, CASE_DOCUMENT_2, CASE_DOCUMENT_1],
+            total: 3,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        if (titleExact === CASE_B_DOCUMENT_1.title) {
+          return HttpResponse.json({
+            items: [CASE_B_DOCUMENT_2, CASE_B_DOCUMENT_1],
+            total: 2,
+            limit: 50,
+            offset: 0,
+          });
+        }
+        return HttpResponse.json({ items: [CASE_DOCUMENT_2, CASE_B_DOCUMENT_1], total: 2, limit: 50, offset: 0 });
+      }),
+      http.get(`${BASE_URL}/documents/:id/preview`, () => HttpResponse.json({ url: "https://example.com/preview.pdf" })),
+      http.get(`${BASE_URL}/documents/:id/versions`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+    const user = userEvent.setup();
+
+    const caseAButton = await screen.findByRole("button", { name: CASE_DOCUMENT_1.title });
+    const caseBButton = screen.getByRole("button", { name: CASE_B_DOCUMENT_1.title });
+
+    // Click A (slow), then click B (fast) without waiting for A's click to
+    // finish first — this is what reproduces the race.
+    void user.click(caseAButton);
+    await user.click(caseBButton);
+
+    const dialog = await screen.findByRole("dialog");
+    // Must show case B's content (the last click), not case A's — even though
+    // A's response resolves after B's.
+    expect(within(dialog).getByText(formatDate(CASE_B_DOCUMENT_1.f_public), { exact: false })).toBeInTheDocument();
+
+    // Give A's delayed response time to resolve too, and confirm it never
+    // overwrote the dialog once it finally arrived.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(within(dialog).getByText(formatDate(CASE_B_DOCUMENT_1.f_public), { exact: false })).toBeInTheDocument();
+  });
+
+  it("shows an error instead of silently doing nothing when opening a case fails", async () => {
+    // Regression test: openCaseDialog had no try/catch — a failed fetch just
+    // became an unhandled promise rejection, and the click appeared to do
+    // nothing at all from the user's perspective.
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("title_exact")) {
+          return HttpResponse.error();
+        }
+        return HttpResponse.json({ items: [CASE_DOCUMENT_2], total: 1, limit: 50, offset: 0 });
+      })
+    );
+
+    renderPage();
+    const user = userEvent.setup();
+
+    const caseButton = await screen.findByRole("button", { name: CASE_DOCUMENT_2.title });
+    await user.click(caseButton);
+
+    expect(await screen.findByText(/no se pudo abrir el expediente/i)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("opens the case dialog (not the single-document one) when clicking Previsualizar on a case row", async () => {

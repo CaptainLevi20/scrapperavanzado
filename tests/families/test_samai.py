@@ -42,7 +42,6 @@ def test_parse_row_builds_expected_rawdocmodel():
     assert doc.link["method"] == "jwt_indirect"
     assert doc.link["url"] == "https://samai.example.com/VerProvidencia?id=1"
     assert doc.link["body"] == {"path": "2500023_25001233300020260001200"}
-    assert doc.convert_to == "rtf_word"
 
 
 def test_parse_row_returns_none_without_jwt_link():

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Archive } from "lucide-react";
 import { fetchBulkDownloads, fetchBulkDownloadUrl } from "../api/bulkDownloads";
@@ -23,9 +24,16 @@ export function BulkDownloadsPage() {
     },
   });
 
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   async function handleDownload(id: number) {
-    const url = await fetchBulkDownloadUrl(id);
-    await downloadFromUrl(url, `descarga_masiva_${id}.zip`);
+    setDownloadError(null);
+    try {
+      const url = await fetchBulkDownloadUrl(id);
+      await downloadFromUrl(url, `descarga_masiva_${id}.zip`);
+    } catch {
+      setDownloadError("No se pudo descargar el archivo. El enlace pudo haber expirado — intenta de nuevo.");
+    }
   }
 
   return (
@@ -44,6 +52,8 @@ export function BulkDownloadsPage() {
           onRetry={() => bulkDownloadsQuery.refetch()}
         />
       )}
+
+      {downloadError && <ErrorBanner message={downloadError} />}
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
@@ -87,7 +97,7 @@ export function BulkDownloadsPage() {
             </tbody>
           </table>
         </div>
-        {(bulkDownloadsQuery.data?.length ?? 0) === 0 && (
+        {!bulkDownloadsQuery.isLoading && (bulkDownloadsQuery.data?.length ?? 0) === 0 && (
           <EmptyState message="Todavía no se ha generado ninguna descarga masiva." />
         )}
       </div>

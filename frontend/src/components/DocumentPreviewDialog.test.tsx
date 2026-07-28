@@ -81,6 +81,22 @@ describe("DocumentPreviewDialog", () => {
     expect(screen.getByRole("button", { name: /descargar/i })).toBeInTheDocument();
   });
 
+  it("shows an error banner instead of doing nothing when the fallback Descargar button fails", async () => {
+    // Regression test: this button called downloadDocumentFile directly in its
+    // onClick with no try/catch — a failure just made the click silently do
+    // nothing, unlike every other download button in this dialog (which all
+    // catch and show downloadError).
+    const documents = [makeDocument({ id: 2, title: "Doc Binario", content_type: "application/octet-stream" })];
+    server.use(http.get(`${BASE_URL}/documents/2/download`, () => new HttpResponse(null, { status: 500 })));
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+
+    await user.click(await screen.findByRole("button", { name: /descargar/i }));
+
+    expect(await screen.findByText(/error al descargar/i)).toBeInTheDocument();
+  });
+
   it("marking a non-last document as useful advances to the next document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc 1" }), makeDocument({ id: 2, title: "Doc 2" })];
     mockPreviewUrl(1);

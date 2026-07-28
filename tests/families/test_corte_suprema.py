@@ -13,7 +13,7 @@ _URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
 
 def _item(
     title="SC1234-2024.pdf",
-    fecha="2024-02-01T00:00:00Z",
+    fecha="2024-02-01T15:00:00Z",  # 10:00 COT — solidly Feb 1 in both UTC and Colombia time
     auto_sentencia="SENTENCIA",
     online_path="path/to/file",
 ):
@@ -29,7 +29,7 @@ def _item(
     }
 
 
-def _callback_factory(item_fecha="2024-02-01T00:00:00Z"):
+def _callback_factory(item_fecha="2024-02-01T15:00:00Z"):
     def _callback(request):
         body = json.loads(request.body)
         query = body["query"]
@@ -65,6 +65,50 @@ def test_scrap_returns_one_doc_per_tipo_within_range():
         "body": {"path": "path/to/file"},
         "method": "POST",
     }
+
+
+@responses.activate
+def test_scrap_attributes_a_late_evening_colombia_document_to_the_correct_local_day():
+    """Regression test: fechaCreacion comes back as a UTC instant. A document
+    published at 8pm Colombia time (COT, UTC-5) lands after midnight UTC — the
+    old code compared the raw UTC .date() against the requested Colombia
+    calendar day and excluded it, even though a fini=ffin request for exactly
+    that day should have included it."""
+    # 2026-07-28 20:00 COT == 2026-07-29 01:00 UTC
+    responses.add_callback(
+        responses.POST,
+        _URL,
+        callback=_callback_factory(item_fecha="2026-07-29T01:00:00Z"),
+        content_type="application/json",
+    )
+
+    scraper = ScrapCorteSuprema()
+    docs = scraper.scrap(fini="2026-07-28", ffin="2026-07-28")
+
+    assert len(docs) == 4  # uno por cada tipo: Tutelas, Laboral, Civil, Penal
+    assert {d.f_public for d in docs} == {"2026-07-28"}
+
+
+@responses.activate
+def test_scrap_does_not_include_the_previous_colombia_day_via_a_pre_midnight_utc_instant():
+    """The mirror image of the test above: a document published just before
+    midnight UTC on day D+1 is actually still day D in Colombia (UTC-5) — but
+    one published at, say, 11pm UTC on day D+1 is genuinely day D+1 in
+    Colombia too (23:00 UTC - 5h = 18:00 COT, same calendar day). This pins
+    down that the conversion doesn't overcorrect and start including the WRONG
+    extra day instead."""
+    # 2026-07-29 23:00 UTC == 2026-07-29 18:00 COT — genuinely the 29th in Colombia too.
+    responses.add_callback(
+        responses.POST,
+        _URL,
+        callback=_callback_factory(item_fecha="2026-07-29T23:00:00Z"),
+        content_type="application/json",
+    )
+
+    scraper = ScrapCorteSuprema()
+    docs = scraper.scrap(fini="2026-07-28", ffin="2026-07-28")
+
+    assert docs == []
 
 
 @responses.activate
@@ -448,7 +492,7 @@ def test_resolve_unverified_document_leaves_doc_untouched_when_no_code_is_found(
     assert doc.tipo == "Desconocido"
 
 
-def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatch):
+def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatch, caplog):
     def _raise(*_a, **_k):
         raise RuntimeError("archivo corrupto")
 
@@ -460,9 +504,13 @@ def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatc
 
     doc = _Doc()
     scraper = ScrapCorteSuprema()
-    scraper.resolve_unverified_document(doc, Path("fake.docx"), "application/vnd.openxmlformats")  # no debe lanzar
+    with caplog.at_level("WARNING", logger="core.scrapers.families.corte_suprema"):
+        scraper.resolve_unverified_document(doc, Path("fake.docx"), "application/vnd.openxmlformats")  # no debe lanzar
 
     assert doc.title == "CSJ_SCT_doc_2019"
+    # Regression test: this used to be a bare print(), invisible to server logs —
+    # now it must go through the logging module like the rest of the project.
+    assert any("No se pudo leer la primera página" in r.message for r in caplog.records)
 
 
 @responses.activate
@@ -554,11 +602,44 @@ def test_scrap_skips_malformed_item_without_aborting_the_rest():
 
     responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
 
+    progress_messages = []
     scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
 
     assert len(docs) == 4  # el item malformado se salta, uno válido por cada uno de los 4 tipos
     assert {d.title.split("_", 2)[-1] for d in docs} == {"SC9999-2024_2024"}
+    # Regression test: this used to be a bare print(), invisible to the worker —
+    # now it must be reported via on_progress so worker/tasks.py can surface it
+    # as a RunError instead of silently discarding it.
+    assert any("Error" in m and "campo inesperado" in m for m in progress_messages)
+
+
+@responses.activate
+def test_scrap_reports_a_server_error_via_on_progress_instead_of_silently_swallowing_it():
+    """Regression test: a 500/502/503/504 mid-pagination used to just print() and
+    quietly stop that tipo, so the worker had no way to know a whole day's worth
+    of documents for that tipo might be missing. It must now report through
+    on_progress, keeping the partial results already collected."""
+
+    def _callback(request):
+        body = json.loads(request.body)
+        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
+        if start == 0:
+            payload = {"data": {"getSearchResult": {"searchResults": [_item()]}}}
+            return (200, {"Content-Type": "application/json"}, json.dumps(payload))
+        return (503, {"Content-Type": "application/json"}, "Service Unavailable")
+
+    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
+
+    progress_messages = []
+    scraper = ScrapCorteSuprema()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
+
+    # The first page's document is still kept even though the second page failed.
+    assert len(docs) == 4
+    error_messages = [m for m in progress_messages if "Error" in m]
+    assert len(error_messages) == 4  # una por cada uno de los 4 tipos
+    assert any("503" in m for m in error_messages)
 
 
 def test_corte_suprema_does_not_check_for_republication():

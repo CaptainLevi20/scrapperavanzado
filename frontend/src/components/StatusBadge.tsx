@@ -3,6 +3,7 @@ const STATUS_STYLES: Record<string, string> = {
   running: "border-sello/60 text-sello-ink",
   completed: "border-verde/50 text-verde",
   failed: "border-rojo/50 text-rojo",
+  cancelled: "border-grafito/60 text-grafito",
 };
 
 export function StatusBadge({ status }: { status: string }) {

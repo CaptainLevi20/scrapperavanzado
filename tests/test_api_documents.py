@@ -19,6 +19,17 @@ def test_list_documents_paginates_and_filters(api_client, auth_header, db_sessio
     assert body["items"][0]["doc_id"] == "doc-1"
 
 
+def test_list_documents_rejects_out_of_range_limit_and_offset(api_client, auth_header):
+    """Regression test: limit/offset had no validation at all — a negative
+    offset made Postgres respond with a raw, unhelpful 500, and nothing stopped
+    a request for an absurdly large limit (e.g. a million rows) from tying up
+    the server. Both must now be rejected up front with a normal 422."""
+    assert api_client.get("/documents?offset=-1", headers=auth_header).status_code == 422
+    assert api_client.get("/documents?limit=0", headers=auth_header).status_code == 422
+    assert api_client.get("/documents?limit=-5", headers=auth_header).status_code == 422
+    assert api_client.get("/documents?limit=1000000", headers=auth_header).status_code == 422
+
+
 def test_list_documents_filters_by_publication_date_range(api_client, auth_header, db_session):
     from datetime import date
 
@@ -952,6 +963,14 @@ def test_get_document_versions_returns_empty_list_for_a_document_with_no_history
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_get_document_versions_returns_404_for_a_document_that_does_not_exist(api_client, auth_header):
+    """Regression test: this used to return 200 with an empty list for ANY
+    nonexistent document_id, indistinguishable from a real document that
+    simply has no version history yet."""
+    response = api_client.get("/documents/999999/versions", headers=auth_header)
+    assert response.status_code == 404
 
 
 def test_get_document_version_download_returns_404_for_a_version_of_another_document(api_client, auth_header, db_session):

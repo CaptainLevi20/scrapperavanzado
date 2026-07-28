@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
+import { MAX_POLL_AGE_MS } from "../lib/runStatus";
 import { RunsPage } from "./RunsPage";
 
 const BASE_URL = "http://localhost:8000";
@@ -28,7 +29,9 @@ const RUN = {
   cancel_requested: false,
   started_at: null,
   finished_at: null,
-  created_at: "2026-07-10T00:00:00Z",
+  // Freshly created — well under the 30-minute stale-poll cutoff, so tests
+  // that expect polling to keep going aren't accidentally starved by it.
+  created_at: new Date().toISOString(),
 };
 
 describe("RunsPage", () => {
@@ -42,6 +45,60 @@ describe("RunsPage", () => {
     renderPage();
 
     expect(await screen.findByText("running")).toBeInTheDocument();
+  });
+
+  it("does not show 'no runs' while the first request is still in flight", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/runs`, async () => {
+        await delay(50);
+        return HttpResponse.json([]);
+      })
+    );
+
+    renderPage();
+
+    expect(screen.queryByText("No hay runs que coincidan con este filtro.")).not.toBeInTheDocument();
+    expect(await screen.findByText("No hay runs que coincidan con este filtro.")).toBeInTheDocument();
+  });
+
+  it("enables Siguiente when there really is another page, and only renders one page's worth of rows", async () => {
+    // Regression test: /runs has no total count to compare against, so
+    // "Siguiente" used to just check whether the current page happened to come
+    // back full — the frontend now asks for one extra row (PAGE_SIZE + 1) to
+    // find out whether a next page genuinely exists.
+    const runs = Array.from({ length: 21 }, (_, i) => ({ ...RUN, id: i + 1, status: "completed" }));
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/runs`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json(runs);
+      })
+    );
+
+    renderPage();
+
+    await screen.findByText("#1");
+    expect(new URL(lastUrl).searchParams.get("limit")).toBe("21"); // PAGE_SIZE (20) + 1
+    expect(screen.queryByText("#21")).not.toBeInTheDocument(); // the extra row is never rendered
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeEnabled();
+  });
+
+  it("disables Siguiente when the response doesn't fill a whole extra row past the page size", async () => {
+    const runs = Array.from({ length: 5 }, (_, i) => ({ ...RUN, id: i + 1, status: "completed" }));
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json(runs))
+    );
+
+    renderPage();
+
+    await screen.findByText("#1");
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
   });
 
   it("polls again while a run is not completed, and stops once it is", async () => {
@@ -64,6 +121,59 @@ describe("RunsPage", () => {
 
     await vi.advanceTimersByTimeAsync(4100);
     expect(callCount).toBe(2);
+
+    vi.useRealTimers();
+  });
+
+  it("also stops polling once a run is failed, not just completed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let callCount = 0;
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/runs`, () => {
+        callCount += 1;
+        return HttpResponse.json([{ ...RUN, status: callCount >= 2 ? "failed" : "running" }]);
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(callCount).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(4100);
+    await waitFor(() => expect(callCount).toBe(2));
+
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(callCount).toBe(2);
+
+    vi.useRealTimers();
+  });
+
+  it("stops polling and warns instead of hammering the server when a run is stuck", async () => {
+    // Regression test: a worker process that dies outright (killed, crashed,
+    // container restarted) never writes "failed" — the run just stays
+    // "running" forever. Before this fix, polling every 4s would continue
+    // for as long as the tab stayed open.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const staleCreatedAt = new Date(Date.now() - MAX_POLL_AGE_MS - 60_000).toISOString();
+    let callCount = 0;
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/runs`, () => {
+        callCount += 1;
+        return HttpResponse.json([{ ...RUN, status: "running", created_at: staleCreatedAt }]);
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(callCount).toBe(1));
+    expect(
+      await screen.findByText(/lleva mucho tiempo sin actualizarse/)
+    ).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(callCount).toBe(1); // no repitió la consulta automática
 
     vi.useRealTimers();
   });

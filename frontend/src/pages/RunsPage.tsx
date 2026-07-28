@@ -16,6 +16,7 @@ import { Label } from "../components/ui/label";
 import { NativeSelect } from "../components/ui/native-select";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { formatDate, formatDateTime } from "../lib/formatters";
+import { isStaleRun, shouldPollRun } from "../lib/runStatus";
 
 const PAGE_SIZE = 20;
 const POLL_INTERVAL_MS = 4000;
@@ -128,17 +129,24 @@ export function RunsPage() {
   const runsQuery = useQuery({
     queryKey: ["runs", statusFilter, page],
     queryFn: () =>
+      // Asks for one extra row beyond the page size — the backend has no total
+      // count to compare against (unlike /documents), so this is how "Siguiente"
+      // knows whether there's really another page instead of just guessing from
+      // whether the current page happened to come back full.
       fetchRuns({
         status_filter: statusFilter || undefined,
-        limit: PAGE_SIZE,
+        limit: PAGE_SIZE + 1,
         offset: page * PAGE_SIZE,
       }),
     refetchInterval: (query) => {
       const data = query.state.data;
-      const hasActiveRun = data?.some((run) => run.status !== "completed");
-      return hasActiveRun ? POLL_INTERVAL_MS : false;
+      const hasPollableRun = data?.some((run) => shouldPollRun(run.created_at, run.status));
+      return hasPollableRun ? POLL_INTERVAL_MS : false;
     },
   });
+  const visibleRuns = runsQuery.data?.slice(0, PAGE_SIZE);
+  const hasNextPage = (runsQuery.data?.length ?? 0) > PAGE_SIZE;
+  const hasStaleRun = visibleRuns?.some((run) => isStaleRun(run.created_at, run.status));
 
   return (
     <div className="space-y-6">
@@ -168,11 +176,19 @@ export function RunsPage() {
           <option value="pending">Pendiente</option>
           <option value="running">En curso</option>
           <option value="completed">Completado</option>
+          <option value="failed">Fallido</option>
+          <option value="cancelled">Cancelado</option>
         </NativeSelect>
       </label>
 
       {runsQuery.isError && (
         <ErrorBanner message="No se pudieron cargar los runs." onRetry={() => runsQuery.refetch()} />
+      )}
+      {!runsQuery.isError && hasStaleRun && (
+        <ErrorBanner
+          message="Alguno de estos runs lleva mucho tiempo sin actualizarse. Puede haberse quedado colgado — usa Reintentar para revisar su estado más reciente."
+          onRetry={() => runsQuery.refetch()}
+        />
       )}
 
       <div className={TABLE_SHELL}>
@@ -189,7 +205,7 @@ export function RunsPage() {
               </tr>
             </thead>
             <tbody>
-              {runsQuery.data?.map((run) => (
+              {visibleRuns?.map((run) => (
                 <tr key={run.id} className={TBODY_ROW}>
                   <td className={TD_MONO}>
                     <Link to={`/runs/${run.id}`} className="font-semibold text-sello-ink hover:underline">
@@ -208,19 +224,16 @@ export function RunsPage() {
             </tbody>
           </table>
         </div>
-        {(runsQuery.data?.length ?? 0) === 0 && <EmptyState message="No hay runs que coincidan con este filtro." />}
+        {!runsQuery.isLoading && (visibleRuns?.length ?? 0) === 0 && (
+          <EmptyState message="No hay runs que coincidan con este filtro." />
+        )}
       </div>
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>
           Anterior
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={(runsQuery.data?.length ?? 0) < PAGE_SIZE}
-          onClick={() => setPage((current) => current + 1)}
-        >
+        <Button variant="outline" size="sm" disabled={!hasNextPage} onClick={() => setPage((current) => current + 1)}>
           Siguiente
         </Button>
       </div>

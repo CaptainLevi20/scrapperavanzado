@@ -49,13 +49,19 @@ export function SourcesPage() {
   const sourcesQuery = useQuery({
     queryKey: ["sources", familyKey, activeFilter, page],
     queryFn: () =>
+      // Asks for one extra row beyond the page size — the backend has no total
+      // count to compare against (unlike /documents), so this is how "Siguiente"
+      // knows whether there's really another page instead of just guessing from
+      // whether the current page happened to come back full.
       fetchSources({
         family_key: familyKey || undefined,
         active: activeFilter === "all" ? undefined : activeFilter === "true",
-        limit: PAGE_SIZE,
+        limit: PAGE_SIZE + 1,
         offset: page * PAGE_SIZE,
       }),
   });
+  const visibleSources = sourcesQuery.data?.slice(0, PAGE_SIZE);
+  const hasNextPage = (sourcesQuery.data?.length ?? 0) > PAGE_SIZE;
 
   return (
     <div className="space-y-6">
@@ -120,13 +126,15 @@ export function SourcesPage() {
               </tr>
             </thead>
             <tbody>
-              {sourcesQuery.data?.map((source) => (
+              {visibleSources?.map((source) => (
                 <SourceRow key={source.id} source={source} />
               ))}
             </tbody>
           </table>
         </div>
-        {(sourcesQuery.data?.length ?? 0) === 0 && <EmptyState message="No hay fuentes que coincidan con estos filtros." />}
+        {!sourcesQuery.isLoading && (visibleSources?.length ?? 0) === 0 && (
+          <EmptyState message="No hay fuentes que coincidan con estos filtros." />
+        )}
       </div>
 
       <div className="flex justify-end gap-2">
@@ -138,12 +146,7 @@ export function SourcesPage() {
         >
           Anterior
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={(sourcesQuery.data?.length ?? 0) < PAGE_SIZE}
-          onClick={() => setPage((current) => current + 1)}
-        >
+        <Button variant="outline" size="sm" disabled={!hasNextPage} onClick={() => setPage((current) => current + 1)}>
           Siguiente
         </Button>
       </div>

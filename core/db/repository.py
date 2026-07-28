@@ -2,12 +2,26 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import and_, cast, exists, func, or_, select, update
+from sqlalchemy import and_, cast, delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.utils import RADICADO_TITLE_PATTERN
+
+_LIKE_ESCAPE_CHAR = "\\"
+
+
+def _escape_like(value: str) -> str:
+    """Escapes LIKE/ILIKE metacharacters in user-typed search text so they're
+    matched as literal characters instead of wildcards. Without this, '_'
+    (matches any single character) and '%' (matches any run of characters) in
+    a search term act as wildcards rather than the literal text the user
+    typed — real-world impact: Rama Judicial titles are full of underscores
+    (e.g. "T_BTA_11001_..."), so a radicado search could silently match
+    unrelated documents. Pair with `.ilike(pattern, escape=_LIKE_ESCAPE_CHAR)`."""
+    escaped = value.replace(_LIKE_ESCAPE_CHAR, _LIKE_ESCAPE_CHAR * 2)
+    return escaped.replace("%", f"{_LIKE_ESCAPE_CHAR}%").replace("_", f"{_LIKE_ESCAPE_CHAR}_")
 
 
 def list_source_families(db: Session) -> list[SourceFamily]:
@@ -20,6 +34,24 @@ def create_source_family(db: Session, key: str, display_name: str, description: 
     db.commit()
     db.refresh(family)
     return family
+
+
+def create_source_family_if_missing(
+    db: Session, key: str, display_name: str, description: Optional[str] = None
+) -> None:
+    """Idempotent insert used only by core/seed.py. Unlike create_source_family
+    (used by the interactive "create source" flow, where a duplicate name
+    should surface as an error), two seed runs racing each other — `python -m
+    core.seed` launched twice at once, or a future multi-worker startup hook —
+    must not crash on a duplicate primary key; the second insert is just a
+    no-op instead."""
+    stmt = (
+        pg_insert(SourceFamily)
+        .values(key=key, display_name=display_name, description=description)
+        .on_conflict_do_nothing(index_elements=["key"])
+    )
+    db.execute(stmt)
+    db.commit()
 
 
 def get_source_family(db: Session, key: str) -> Optional[SourceFamily]:
@@ -56,6 +88,17 @@ def create_source(db: Session, family_key: str, name: str, family_params: dict, 
     db.commit()
     db.refresh(source)
     return source
+
+
+def create_source_if_missing(db: Session, family_key: str, name: str, family_params: dict) -> None:
+    """Idempotent insert used only by core/seed.py — see create_source_family_if_missing."""
+    stmt = (
+        pg_insert(Source)
+        .values(family_key=family_key, name=name, family_params=family_params, active=True)
+        .on_conflict_do_nothing(index_elements=["name"])
+    )
+    db.execute(stmt)
+    db.commit()
 
 
 def update_source(
@@ -101,6 +144,8 @@ def set_run_status(
     finished_at: Optional[datetime] = None,
 ) -> None:
     run = db.get(Run, run_id)
+    if run is None:
+        return
     run.status = status
     if started_at is not None:
         run.started_at = started_at
@@ -143,6 +188,8 @@ def list_run_sources(db: Session, run_id: int) -> list[RunSource]:
 
 def set_run_source_status(db: Session, run_source_id: int, status: str, **fields) -> None:
     run_source = db.get(RunSource, run_source_id)
+    if run_source is None:
+        return
     run_source.status = status
     for key, value in fields.items():
         setattr(run_source, key, value)
@@ -181,6 +228,8 @@ def list_bulk_downloads(db: Session, limit: int = 50, offset: int = 0) -> list[B
 
 def set_bulk_download_status(db: Session, bulk_download_id: int, status: str, **fields) -> None:
     bulk_download = db.get(BulkDownload, bulk_download_id)
+    if bulk_download is None:
+        return
     bulk_download.status = status
     for key, value in fields.items():
         setattr(bulk_download, key, value)
@@ -197,11 +246,37 @@ def document_exists(db: Session, doc_id: str) -> bool:
     return db.scalars(stmt).first() is not None
 
 
-def insert_document(db: Session, **fields) -> Optional[Document]:
-    stmt = pg_insert(Document).values(**fields).on_conflict_do_nothing(index_elements=["doc_id"])
-    db.execute(stmt)
+def _insert_document_and_report_if_created(db: Session, fields: dict) -> tuple[Optional[Document], bool]:
+    # RETURNING on an ON CONFLICT DO NOTHING statement yields a row only when the
+    # insert actually happened — nothing comes back when it was skipped because
+    # doc_id already existed. That's the only reliable way to distinguish "I just
+    # created this" from "this was already there" without a separate SELECT
+    # racing the insert itself.
+    stmt = (
+        pg_insert(Document)
+        .values(**fields)
+        .on_conflict_do_nothing(index_elements=["doc_id"])
+        .returning(Document.id)
+    )
+    inserted_id = db.execute(stmt).scalar()
     db.commit()
-    return db.scalars(select(Document).where(Document.doc_id == fields["doc_id"])).first()
+    document = db.scalars(select(Document).where(Document.doc_id == fields["doc_id"])).first()
+    return document, inserted_id is not None
+
+
+def insert_document(db: Session, **fields) -> Optional[Document]:
+    document, _created = _insert_document_and_report_if_created(db, fields)
+    return document
+
+
+def insert_document_reporting_whether_created(db: Session, **fields) -> tuple[Optional[Document], bool]:
+    """Same as insert_document, but also reports whether this call actually
+    inserted a new row versus a no-op (the doc_id already existed, either from
+    the DB or elsewhere in the same scrap() batch). Used by worker/tasks.py so
+    its docs_new counter reflects documents genuinely inserted — not just "we
+    attempted an insert" — even in the residual case of two different
+    run_sources racing to insert the same document at the same time."""
+    return _insert_document_and_report_if_created(db, fields)
 
 
 def get_document_by_doc_id(db: Session, doc_id: str) -> Optional[Document]:
@@ -211,7 +286,19 @@ def get_document_by_doc_id(db: Session, doc_id: str) -> Optional[Document]:
 def archive_and_replace_document(
     db: Session, document_id: int, review_status: str = "pending", **new_fields
 ) -> Document:
-    document = db.get(Document, document_id)
+    # with_for_update() locks the row for the duration of this transaction: a second,
+    # concurrent republication of the same document (two overlapping runs touching the
+    # same source — see worker/tasks.py's per-RunSource Celery tasks and its own thread
+    # pool) must block here and re-read the first write's result, rather than both
+    # reading the same stale row and one silently overwriting the other's archived
+    # version. Without this, the loser's write survives with a DocumentVersion that
+    # doesn't actually match what was archived.
+    document = db.scalars(select(Document).where(Document.id == document_id).with_for_update()).first()
+    if document is None:
+        # The document was deleted between being listed as a republication candidate
+        # and this write — nothing to archive or replace. The caller (worker/tasks.py)
+        # already treats any exception here as a per-document failure, not a fatal one.
+        raise ValueError(f"El documento {document_id} ya no existe (fue eliminado).")
     version = DocumentVersion(
         document_id=document.id,
         storage_bucket=document.storage_bucket,
@@ -298,7 +385,7 @@ def list_documents(
             < datetime.combine(downloaded_to, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(days=1)
         )
     if title_contains is not None:
-        stmt = stmt.where(Document.title.ilike(f"%{title_contains}%"))
+        stmt = stmt.where(Document.title.ilike(f"%{_escape_like(title_contains)}%", escape=_LIKE_ESCAPE_CHAR))
     if title_exact is not None:
         stmt = stmt.where(Document.title == title_exact)
     if collapse_rama_judicial_cases:
@@ -340,7 +427,11 @@ def list_documents(
             )
         )
 
-    total = len(list(db.scalars(stmt).all()))
+    # COUNT via a subquery instead of materializing every matching Document row
+    # just to call len() on them — the previous approach got slower with every
+    # document added to the archive, on every page load and every keystroke in
+    # the search box (see frontend/src/pages/DocumentsPage.tsx's queryKey).
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     stmt = stmt.order_by(Document.f_public.desc().nulls_last(), Document.id.desc()).limit(limit).offset(offset)
     return list(db.scalars(stmt).all()), total
 
@@ -484,6 +575,8 @@ def get_valid_session_by_token_hash(db: Session, token_hash: str) -> Optional[Us
 
 def touch_session(db: Session, session_id: int) -> None:
     session = db.get(UserSession, session_id)
+    if session is None:
+        return
     now = datetime.now(timezone.utc)
     session.last_used_at = now
     session.expires_at = now + SESSION_TTL
@@ -498,14 +591,31 @@ def delete_session(db: Session, token_hash: str) -> None:
         db.commit()
 
 
+def delete_sessions_for_user(db: Session, user_id: int, except_token_hash: Optional[str] = None) -> int:
+    """Revokes every session for a user — used when changing password, so someone
+    who stole a session gets kicked out right when the legitimate owner reacts to
+    it. `except_token_hash` keeps the caller's own current session alive, so
+    changing your own password doesn't also log you out of it."""
+    stmt = delete(UserSession).where(UserSession.user_id == user_id)
+    if except_token_hash is not None:
+        stmt = stmt.where(UserSession.token_hash != except_token_hash)
+    result = db.execute(stmt)
+    db.commit()
+    return result.rowcount
+
+
 def update_user_password(db: Session, user_id: int, password_hash: str) -> None:
     user = db.get(User, user_id)
+    if user is None:
+        return
     user.password_hash = password_hash
     db.commit()
 
 
 def touch_user_last_login(db: Session, user_id: int) -> None:
     user = db.get(User, user_id)
+    if user is None:
+        return
     user.last_login_at = datetime.now(timezone.utc)
     db.commit()
 

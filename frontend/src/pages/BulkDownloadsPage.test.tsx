@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { BulkDownloadsPage } from "./BulkDownloadsPage";
 
@@ -39,6 +39,20 @@ describe("BulkDownloadsPage", () => {
     expect(screen.getByText(/2 omitidos/)).toBeInTheDocument();
   });
 
+  it("does not show 'no bulk downloads' while the first request is still in flight", async () => {
+    server.use(
+      http.get(`${BASE_URL}/bulk-downloads`, async () => {
+        await delay(50);
+        return HttpResponse.json([]);
+      })
+    );
+
+    renderPage();
+
+    expect(screen.queryByText("Todavía no se ha generado ninguna descarga masiva.")).not.toBeInTheDocument();
+    expect(await screen.findByText("Todavía no se ha generado ninguna descarga masiva.")).toBeInTheDocument();
+  });
+
   it("shows a Descargar button only when completed, wired to the presigned url", async () => {
     server.use(
       http.get(`${BASE_URL}/bulk-downloads`, () => HttpResponse.json([COMPLETED])),
@@ -67,6 +81,22 @@ describe("BulkDownloadsPage", () => {
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
     createElementSpy.mockRestore();
+  });
+
+  it("shows an error banner instead of doing nothing when the download fails", async () => {
+    // Regression test: handleDownload had no try/catch — a failure (e.g. the
+    // presigned URL expired, or the ZIP is no longer available) made the click
+    // silently do nothing, with no feedback at all.
+    server.use(
+      http.get(`${BASE_URL}/bulk-downloads`, () => HttpResponse.json([COMPLETED])),
+      http.get(`${BASE_URL}/bulk-downloads/1/download`, () => new HttpResponse(null, { status: 404 }))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /descargar/i }));
+
+    expect(await screen.findByText(/no se pudo descargar el archivo/i)).toBeInTheDocument();
   });
 
   it("shows the error message instead of a download button for a failed job", async () => {

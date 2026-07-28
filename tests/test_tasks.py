@@ -1,7 +1,10 @@
+import time
+
 import pytest
 import responses
 from sqlalchemy.orm import sessionmaker
 
+import worker.tasks as tasks_module
 from core.db import repository
 from core.models import RawDocModel
 from tests.conftest import DummyFamilyScraper, TEST_S3_BUCKET
@@ -133,6 +136,61 @@ def test_scrape_source_task_processes_multiple_documents_concurrently(db_session
         items, total = repository.list_documents(assertion_session, source_id=source.id)
         assert total == 1
         assert items[0].title == "Documento OK"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_deduplicates_the_same_document_appearing_twice_in_one_scrap(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: a source listing the same document twice in one
+    scrap() pass (pagination overlap, a listing bug on the remote site) used
+    to download and upload BOTH occurrences to storage — the DB write was
+    protected (on_conflict_do_nothing), but the second upload became a
+    permanently orphaned object nobody references, and docs_new counted it as
+    a second new document even though only one was ever saved."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    duplicated_doc = RawDocModel(
+        source="Dummy Source",
+        link={"url": "https://example.com/duplicated", "method": "GET"},
+        title="Documento duplicado",
+        tipo="Auto",
+        f_public="2026-01-01",
+    )
+    DummyFamilyScraper.docs_to_return = [duplicated_doc, duplicated_doc]
+
+    call_count = {"n": 0}
+
+    def _callback(request):
+        call_count["n"] += 1
+        return (200, {"Content-Type": "application/pdf"}, b"contenido")
+
+    responses.add_callback(responses.GET, "https://example.com/duplicated", callback=_callback)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assert call_count["n"] == 1  # the second occurrence never gets downloaded at all
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "completed"
+        assert refreshed.docs_new == 1
+        assert refreshed.docs_errors == 0
+
+        _, total = repository.list_documents(assertion_session, source_id=source.id)
+        assert total == 1
     finally:
         assertion_session.close()
 
@@ -715,6 +773,354 @@ def test_scrape_source_task_uploads_nothing_when_head_is_inconclusive_but_real_s
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_records_a_db_write_failure_as_an_error_and_still_completes(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: a DB write failing for one document (IntegrityError,
+    OperationalError, a dropped connection) used to propagate out of the whole
+    task uncaught, skipping the final set_run_source_status call and leaving the
+    source stuck 'running' forever. It must instead be recorded like a download
+    error, and the rest of the documents must still be processed normally."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/db-fail", "method": "GET"},
+            title="Documento con fallo de base de datos",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/db-ok", "method": "GET"},
+            title="Documento OK",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/db-fail",
+        body=b"contenido con fallo",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://example.com/db-ok",
+        body=b"contenido ok",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    real_insert_document = repository.insert_document_reporting_whether_created
+
+    def _flaky_insert_document(db, **fields):
+        if fields["title"] == "Documento con fallo de base de datos":
+            raise RuntimeError("conexión con la base de datos perdida")
+        return real_insert_document(db, **fields)
+
+    monkeypatch.setattr("worker.tasks.repository.insert_document_reporting_whether_created", _flaky_insert_document)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "completed"
+        assert refreshed.docs_new == 1
+        assert refreshed.docs_errors == 1
+
+        items, total = repository.list_documents(assertion_session, source_id=source.id)
+        assert total == 1
+        assert items[0].title == "Documento OK"
+
+        from sqlalchemy import select
+
+        from core.db.models import RunError
+
+        errors = list(
+            assertion_session.scalars(select(RunError).where(RunError.run_source_id == run_source.id))
+        )
+        assert len(errors) == 1
+        assert "conexión con la base de datos perdida" in errors[0].message
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_marks_the_source_as_failed_instead_of_stuck_running_on_an_unexpected_crash(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: any unexpected exception while processing documents (not
+    just the per-document DB write failures covered above) must still leave the
+    source in a terminal state. Simulates a bug elsewhere in the processing loop
+    (compute_doc_id raising) — the source must end up 'failed' with an
+    error_message, never left stuck at 'running'."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc-crash", "method": "GET"},
+            title="Documento",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("error inesperado calculando doc_id")
+
+    monkeypatch.setattr("worker.tasks.compute_doc_id", _raise)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "failed"
+        assert refreshed.status != "running"
+        assert "error inesperado calculando doc_id" in refreshed.error_message
+        assert refreshed.finished_at is not None
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_records_a_scraper_reported_error_as_a_run_error(db_session, test_engine, monkeypatch):
+    """Regression test: family scrapers already call on_progress(f'... Error ...')
+    when they recover from a partial failure (a page, section, or date range that
+    broke but didn't abort the whole scrap) — but nothing in production ever
+    passed on_progress in, so those messages were generated and immediately lost.
+    The source stays 'completed' (the scraper did recover real documents), but
+    the error must now show up as a RunError and count toward docs_errors,
+    instead of the run looking clean when a chunk of documents is actually
+    missing."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/partial-ok", "method": "GET"},
+            title="Documento recuperado",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+
+    def _scrap_with_a_recovered_error(self, fini, ffin, on_progress=None, **kwargs):
+        if on_progress:
+            on_progress("[Dummy Source] Procesando…")  # progress message, not an error
+            on_progress("[Dummy Source] Error consultando página 2: 503 Service Unavailable")
+        return DummyFamilyScraper.docs_to_return
+
+    monkeypatch.setattr(DummyFamilyScraper, "scrap", _scrap_with_a_recovered_error)
+
+    responses.add(
+        responses.GET,
+        "https://example.com/partial-ok",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "completed"
+        assert refreshed.docs_new == 1
+        assert refreshed.docs_errors == 1
+
+        from sqlalchemy import select
+
+        from core.db.models import RunError
+
+        errors = list(
+            assertion_session.scalars(select(RunError).where(RunError.run_source_id == run_source.id))
+        )
+        assert len(errors) == 1
+        assert "503 Service Unavailable" in errors[0].message
+    finally:
+        assertion_session.close()
+
+
+def test_scrape_source_task_does_no_work_when_the_run_was_already_cancelled(db_session, test_engine, monkeypatch):
+    """Regression test: a source task that hadn't started yet (still queued
+    behind others in the chord) used to do a full scrap() and download run
+    even if the whole run had already been cancelled. It must now bail out
+    immediately, before touching the scraper at all."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    repository.request_run_cancel(db_session, run.id)
+
+    scrap_calls = {"count": 0}
+
+    def _scrap_that_should_never_run(self, fini, ffin, **kwargs):
+        scrap_calls["count"] += 1
+        return []
+
+    monkeypatch.setattr(DummyFamilyScraper, "scrap", _scrap_that_should_never_run)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    scrape_source_task(run_source.id)
+
+    assert scrap_calls["count"] == 0
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "cancelled"
+    finally:
+        assertion_session.close()
+
+
+def test_scrape_source_task_marks_cancelled_not_completed_when_cancel_requested_mid_enumeration(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: cancelling while still enumerating which documents are
+    new/republished already stopped the loop (`break`), but the source still
+    ended up reported as 'completed' — the cancellation itself left no trace."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/never-fetched", "method": "GET"},
+            title="Nunca se descarga",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+
+    calls = {"n": 0}
+    real_is_cancel_requested = repository.is_cancel_requested
+
+    def _is_cancel_requested(db, run_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return False  # el chequeo inicial, antes de "running"
+        return True  # el chequeo dentro del ciclo de enumeración
+
+    monkeypatch.setattr(repository, "is_cancel_requested", _is_cancel_requested)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    scrape_source_task(run_source.id)
+
+    monkeypatch.setattr(repository, "is_cancel_requested", real_is_cancel_requested)
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "cancelled"
+        assert refreshed.docs_new == 0
+
+        _, total = repository.list_documents(assertion_session, source_id=source.id)
+        assert total == 0  # nunca se llegó a descargar
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_interrupts_an_in_flight_download_when_cancelled_mid_run(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: once a document's download actually started, cancelling
+    the run used to have zero effect — nothing re-checked cancel_requested until
+    the whole thing finished. A cancellation that arrives while a download is
+    already in flight must now interrupt it (via stop_event) and the source
+    must end up 'cancelled', not 'completed'."""
+    celery_app.conf.task_always_eager = True
+    monkeypatch.setattr(tasks_module, "CANCEL_POLL_INTERVAL_SECONDS", 0.02)
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/cancel-mid-download", "method": "GET"},
+            title="Documento cancelado a mitad de camino",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    def _slow_callback(request):
+        # Cancela el run justo cuando la descarga ya inició — el poller (con
+        # intervalo casi cero) debería notarlo durante el sleep de abajo.
+        cancel_session = task_session_factory()
+        try:
+            repository.request_run_cancel(cancel_session, run.id)
+        finally:
+            cancel_session.close()
+        time.sleep(0.3)
+        return (200, {"Content-Type": "application/pdf"}, b"contenido que nunca deberia guardarse")
+
+    responses.add_callback(responses.GET, "https://example.com/cancel-mid-download", callback=_slow_callback)
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "cancelled"
+        assert refreshed.docs_new == 0
+
+        _, total = repository.list_documents(assertion_session, source_id=source.id)
+        assert total == 0
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 
@@ -908,6 +1314,11 @@ def test_build_bulk_download_zip_uploads_zip_preserving_storage_key_hierarchy(db
         assert refreshed.document_count == 2
         assert refreshed.failed_count == 0
         assert refreshed.zip_storage_key == f"bulk-downloads/{bulk_download.id}.zip"
+        # Regression test: the bucket the zip actually landed in used to be
+        # discarded entirely (upload_file's return value was never captured),
+        # so the API had no choice but to always assume the CURRENT default
+        # bucket setting when signing a download URL later.
+        assert refreshed.storage_bucket == TEST_S3_BUCKET
 
         url = presigned_url(TEST_S3_BUCKET, refreshed.zip_storage_key)
         import requests
@@ -951,6 +1362,54 @@ def test_build_bulk_download_zip_skips_a_document_that_fails_to_download(db_sess
     repository.insert_document(
         db_session, doc_id="doc-missing", source_id=source.id, title="Missing", review_status="useful",
         storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/no-existe.pdf",
+    )
+
+    bulk_download = repository.create_bulk_download(db_session)
+
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"
+        assert refreshed.document_count == 1
+        assert refreshed.failed_count == 1
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_skips_a_document_with_an_unsafe_storage_key(db_session, test_engine, monkeypatch):
+    """Regression test: storage_key is joined onto a real local directory
+    (downloads_dir / storage_key) and used as the ZIP's arcname. A row whose key
+    contains '..' — from an older, pre-sanitization version of the code, or a
+    directly-edited row — must be skipped instead of trusted, since either use
+    would let it write or read outside the intended directory."""
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        doc_local = Path(tmp) / "doc.pdf"
+        doc_local.write_bytes(b"contenido real")
+        upload_file(doc_local, "JEP/2026-06-01/Auto/doc.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    repository.insert_document(
+        db_session, doc_id="doc-real", source_id=source.id, title="Real", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-unsafe", source_id=source.id, title="Unsafe", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="../../etc/passwd",
     )
 
     bulk_download = repository.create_bulk_download(db_session)
@@ -1018,5 +1477,154 @@ def test_build_bulk_download_zip_fails_when_there_are_no_useful_documents(db_ses
         refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
         assert refreshed.status == "failed"
         assert refreshed.error_message == "No hay documentos marcados como Útil para descargar"
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_frees_each_raw_copy_as_soon_as_its_zipped(db_session, test_engine, monkeypatch):
+    """Regression test: before this fix, every downloaded file stayed on disk
+    until the whole batch finished and only then got zipped, so disk usage
+    peaked at roughly twice the total size (every raw copy plus the zip being
+    built). Now each raw copy is deleted right after being added to the zip,
+    so at most one extra file's worth of disk should ever be in use at once."""
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    keys = ["doc1.pdf", "doc2.pdf", "doc3.pdf"]
+    with tempfile.TemporaryDirectory() as tmp:
+        for key in keys:
+            local = Path(tmp) / key
+            local.write_bytes(b"x" * 100)
+            upload_file(local, f"JEP/2026-06-01/Auto/{key}", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+    for i, key in enumerate(keys):
+        repository.insert_document(
+            db_session, doc_id=f"doc-{i}", source_id=source.id, title=f"Doc {i}", review_status="useful",
+            storage_bucket=TEST_S3_BUCKET, storage_key=f"JEP/2026-06-01/Auto/{key}",
+        )
+
+    files_present_before_each_download = []
+    real_download_file = tasks_module.download_file
+
+    def _spying_download_file(bucket, key, local_path):
+        # Cuenta cuántos archivos ya descargados siguen en disco justo antes de
+        # bajar el siguiente — si el arreglo funciona, siempre debe ser 0.
+        downloads_dir = next(p for p in local_path.parents if p.name == "files")
+        files_present_before_each_download.append(sum(1 for p in downloads_dir.rglob("*") if p.is_file()))
+        return real_download_file(bucket, key, local_path)
+
+    monkeypatch.setattr(tasks_module, "download_file", _spying_download_file)
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assert files_present_before_each_download == [0, 0, 0]
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"
+        assert refreshed.document_count == 3
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_fails_early_when_disk_space_is_insufficient(db_session, test_engine, monkeypatch):
+    """Regression test: previously there was no check at all — a bulk download
+    would just start filling the disk and only fail once it genuinely ran out
+    of space mid-way. Now, when every useful document's size is known, it
+    fails fast before downloading anything."""
+    from collections import namedtuple
+
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc1.pdf", file_size_bytes=10_000_000,
+    )
+
+    download_calls = []
+    monkeypatch.setattr(tasks_module, "download_file", lambda *a, **k: download_calls.append(a))
+    _Usage = namedtuple("usage", ["total", "used", "free"])
+    monkeypatch.setattr(tasks_module.shutil, "disk_usage", lambda path: _Usage(total=0, used=0, free=1_000))
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assert download_calls == []  # nunca llegó a intentar descargar nada
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "failed"
+        assert "espacio suficiente" in refreshed.error_message
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_skips_the_disk_space_check_when_a_document_size_is_unknown(
+    db_session, test_engine, monkeypatch
+):
+    """Documents saved by an older version of the code (or with a directly-edited
+    row) may have no recorded file_size_bytes — the safety check can't reliably
+    guess a total in that case, so it's skipped entirely rather than blocking a
+    bulk download that would otherwise have gone through fine."""
+    from collections import namedtuple
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("doc1.pdf", "doc2.pdf"):
+            local = Path(tmp) / name
+            local.write_bytes(b"contenido")
+            upload_file(local, f"JEP/2026-06-01/Auto/{name}", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    repository.insert_document(
+        db_session, doc_id="doc-known", source_id=source.id, title="Con tamaño", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc1.pdf", file_size_bytes=9,
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-unknown", source_id=source.id, title="Sin tamaño", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc2.pdf",
+    )
+
+    _Usage = namedtuple("usage", ["total", "used", "free"])
+    monkeypatch.setattr(tasks_module.shutil, "disk_usage", lambda path: _Usage(total=0, used=0, free=1))
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"  # el chequeo se saltó, no bloqueó la descarga
+        assert refreshed.document_count == 2
     finally:
         assertion_session.close()

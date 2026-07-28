@@ -46,6 +46,12 @@ def test_get_runs_respects_limit_and_offset(api_client, auth_header, monkeypatch
     assert len(response.json()) == 1
 
 
+def test_get_runs_rejects_out_of_range_limit_and_offset(api_client, auth_header):
+    assert api_client.get("/runs?offset=-1", headers=auth_header).status_code == 422
+    assert api_client.get("/runs?limit=0", headers=auth_header).status_code == 422
+    assert api_client.get("/runs?limit=1000000", headers=auth_header).status_code == 422
+
+
 def test_get_run_sources_reports_docs_updated(api_client, auth_header, monkeypatch, db_session):
     from core.db import repository
 

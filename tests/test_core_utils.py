@@ -1,5 +1,5 @@
 from core.models import RawDocModel
-from core.utils import compute_doc_id, extract_filename, make_doc_id, storage_path
+from core.utils import compute_doc_id, extract_filename, is_safe_storage_key, make_doc_id, storage_path
 
 
 def test_make_doc_id_is_deterministic():
@@ -63,6 +63,68 @@ def test_extract_filename_from_content_disposition():
 def test_extract_filename_falls_back_to_content_type_and_url():
     result = extract_filename("", "application/pdf", "https://x/carpeta/archivo", "fallback")
     assert result == {"filename": "archivo", "extension": ".pdf"}
+
+
+def test_extract_filename_keeps_the_discriminating_middle_part_of_a_multi_dot_name():
+    """Regression test: the stem used to be taken up to the FIRST dot
+    (split(".")[0]) while the extension was taken from the LAST dot
+    (split(".")[-1]) — two incompatible criteria. "Sentencia.T-123.2024.pdf"
+    used to lose everything after the first dot, becoming just "Sentencia" —
+    the part that actually distinguishes it from other documents. Two
+    documents with different middle parts but the same prefix would then
+    collapse onto the same storage key and silently overwrite each other."""
+    result = extract_filename('attachment; filename="Sentencia.T-123.2024.pdf"', "", "https://x/y", "fallback")
+    assert result == {"filename": "Sentencia.T-123.2024", "extension": ".pdf"}
+
+
+def test_extract_filename_strips_path_separators_from_a_malicious_content_disposition():
+    """Regression test: the remote server controls this header entirely — a
+    filename containing '/' used to survive untouched and land directly in the
+    storage key, letting a malicious/misconfigured site put a document in an
+    unexpected subfolder (or, combined with a template like
+    "(filename)(extension)", escape the intended storage root). A resulting
+    name may still legitimately CONTAIN ".." as a substring (e.g.
+    "-..-etc-passwd") — that's just an odd filename, not a traversal risk, once
+    every "/" is gone and it's used as a single path segment (see
+    is_safe_storage_key, which is the actual traversal check)."""
+    result = extract_filename('attachment; filename="../../etc/passwd.pdf"', "", "https://x/y", "fallback")
+    assert "/" not in result["filename"]
+    assert "\\" not in result["filename"]
+    assert result["filename"] not in ("..", ".")
+    assert result["extension"] == ".pdf"
+
+
+def test_extract_filename_strips_backslashes_and_control_characters():
+    result = extract_filename('attachment; filename="a\\b\x01c.pdf"', "", "https://x/y", "fallback")
+    assert "\\" not in result["filename"]
+    assert "\x01" not in result["filename"]
+
+
+def test_extract_filename_falls_back_to_a_generic_name_when_sanitizing_leaves_nothing():
+    # The stem (everything before the LAST dot) is made entirely of dots, with
+    # no other character — collapses to nothing once sanitized, so it must
+    # fall back rather than produce an empty storage key segment.
+    result = extract_filename('attachment; filename="...pdf"', "", "https://x/y", "fallback")
+    assert result["filename"] == "documento"
+    assert result["extension"] == ".pdf"
+
+
+def test_extract_filename_sanitizes_a_malicious_extension_too():
+    # The extension is just whatever comes after the LAST dot in the header's
+    # filename — also attacker-controlled, also used to build the storage key.
+    result = extract_filename('attachment; filename="doc.pdf/../evil"', "", "https://x/y", "fallback")
+    assert "/" not in result["extension"]
+
+
+def test_is_safe_storage_key_accepts_a_normal_multi_segment_key():
+    assert is_safe_storage_key("Corte Constitucional/2026-06-01/Auto/A.829-26.rtf") is True
+
+
+def test_is_safe_storage_key_rejects_traversal_and_absolute_paths():
+    assert is_safe_storage_key("../../etc/passwd") is False
+    assert is_safe_storage_key("a/../../b") is False
+    assert is_safe_storage_key("/etc/passwd") is False
+    assert is_safe_storage_key("") is False
 
 
 def test_storage_path_joins_with_forward_slashes():

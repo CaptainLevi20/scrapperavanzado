@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { SourcesPage } from "./SourcesPage";
 
@@ -31,6 +31,69 @@ describe("SourcesPage", () => {
     renderPage();
 
     expect(await within(screen.getByRole("table")).findByText("Corte Constitucional")).toBeInTheDocument();
+  });
+
+  it("does not show 'no sources' while the first request is still in flight", async () => {
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/sources`, async () => {
+        await delay(50);
+        return HttpResponse.json([]);
+      })
+    );
+
+    renderPage();
+
+    expect(screen.queryByText("No hay fuentes que coincidan con estos filtros.")).not.toBeInTheDocument();
+    expect(await screen.findByText("No hay fuentes que coincidan con estos filtros.")).toBeInTheDocument();
+  });
+
+  it("enables Siguiente when there really is another page, and only renders one page's worth of rows", async () => {
+    // Regression test: /sources has no total count to compare against, so
+    // "Siguiente" used to just check whether the current page happened to come
+    // back full — the frontend now asks for one extra row (PAGE_SIZE + 1) to
+    // find out whether a next page genuinely exists.
+    const sources = Array.from({ length: 21 }, (_, i) => ({
+      id: i + 1,
+      family_key: "constitucional",
+      name: `Fuente ${i + 1}`,
+      family_params: {},
+      active: true,
+    }));
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/sources`, ({ request }) => {
+        lastUrl = request.url;
+        return HttpResponse.json(sources);
+      })
+    );
+
+    renderPage();
+
+    await screen.findByText("Fuente 1");
+    expect(new URL(lastUrl).searchParams.get("limit")).toBe("21"); // PAGE_SIZE (20) + 1
+    expect(screen.queryByText("Fuente 21")).not.toBeInTheDocument(); // the extra row is never rendered
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeEnabled();
+  });
+
+  it("disables Siguiente when the response doesn't fill a whole extra row past the page size", async () => {
+    const sources = Array.from({ length: 5 }, (_, i) => ({
+      id: i + 1,
+      family_key: "constitucional",
+      name: `Fuente ${i + 1}`,
+      family_params: {},
+      active: true,
+    }));
+    server.use(
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json(sources))
+    );
+
+    renderPage();
+
+    await screen.findByText("Fuente 1");
+    expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
   });
 
   it("refetches with the active filter applied when changed", async () => {

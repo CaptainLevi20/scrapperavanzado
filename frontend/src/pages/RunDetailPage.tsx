@@ -7,6 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { Button } from "../components/ui/button";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { formatDate, formatDateTime } from "../lib/formatters";
+import { isStaleRun, isTerminalRunStatus, shouldPollRun } from "../lib/runStatus";
 
 const POLL_INTERVAL_MS = 4000;
 
@@ -27,17 +28,23 @@ export function RunDetailPage() {
   const runQuery = useQuery({
     queryKey: ["run", id],
     queryFn: () => fetchRun(id),
-    refetchInterval: (query) => (query.state.data?.status !== "completed" ? POLL_INTERVAL_MS : false),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return !data || shouldPollRun(data.created_at, data.status) ? POLL_INTERVAL_MS : false;
+    },
     enabled: !Number.isNaN(id),
   });
+
+  const runIsStale = runQuery.data ? isStaleRun(runQuery.data.created_at, runQuery.data.status) : false;
 
   const sourcesQuery = useQuery({
     queryKey: ["run-sources", id],
     queryFn: () => fetchRunSources(id),
     refetchInterval: (query) => {
+      if (runIsStale) return false;
       const items = query.state.data;
       const hasActive = items?.some((runSource) => runSource.status === "pending" || runSource.status === "running");
-      const runInProgress = runQuery.data?.status !== "completed";
+      const runInProgress = runQuery.data ? !isTerminalRunStatus(runQuery.data.status) : true;
       return hasActive || runInProgress ? POLL_INTERVAL_MS : false;
     },
     enabled: !Number.isNaN(id),
@@ -70,7 +77,17 @@ export function RunDetailPage() {
         <InfoField label="Finalizado" value={formatDateTime(run.finished_at)} />
       </dl>
 
-      {run.status !== "completed" && (
+      {runIsStale && (
+        <ErrorBanner
+          message="Este run lleva mucho tiempo sin actualizarse. Puede haberse quedado colgado — usa Reintentar para revisar su estado más reciente."
+          onRetry={() => {
+            runQuery.refetch();
+            sourcesQuery.refetch();
+          }}
+        />
+      )}
+
+      {!isTerminalRunStatus(run.status) && (
         <Button
           variant="destructive"
           disabled={run.cancel_requested || cancelMutation.isPending}
@@ -109,7 +126,9 @@ export function RunDetailPage() {
             </tbody>
           </table>
         </div>
-        {(sourcesQuery.data?.length ?? 0) === 0 && <EmptyState message="Todavía no hay fuentes procesadas en este run." />}
+        {!sourcesQuery.isLoading && (sourcesQuery.data?.length ?? 0) === 0 && (
+          <EmptyState message="Todavía no hay fuentes procesadas en este run." />
+        )}
       </div>
     </div>
   );

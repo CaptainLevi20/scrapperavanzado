@@ -146,6 +146,55 @@ describe("applyCorrections", () => {
     expect(computeFinalName(resolved.config, resolved.entries[0])).toBe("A_CONCALI_0009_1962.pdf");
   });
 
+  it("updates yearFolder to match a genuinely corrected year, not just the filename", async () => {
+    // Regression test: applyCorrections used to spread the entry as-is and only
+    // override detectedYear/detectedNumber — yearFolder was carried over
+    // unchanged, so a file whose year was auto-detected wrong (e.g. from the
+    // "ACUERDOS 1962" folder) would get a corrected NAME but still be copied
+    // into the OLD year's folder by copyFormattedFiles (copy.ts), which uses
+    // yearFolder as the destination directory.
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": { "Acuerdo 0005 de 1963.pdf": "x" }, // misfiled: really a 1963 document
+    });
+    const plan = await analyzeDirectory(root);
+    expect(plan.entries[0].yearFolder).toBe("ACUERDOS 1962");
+
+    const resolved = applyCorrections(plan, new Map([[plan.entries[0].path, { year: "1963", number: "5" }]]));
+
+    expect(resolved.entries[0].detectedYear).toBe(1963);
+    expect(resolved.entries[0].yearFolder).toBe("1963");
+    expect(computeFinalName(resolved.config, resolved.entries[0])).toBe("A_CONCALI_0005_1963.pdf");
+  });
+
+  it("keeps the original yearFolder when a correction only fixes the number, not the year", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": { "sin numero.pdf": "x" },
+    });
+    const plan = await analyzeDirectory(root);
+
+    // Mirrors FormatterPage.tsx: the year field is pre-filled with the
+    // already-correct detected year, only the number is actually edited.
+    const resolved = applyCorrections(
+      plan,
+      new Map([[plan.entries[0].path, { year: String(plan.entries[0].detectedYear), number: "9" }]])
+    );
+
+    expect(resolved.entries[0].yearFolder).toBe("ACUERDOS 1962");
+  });
+
+  it("clears yearFolder when a correction removes the year entirely", async () => {
+    const root = fakeInputDirectory("Acuerdos Cali", {
+      "ACUERDOS 1962": { "Acuerdo 0005 de 1962.pdf": "x" },
+    });
+    const plan = await analyzeDirectory(root);
+
+    const resolved = applyCorrections(plan, new Map([[plan.entries[0].path, { year: "", number: "5" }]]));
+
+    expect(resolved.entries[0].detectedYear).toBeNull();
+    expect(resolved.entries[0].yearFolder).toBe("");
+    expect(resolved.entries[0].reason).toBe("no-year");
+  });
+
   it("re-flags a collision introduced by a correction, and clears one resolved by a later correction", async () => {
     const root = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 1962": {

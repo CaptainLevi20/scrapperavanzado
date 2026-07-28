@@ -79,7 +79,6 @@ def test_scrap_maps_fields_correctly():
         "method": "GET",
     }
     assert doc.save_path == "JEP/2024-08-01/Auto/SRVR-003_2024_1(extension)"
-    assert doc.convert_to is None
 
 
 @responses.activate

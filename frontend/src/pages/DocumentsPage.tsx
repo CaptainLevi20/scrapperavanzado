@@ -59,6 +59,11 @@ export function DocumentsPage() {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [caseDocuments, setCaseDocuments] = useState<Document[] | null>(null);
   const [caseInitialIndex, setCaseInitialIndex] = useState(0);
+  const [caseDialogError, setCaseDialogError] = useState<string | null>(null);
+  // Bumped on every openCaseDialog call so a stale response (from clicking a
+  // second case before the first one's fetch resolved) can recognize it's no
+  // longer the latest request and skip applying its result.
+  const caseDialogRequestId = useRef(0);
 
   const dateFilterRef = useRef<HTMLDivElement>(null);
   const downloadedFilterRef = useRef<HTMLDivElement>(null);
@@ -132,17 +137,27 @@ export function DocumentsPage() {
   const hasDownloadedFilter = !!downloadedFrom || !!downloadedTo;
 
   async function openCaseDialog(document: Document) {
-    const response = await fetchDocuments({
-      family_key: "rama_judicial",
-      title_exact: document.title,
-      limit: 50,
-    });
-    // The API's default order is f_public DESC (newest first); a case's actuaciones
-    // read as a timeline, oldest first, so the fetched array is reversed here.
-    const chronological = [...response.items].reverse();
-    const clickedIndex = chronological.findIndex((item) => item.id === document.id);
-    setCaseDocuments(chronological);
-    setCaseInitialIndex(clickedIndex === -1 ? 0 : clickedIndex);
+    const requestId = ++caseDialogRequestId.current;
+    setCaseDialogError(null);
+    try {
+      const response = await fetchDocuments({
+        family_key: "rama_judicial",
+        title_exact: document.title,
+        limit: 50,
+      });
+      // A newer click already started a fresher request while this one was in
+      // flight — applying this stale result now would show the wrong case.
+      if (requestId !== caseDialogRequestId.current) return;
+      // The API's default order is f_public DESC (newest first); a case's actuaciones
+      // read as a timeline, oldest first, so the fetched array is reversed here.
+      const chronological = [...response.items].reverse();
+      const clickedIndex = chronological.findIndex((item) => item.id === document.id);
+      setCaseDocuments(chronological);
+      setCaseInitialIndex(clickedIndex === -1 ? 0 : clickedIndex);
+    } catch {
+      if (requestId !== caseDialogRequestId.current) return;
+      setCaseDialogError("No se pudo abrir el expediente. Intenta de nuevo.");
+    }
   }
 
   async function handleTitleClick(document: Document) {
@@ -366,6 +381,8 @@ export function DocumentsPage() {
         <ErrorBanner message="No se pudieron cargar los documentos." onRetry={() => documentsQuery.refetch()} />
       )}
 
+      {caseDialogError && <ErrorBanner message={caseDialogError} />}
+
       <div className={`${TABLE_SHELL} flex min-h-0 flex-1 flex-col`}>
         <div className={`${TABLE_SCROLL} flex-1 overflow-y-auto`}>
           <table className={`${TABLE} h-full min-w-[1200px]`}>
@@ -384,7 +401,7 @@ export function DocumentsPage() {
             </tr>
           </thead>
           <tbody>
-            {(documentsQuery.data?.items.length ?? 0) === 0 && (
+            {!documentsQuery.isLoading && (documentsQuery.data?.items.length ?? 0) === 0 && (
               <tr>
                 <td colSpan={10} className="h-full p-0">
                   <div className="flex h-full items-center justify-center">
@@ -445,7 +462,7 @@ export function DocumentsPage() {
             Anterior
           </button>
           <button
-            disabled={(documentsQuery.data?.items.length ?? 0) < PAGE_SIZE}
+            disabled={(page + 1) * PAGE_SIZE >= (documentsQuery.data?.total ?? 0)}
             onClick={() => setPage((current) => current + 1)}
             className="rounded-md border-[1.5px] border-input bg-card px-3 py-1 text-sm font-medium shadow-xs disabled:opacity-50"
           >

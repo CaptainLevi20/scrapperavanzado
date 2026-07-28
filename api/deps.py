@@ -19,5 +19,12 @@ def require_session(
     session = repository.get_valid_session_by_token_hash(db, hash_session_token(token))
     if session is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida o expirada")
+    user = db.get(User, session.user_id)
+    # A deactivated (or since-deleted) user's existing token must stop working
+    # immediately, not just at their next login — checked before touch_session
+    # so a deactivated user hammering the API doesn't keep extending a session
+    # that should already be dead.
+    if user is None or not user.active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida o expirada")
     repository.touch_session(db, session.id)
-    return db.get(User, session.user_id)
+    return user

@@ -12,4 +12,9 @@ describe("StatusBadge", () => {
     render(<StatusBadge status="unknown-status" />);
     expect(screen.getByText("unknown-status")).toBeInTheDocument();
   });
+
+  it("renders the cancelled status", () => {
+    render(<StatusBadge status="cancelled" />);
+    expect(screen.getByText("cancelled")).toBeInTheDocument();
+  });
 });

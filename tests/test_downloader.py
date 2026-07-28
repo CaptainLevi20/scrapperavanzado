@@ -4,14 +4,13 @@ from pathlib import Path
 import pytest
 import requests
 import responses
-from pypdf import PdfWriter
 
 import core.downloader as downloader_module
 from core.downloader import Downloader, check_remote_content_length
 from core.models import RawDocModel
 
 
-def _doc(method="GET", url="https://example.com/file.pdf", body=None, save_path=None, convert_to=None):
+def _doc(method="GET", url="https://example.com/file.pdf", body=None, save_path=None):
     link = {"url": url, "method": method}
     if body:
         link["body"] = body
@@ -22,7 +21,6 @@ def _doc(method="GET", url="https://example.com/file.pdf", body=None, save_path=
         tipo="Auto",
         f_public="2026-01-01",
         save_path=save_path,
-        convert_to=convert_to,
     )
 
 
@@ -42,6 +40,27 @@ def test_download_get_writes_temp_file_and_builds_default_storage_key(tmp_path):
     assert result.local_path.read_bytes() == b"%PDF-1.4 contenido de prueba"
     assert result.storage_key == "Test/2026-01-01/Auto/file.pdf"
     assert result.content_type == "application/pdf"
+
+
+@responses.activate
+def test_download_rejects_a_save_path_template_that_resolves_outside_the_storage_root(tmp_path):
+    """Regression test: a family's save_path template (e.g. adr/adres/ane/anh's
+    "(filename)(extension)") interpolates the remote server's own filename
+    directly. Even though extract_filename now sanitizes that filename, this is
+    a backstop for the template itself producing something unsafe — it must
+    raise instead of silently proceeding with a key that could escape the
+    storage root."""
+    responses.add(
+        responses.GET,
+        "https://example.com/file.pdf",
+        body=b"%PDF-1.4 contenido de prueba",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    downloader = Downloader()
+    doc = _doc(save_path="../../(filename)(extension)")
+    with pytest.raises(ValueError, match="no segura"):
+        downloader.download(doc, tmp_path)
 
 
 @responses.activate
@@ -197,140 +216,25 @@ def test_download_raises_after_exhausting_all_retries_on_transient_errors(tmp_pa
     assert calls["count"] == 3
 
 
-def test_convert_rtf_word_falls_back_to_pypdf_when_word_conversion_fails(tmp_path, monkeypatch):
-    pdf_path = tmp_path / "doc.pdf"
-    writer = PdfWriter()
-    writer.add_blank_page(width=200, height=200)
-    with open(pdf_path, "wb") as f:
-        writer.write(f)
-
-    downloader = Downloader()
-
-    def _raise(*_args, **_kwargs):
-        raise RuntimeError("Word no disponible")
-
-    monkeypatch.setattr(downloader._word_converter, "convert", _raise)
-
-    converted = downloader._convert(pdf_path, "rtf_word")
-    assert converted.suffix == ".rtf"
-    assert converted.exists()
-
-
-def _pdf_bytes():
-    import io
-
-    writer = PdfWriter()
-    writer.add_blank_page(width=200, height=200)
-    buf = io.BytesIO()
-    writer.write(buf)
-    return buf.getvalue()
-
-
 @responses.activate
-def test_download_records_converted_format_when_conversion_succeeds(tmp_path):
+def test_download_stores_the_document_in_its_original_format_without_converting(tmp_path):
+    """Every source stores documents exactly as downloaded — no format conversion
+    happens at storage time (that only ever happens on demand, for previews, via
+    convert_to_pdf_via_libreoffice). converted_format must stay None and both the
+    storage key and content_type must reflect the original file untouched."""
     responses.add(
         responses.GET,
         "https://example.com/file.pdf",
-        body=_pdf_bytes(),
+        body=b"%PDF-1.4 contenido de prueba",
         headers={"Content-Type": "application/pdf"},
         status=200,
     )
     downloader = Downloader()
-    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
-
-    assert result.converted_format == "rtf"
-    assert result.storage_key.endswith(".rtf")
-    assert result.local_path.suffix == ".rtf"
-
-
-@responses.activate
-def test_download_preserves_doc_convert_to_value_in_converted_format(tmp_path, monkeypatch):
-    """converted_format must reflect the document's own convert_to value (e.g. 'rtf_word',
-    the only value used in production by the samai family), not a hardcoded literal —
-    even when the actual conversion happens via the pypdf fallback rather than Word."""
-    responses.add(
-        responses.GET,
-        "https://example.com/file.pdf",
-        body=_pdf_bytes(),
-        headers={"Content-Type": "application/pdf"},
-        status=200,
-    )
-    downloader = Downloader()
-
-    def _raise(*_args, **_kwargs):
-        raise RuntimeError("Word no disponible")
-
-    monkeypatch.setattr(downloader._word_converter, "convert", _raise)
-
-    result = downloader.download(_doc(convert_to="rtf_word"), tmp_path)
-
-    assert result.converted_format == "rtf_word"
-    assert result.storage_key.endswith(".rtf")
-    assert result.local_path.suffix == ".rtf"
-
-
-@responses.activate
-def test_download_leaves_converted_format_none_when_conversion_silently_fails(tmp_path, monkeypatch):
-    import core.downloader as downloader_module
-
-    responses.add(
-        responses.GET,
-        "https://example.com/file.pdf",
-        body=b"not actually a pdf",
-        headers={"Content-Type": "application/pdf"},
-        status=200,
-    )
-
-    def _raise(*_args, **_kwargs):
-        raise RuntimeError("conversión falló")
-
-    monkeypatch.setattr(downloader_module, "_pdf_to_rtf_fallback", _raise)
-
-    downloader = Downloader()
-    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
+    result = downloader.download(_doc(), tmp_path)
 
     assert result.converted_format is None
     assert result.storage_key.endswith(".pdf")
     assert result.local_path.suffix == ".pdf"
-
-
-@responses.activate
-def test_download_updates_content_type_to_rtf_when_conversion_succeeds(tmp_path):
-    """The stored content_type must reflect the CONVERTED file (RTF), not the
-    original pre-conversion type — otherwise the upload would carry a mismatched
-    Content-Type header, the same class of bug already fixed for the un-converted
-    upload path (worker/tasks.py)."""
-    responses.add(
-        responses.GET,
-        "https://example.com/file.pdf",
-        body=_pdf_bytes(),
-        headers={"Content-Type": "application/pdf"},
-        status=200,
-    )
-    downloader = Downloader()
-    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
-
-    assert result.content_type == "application/rtf"
-
-
-@responses.activate
-def test_download_keeps_original_content_type_when_conversion_silently_fails(tmp_path, monkeypatch):
-    responses.add(
-        responses.GET,
-        "https://example.com/file.pdf",
-        body=b"not actually a pdf",
-        headers={"Content-Type": "application/pdf"},
-        status=200,
-    )
-
-    def _raise(*_args, **_kwargs):
-        raise RuntimeError("conversión falló")
-
-    monkeypatch.setattr(downloader_module, "_pdf_to_rtf_fallback", _raise)
-
-    downloader = Downloader()
-    result = downloader.download(_doc(convert_to="rtf"), tmp_path)
-
     assert result.content_type == "application/pdf"
 
 

@@ -60,7 +60,7 @@ class ScrapConstitucional(BaseScrapper):
         fecha_final_global = datetime.strptime(ffin, "%Y-%m-%d")
         docs: List[RawDocModel] = []
 
-        while fecha_local < fecha_final_global:
+        while True:
             if stop_event is not None and stop_event.is_set():
                 break
 
@@ -99,5 +99,7 @@ class ScrapConstitucional(BaseScrapper):
                 )
 
             fecha_local = fecha_final
+            if fecha_local >= fecha_final_global:
+                break
 
         return docs
