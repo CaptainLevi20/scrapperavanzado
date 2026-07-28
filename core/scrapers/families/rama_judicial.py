@@ -73,7 +73,7 @@ JUZGADOS_ENTIDADES = {
 # Código de 3-4 letras por tribunal, usado por _normalize_title para el
 # prefijo "T_{CODIGO}_" del título normalizado. Dictado directamente por el
 # usuario para cada uno de los 33 tribunales — no se deriva automáticamente
-# del nombre (ver docs/superpowers/specs/2026-07-23-rama-judicial-title-normalization-design.md).
+# del nombre.
 TRIBUNAL_CODES = {
     "05": "ANTI",
     "08": "ATLA",
