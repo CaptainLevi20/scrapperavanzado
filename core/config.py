@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     cors_origins: str = "http://localhost:5173"
     registration_code: str = "changeme"
+    # The scheduled daily run has no natural "yesterday" concept of its own — it
+    # always asks each source for [today - N days, today] so documents published
+    # earlier in a day the beat job already ran for (or missed entirely) still get
+    # picked up on the next run, instead of only ever seeing an empty "today".
+    scheduled_run_lookback_days: int = 3
 
 
 @lru_cache

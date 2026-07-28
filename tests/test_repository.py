@@ -1,3 +1,5 @@
+import pytest
+
 from core.db import repository
 
 
@@ -85,6 +87,37 @@ def test_bulk_download_lifecycle(db_session):
     assert refreshed.zip_storage_key == "bulk-downloads/1.zip"
 
 
+def test_set_run_status_does_not_raise_for_a_nonexistent_run(db_session):
+    """Regression test: this used to be a bare db.get(Run, run_id) with no None
+    check — a run that was deleted (or a stale/wrong id from a leftover Celery
+    task) raised AttributeError instead of just being a no-op."""
+    repository.set_run_status(db_session, 999999, "completed")
+
+
+def test_set_run_source_status_does_not_raise_for_a_nonexistent_run_source(db_session):
+    repository.set_run_source_status(db_session, 999999, "completed", docs_new=1)
+
+
+def test_set_bulk_download_status_does_not_raise_for_a_nonexistent_bulk_download(db_session):
+    repository.set_bulk_download_status(db_session, 999999, "completed")
+
+
+def test_touch_session_does_not_raise_for_a_nonexistent_session(db_session):
+    """touch_session runs on every authenticated request (api/deps.py) — a
+    session deleted in the tiny window between being validated and being
+    touched (e.g. a concurrent logout) must not turn an otherwise-successful
+    request into a 500."""
+    repository.touch_session(db_session, 999999)
+
+
+def test_update_user_password_does_not_raise_for_a_nonexistent_user(db_session):
+    repository.update_user_password(db_session, 999999, "new-hash")
+
+
+def test_touch_user_last_login_does_not_raise_for_a_nonexistent_user(db_session):
+    repository.touch_user_last_login(db_session, 999999)
+
+
 def test_list_bulk_downloads_orders_by_most_recent_first(db_session):
     first = repository.create_bulk_download(db_session)
     second = repository.create_bulk_download(db_session)
@@ -127,6 +160,29 @@ def test_insert_document_is_idempotent_on_doc_id(db_session):
 
     assert first.id == second.id
     assert repository.document_exists(db_session, "abc123") is True
+
+
+def test_insert_document_reporting_whether_created_reports_true_only_on_the_first_insert(db_session):
+    """Regression test: insert_document's on_conflict_do_nothing made the
+    second call a silent no-op with no way to tell it apart from a real
+    insert — worker/tasks.py used to count every attempt as 'new' regardless,
+    inflating docs_new when the same doc_id was attempted twice."""
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+
+    payload = dict(
+        doc_id="report-created-test",
+        source_id=source.id,
+        title="T-065/24",
+        storage_bucket="iurisync-test",
+        storage_key="Corte Constitucional/2024-02-01/Sentencia/T-065-24.rtf",
+    )
+    first_doc, first_created = repository.insert_document_reporting_whether_created(db_session, **payload)
+    second_doc, second_created = repository.insert_document_reporting_whether_created(db_session, **payload)
+
+    assert first_created is True
+    assert second_created is False
+    assert first_doc.id == second_doc.id
 
 
 def test_update_document_review_status_sets_status_and_timestamp(db_session):
@@ -211,6 +267,32 @@ def test_list_documents_orders_by_f_public_descending_with_nulls_last(db_session
     items, _ = repository.list_documents(db_session)
 
     assert [d.doc_id for d in items] == ["doc-newer", "doc-older", "doc-no-date"]
+
+
+def test_list_documents_total_counts_every_match_not_just_the_current_page(db_session):
+    """Regression test: total used to be computed by materializing every
+    matching Document row and calling len() on it — functionally correct, but
+    means the count must reflect ALL matches regardless of limit/offset, not
+    just what fits on the current page. This pins that behavior down through
+    the COUNT-subquery rewrite."""
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    for i in range(5):
+        repository.insert_document(
+            db_session, doc_id=f"doc-{i}", source_id=source.id, title=f"Doc {i}",
+            storage_bucket="iurisync-test", storage_key=f"{i}.pdf",
+        )
+
+    items, total = repository.list_documents(db_session, limit=2, offset=0)
+
+    assert total == 5
+    assert len(items) == 2
+
+    items_page_2, total_page_2 = repository.list_documents(db_session, limit=2, offset=4)
+    assert total_page_2 == 5
+    assert len(items_page_2) == 1
 
 
 def test_list_distinct_document_tipos_returns_sorted_unique_non_null_values(db_session):
@@ -426,6 +508,97 @@ def test_archive_and_replace_document_refreshes_downloaded_at_so_chained_replace
     assert second_replacement.downloaded_at != first_replacement_downloaded_at
 
 
+def test_archive_and_replace_document_raises_a_clear_error_when_the_document_no_longer_exists(db_session):
+    """Regression test: this used to be `db.get(Document, document_id)` with no
+    None check, so a document deleted between being listed as a republication
+    candidate and this write raised a bare AttributeError deep inside — now it
+    must fail with a clear, specific error the caller can actually log."""
+    with pytest.raises(ValueError, match="ya no existe"):
+        repository.archive_and_replace_document(
+            db_session, 999999, storage_bucket="iurisync-test", storage_key="v2.rtf", file_size_bytes=200
+        )
+
+
+def test_archive_and_replace_document_blocks_on_a_concurrent_in_flight_replacement(test_engine):
+    """Regression test: two overlapping runs replacing the same republished
+    document used to both read the same stale row (plain read-modify-write, no
+    locking) and the last commit silently won, leaving a DocumentVersion that
+    doesn't actually match what was overwritten. with_for_update() must make a
+    second, concurrent replacement block on the row lock until the first one
+    commits, instead of racing it."""
+    import threading
+    import time
+
+    from sqlalchemy.orm import sessionmaker
+
+    session_factory = sessionmaker(bind=test_engine, future=True)
+
+    setup_session = session_factory()
+    repository.create_source_family(setup_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(
+        setup_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+    document = repository.insert_document(
+        setup_session,
+        doc_id="doc-concurrent-replace",
+        source_id=source.id,
+        title="A. 1/26",
+        storage_bucket="iurisync-test",
+        storage_key="v1.rtf",
+        file_size_bytes=100,
+    )
+    document_id = document.id
+    setup_session.close()
+
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+    timeline: list[tuple[str, float]] = []
+
+    def _hold_the_row_lock():
+        from sqlalchemy import select
+
+        from core.db.models import Document
+
+        session = session_factory()
+        session.execute(select(Document).where(Document.id == document_id).with_for_update())
+        lock_acquired.set()
+        release_lock.wait(timeout=5)
+        timeline.append(("first_write_committed", time.monotonic()))
+        session.commit()
+        session.close()
+
+    holder = threading.Thread(target=_hold_the_row_lock)
+    holder.start()
+    assert lock_acquired.wait(timeout=5), "el hilo que sostiene el lock nunca lo adquirió"
+
+    second_session = session_factory()
+
+    def _second_replacement():
+        repository.archive_and_replace_document(
+            second_session,
+            document_id,
+            storage_bucket="iurisync-test",
+            storage_key="v2-from-second-run.rtf",
+            file_size_bytes=200,
+        )
+        timeline.append(("second_write_done", time.monotonic()))
+
+    waiter = threading.Thread(target=_second_replacement)
+    waiter.start()
+
+    # Give the second thread every chance to (wrongly) proceed without blocking.
+    time.sleep(0.5)
+    assert waiter.is_alive(), "la segunda escritura no debería avanzar mientras la primera sostiene el lock"
+
+    release_lock.set()
+    holder.join(timeout=5)
+    waiter.join(timeout=5)
+    assert not waiter.is_alive()
+
+    assert [event for event, _ in timeline] == ["first_write_committed", "second_write_done"]
+    second_session.close()
+
+
 def test_list_document_versions_orders_most_recently_superseded_first(db_session):
     repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
     source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
@@ -469,6 +642,44 @@ def test_delete_session_removes_it(db_session):
     repository.delete_session(db_session, "tokhash")
 
     assert repository.get_valid_session_by_token_hash(db_session, "tokhash") is None
+
+
+def test_delete_sessions_for_user_removes_all_except_the_given_token(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    repository.create_session(db_session, user_id=user.id, token_hash="keep-me")
+    repository.create_session(db_session, user_id=user.id, token_hash="kick-me-1")
+    repository.create_session(db_session, user_id=user.id, token_hash="kick-me-2")
+
+    removed = repository.delete_sessions_for_user(db_session, user.id, except_token_hash="keep-me")
+
+    assert removed == 2
+    assert repository.get_valid_session_by_token_hash(db_session, "keep-me") is not None
+    assert repository.get_valid_session_by_token_hash(db_session, "kick-me-1") is None
+    assert repository.get_valid_session_by_token_hash(db_session, "kick-me-2") is None
+
+
+def test_delete_sessions_for_user_removes_everything_when_no_exception_given(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    repository.create_session(db_session, user_id=user.id, token_hash="tok-1")
+    repository.create_session(db_session, user_id=user.id, token_hash="tok-2")
+
+    removed = repository.delete_sessions_for_user(db_session, user.id)
+
+    assert removed == 2
+    assert repository.get_valid_session_by_token_hash(db_session, "tok-1") is None
+    assert repository.get_valid_session_by_token_hash(db_session, "tok-2") is None
+
+
+def test_delete_sessions_for_user_does_not_affect_other_users(db_session):
+    user_a = repository.create_user(db_session, username="ana", password_hash="hashed")
+    user_b = repository.create_user(db_session, username="bea", password_hash="hashed")
+    repository.create_session(db_session, user_id=user_a.id, token_hash="ana-tok")
+    repository.create_session(db_session, user_id=user_b.id, token_hash="bea-tok")
+
+    repository.delete_sessions_for_user(db_session, user_a.id)
+
+    assert repository.get_valid_session_by_token_hash(db_session, "ana-tok") is None
+    assert repository.get_valid_session_by_token_hash(db_session, "bea-tok") is not None
 
 
 def test_update_user_password_changes_the_hash(db_session):
@@ -548,6 +759,91 @@ def test_list_documents_filters_by_title_exact_not_substring(db_session):
 
     assert total == 1
     assert [d.doc_id for d in items] == ["doc-exact"]
+
+
+def test_list_documents_title_contains_treats_underscore_as_a_literal_character(db_session):
+    """Regression test: title_contains used to build a raw ILIKE '%...%' pattern
+    without escaping LIKE metacharacters. '_' is a SQL LIKE wildcard for "any
+    single character" — Rama Judicial titles are full of real underscores
+    (e.g. "T_BTA_11001_..."), so searching for one used to also match unrelated
+    titles that merely have SOME character in each of those positions."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
+    repository.insert_document(
+        db_session,
+        doc_id="doc-real",
+        source_id=source.id,
+        title="T_BTA_11001_31_03_048_2022_00418_02",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    # Same length, every underscore position replaced by an "X" — with '_'
+    # treated as a wildcard this would falsely match a search for "T_BTA".
+    repository.insert_document(
+        db_session,
+        doc_id="doc-unrelated",
+        source_id=source.id,
+        title="TXBTAX11001X31X03X048X2022X00418X02",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+    )
+
+    items, total = repository.list_documents(db_session, title_contains="T_BTA")
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-real"]
+
+
+def test_list_documents_title_contains_treats_percent_as_a_literal_character(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="CC", family_params={})
+    repository.insert_document(
+        db_session,
+        doc_id="doc-percent",
+        source_id=source.id,
+        title="Acuerdo 100% Seguro",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-other",
+        source_id=source.id,
+        title="Acuerdo 100 cosas Seguro",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+    )
+
+    items, total = repository.list_documents(db_session, title_contains="100%")
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-percent"]
+
+
+def test_list_documents_title_contains_still_matches_normally_without_metacharacters(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="CC", family_params={})
+    repository.insert_document(
+        db_session,
+        doc_id="doc-match",
+        source_id=source.id,
+        title="Sentencia sobre tutela",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-no-match",
+        source_id=source.id,
+        title="Auto de sustanciación",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+    )
+
+    items, total = repository.list_documents(db_session, title_contains="tutela")
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-match"]
 
 
 def test_get_source_family_keys_returns_a_mapping_for_the_given_ids(db_session):

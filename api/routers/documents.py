@@ -4,7 +4,7 @@ from datetime import date
 from typing import Optional
 
 from celery.exceptions import TimeoutError as CeleryTimeoutError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -62,8 +62,8 @@ def get_documents(
     f_public_to: Optional[date] = None,
     downloaded_from: Optional[date] = None,
     downloaded_to: Optional[date] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     items, total = repository.list_documents(
@@ -133,6 +133,8 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
 
 @router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionOut])
 def get_document_versions(document_id: int, db: Session = Depends(get_db)):
+    if repository.get_document(db, document_id) is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
     return repository.list_document_versions(db, document_id)
 
 

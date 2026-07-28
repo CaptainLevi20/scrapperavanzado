@@ -87,6 +87,12 @@ class BulkDownload(Base):
     document_count = Column(Integer, nullable=False, default=0)  # incluidos en el zip
     failed_count = Column(Integer, nullable=False, default=0)  # se omitieron por error de lectura
     zip_storage_key = Column(Text, nullable=True)  # solo si status == completed
+    # Bucket the zip actually landed in, captured from upload_file()'s own return
+    # value — not assumed to always match the CURRENT s3_bucket setting, which
+    # could change after this row was written. Nullable because rows created
+    # before this column existed have no way to know their own bucket in
+    # hindsight; the API falls back to the current default for those.
+    storage_bucket = Column(String, nullable=True)
     error_message = Column(Text, nullable=True)  # solo si status == failed
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)

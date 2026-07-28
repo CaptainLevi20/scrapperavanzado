@@ -114,5 +114,16 @@ class ScrapANH(BaseScrapper):
             ]
             if not paginas_disponibles or pagina >= int(max(paginas_disponibles)):
                 break
+        else:
+            # The loop ran through all _MAX_PAGINAS iterations without ever
+            # hitting one of the natural stop conditions above — meaning page
+            # _MAX_PAGINAS itself still pointed at further pages. Silently
+            # capping here would drop whatever comes after page _MAX_PAGINAS
+            # with no trace of it ever happening.
+            if on_progress:
+                on_progress(
+                    f"[{self.source}] Error: se alcanzó el tope de {_MAX_PAGINAS} páginas con más "
+                    "resultados pendientes; puede haber documentos sin recoger."
+                )
 
         return docs

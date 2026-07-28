@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
@@ -19,7 +19,7 @@ def post_bulk_download(db: Session = Depends(get_db)):
 
 
 @router.get("/bulk-downloads", response_model=list[BulkDownloadOut])
-def get_bulk_downloads(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+def get_bulk_downloads(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
     return repository.list_bulk_downloads(db, limit=limit, offset=offset)
 
 
@@ -29,10 +29,11 @@ def get_bulk_download_download(bulk_download_id: int, db: Session = Depends(get_
     if bulk_download is None or bulk_download.status != "completed" or not bulk_download.zip_storage_key:
         raise HTTPException(status_code=404, detail="Descarga masiva no disponible")
 
-    # Bulk-download zips always land in the current default bucket (unlike
-    # Document rows, which store their own storage_bucket) — fine as long as
-    # s3_bucket never changes between when a zip was built and when it's read.
-    bucket = get_settings().s3_bucket
+    # storage_bucket is the bucket the zip actually landed in at the time it was
+    # built — recorded so this keeps working even if s3_bucket is reconfigured
+    # later. Falls back to the current default only for rows written before this
+    # column existed, which have no bucket of their own recorded.
+    bucket = bulk_download.storage_bucket or get_settings().s3_bucket
     url = presigned_url(
         bucket,
         bulk_download.zip_storage_key,

@@ -244,10 +244,21 @@ export function applyCorrections(plan: FormatterPlan, corrections: Map<string, C
   const entries = plan.entries.map((entry) => {
     const correction = corrections.get(entry.path);
     if (!correction) return { ...entry };
+    const detectedYear = parsePositiveInt(correction.year);
+    // copyFormattedFiles (copy.ts) uses yearFolder as the destination
+    // directory — it must follow a REAL year correction, or the file's new
+    // NAME reflects the fix while it still gets archived under the old
+    // year's folder. Only recomputed when the year actually changed: a
+    // number-only correction (the common case — the form pre-fills the year
+    // field with entry.detectedYear, see FormatterPage.tsx) must keep the
+    // original folder name as-is (e.g. "ACUERDOS 1962", not a bare "1962").
+    const yearFolder =
+      detectedYear !== entry.detectedYear ? (detectedYear === null ? "" : String(detectedYear)) : entry.yearFolder;
     return {
       ...entry,
-      detectedYear: parsePositiveInt(correction.year),
+      detectedYear,
       detectedNumber: parsePositiveInt(correction.number),
+      yearFolder,
     };
   });
   markDuplicates(entries, plan.config);

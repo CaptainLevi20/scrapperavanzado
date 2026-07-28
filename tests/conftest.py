@@ -14,6 +14,32 @@ TEST_S3_ENDPOINT_URL = os.environ.get("TEST_S3_ENDPOINT_URL", "http://localhost:
 TEST_S3_BUCKET = os.environ.get("TEST_S3_BUCKET", "iurisync-test")
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    from core.rate_limit import reset_rate_limits
+
+    reset_rate_limits()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _ensure_registration_code_is_configured():
+    # The real .env this repo's dev environment uses has no REGISTRATION_CODE set,
+    # so get_settings() (a process-wide cached singleton, same pattern as
+    # _settings_with_test_bucket() in tests/test_tasks.py) would otherwise return
+    # the "changeme" default — which /auth/register now deliberately refuses to
+    # accept (see the "changeme is public, not a secret" fix). Tests that
+    # specifically exercise that refusal set it back to "changeme" for their own
+    # duration; this fixture restores a real value before/after every other test.
+    from core.config import get_settings
+
+    settings = get_settings()
+    original = settings.registration_code
+    settings.registration_code = "test-invite-code"
+    yield
+    settings.registration_code = original
+
+
 @pytest.fixture(scope="session")
 def test_engine():
     engine = create_engine(TEST_DATABASE_URL, future=True)

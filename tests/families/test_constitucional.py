@@ -129,3 +129,33 @@ def test_scrap_stops_early_when_stop_event_is_already_set():
 
     assert docs == []
     assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_scrap_queries_the_remote_search_even_for_a_single_day_range():
+    """Regression test: fini == ffin (exactly what the daily scheduled run and
+    any single-day manual run send) used to be silently skipped because the
+    loop condition was a strict `<`, so this must actually hit the search API."""
+    responses.add(
+        responses.GET,
+        "https://www.corteconstitucional.gov.co/relatoria/buscador_new/",
+        json=_fixture_response(),
+        status=200,
+    )
+    scraper = ScrapConstitucional()
+    docs = scraper.scrap(fini="2024-06-01", ffin="2024-06-01")
+
+    assert len(responses.calls) == 1
+    assert "fini=2024-06-01" in responses.calls[0].request.url
+    assert "ffin=2024-06-01" in responses.calls[0].request.url
+    assert len(docs) == 1
+
+
+@responses.activate
+def test_scrap_does_not_repeat_the_last_day_for_a_multi_day_range():
+    """The chunking loop must stop as soon as it reaches ffin, not fire one
+    extra single-day query for the boundary it already covered."""
+    docs = _scrap_with(_fixture_response())
+
+    assert len(responses.calls) == 1
+    assert len(docs) == 1

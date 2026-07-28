@@ -17,6 +17,13 @@ CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ---- worker: Celery task processor ----
 FROM base AS worker
+# LibreOffice (headless, via soffice) converts RTF/DOC/DOCX to PDF for document
+# previews and does the RTF fallback conversion for SAMAI downloads — both run
+# only inside worker tasks (core/downloader.py), never in api or beat. Writer
+# alone covers every format this project converts (no spreadsheets involved).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libreoffice-writer \
+    && rm -rf /var/lib/apt/lists/*
 CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info"]
 
 # ---- beat: Celery scheduler (single instance only) ----

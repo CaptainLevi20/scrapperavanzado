@@ -1,3 +1,4 @@
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
@@ -10,6 +11,8 @@ from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
+
+logger = logging.getLogger(__name__)
 
 _TRIBUNALES_SUPERIORES_URL = "https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/inicio"
 _BASE_DOMAIN = "https://publicacionesprocesales.ramajudicial.gov.co"
@@ -362,7 +365,7 @@ class ScrapRamaJudicial(BaseScrapper):
                         (fecha_p, tipo, tipo_dir, especialidad_dir, despacho_dir, especialidad_raw, despacho_raw, detail_url)
                     )
                 except Exception as e:
-                    print(f"Error procesando fila: {e}")
+                    logger.warning("Error procesando fila: %s", e)
                     continue
 
             if on_progress and pending:
@@ -393,9 +396,10 @@ class ScrapRamaJudicial(BaseScrapper):
                                 and tamano_actual is not None
                                 and tamano_actual != tamano_anterior
                             ):
-                                print(
-                                    f"Advertencia: {file_uuid} cambió de tamaño entre listados "
-                                    f"({tamano_anterior} -> {tamano_actual} bytes); se conserva la primera aparición."
+                                logger.warning(
+                                    "%s cambió de tamaño entre listados (%s -> %s bytes); "
+                                    "se conserva la primera aparición.",
+                                    file_uuid, tamano_anterior, tamano_actual,
                                 )
                             continue
                         tamanos_por_uuid[file_uuid] = check_remote_content_length(download_url)

@@ -293,7 +293,6 @@ class ScrapTribunales(BaseScrapper):
             f_public=estado_fecha_str,
             f_providencia=fecha_prov,
             save_path=path,
-            convert_to="rtf_word",
         )
 
     @staticmethod

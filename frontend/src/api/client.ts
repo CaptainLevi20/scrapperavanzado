@@ -62,8 +62,16 @@ export async function apiFetch<T>(
     // no entra aquí: cae al manejo genérico de abajo, que preserva el
     // detail real que mandó el backend (ej. "Usuario o contraseña
     // incorrectos").
-    clearStoredToken();
-    unauthorizedHandler?.();
+    //
+    // Solo se limpia la sesión si el token guardado AHORA sigue siendo el
+    // mismo con el que se hizo esta petición: si mientras tanto el usuario
+    // volvió a iniciar sesión (una petición vieja, con el token anterior,
+    // que llega tarde), no se debe cerrar la sesión nueva y válida que ya
+    // reemplazó a la que falló.
+    if (getStoredToken() === token) {
+      clearStoredToken();
+      unauthorizedHandler?.();
+    }
     throw new ApiError(401, "Sesión inválida o expirada");
   }
 

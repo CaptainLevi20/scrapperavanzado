@@ -1,6 +1,8 @@
+import re
+
 import responses
 
-from core.scrapers.families.adres import ScrapADRES
+from core.scrapers.families.adres import ScrapADRES, _MAX_PAGINAS_POR_CATEGORIA
 from core.scrapers.registry import FAMILY_REGISTRY
 
 _TABLE_HTML = """
@@ -121,3 +123,41 @@ def test_scrap_reports_and_continues_past_a_failing_category_page():
     assert len(docs) == 1
     assert docs[0].title == "Circular 1"
     assert any("Error consultando página de Resolución" in m for m in messages)
+
+
+@responses.activate
+def test_scrap_reports_when_the_page_cap_is_reached_with_more_results_pending():
+    """Regression test: hitting the _MAX_PAGINAS_POR_CATEGORIA cap while more
+    pages were still queued used to just silently stop — no signal that any
+    documents were left uncollected. Now reported via on_progress."""
+    call_count = {"n": 0}
+
+    def _resoluciones_callback(request):
+        call_count["n"] += 1
+        n = call_count["n"]
+        next_page = n + 1
+        body = f"""
+        <table>
+        <tr><td>Fecha</td><td>Documento</td><td>Descripción</td></tr>
+        <tr><td>15/01/2024</td><td><a href="/normativa/resolucion-{n}.pdf">Resolución {n}</a></td><td>Detalle</td></tr>
+        </table>
+        <script>RefreshPageTo(event, "/normativa/resoluciones?page={next_page}");</script>
+        """
+        return 200, {}, body
+
+    responses.add_callback(
+        responses.GET,
+        re.compile(r"https://www\.adres\.gov\.co/normativa/resoluciones.*"),
+        callback=_resoluciones_callback,
+    )
+    empty_html = "<p>No hay documentos disponibles.</p>"
+    responses.add(responses.GET, "https://www.adres.gov.co/normativa/circulares", body=empty_html, status=200)
+    responses.add(responses.GET, "https://www.adres.gov.co/normativa/acuerdos", body=empty_html, status=200)
+
+    messages = []
+    scraper = ScrapADRES()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31", on_progress=messages.append)
+
+    resoluciones = [d for d in docs if d.tipo == "Resolución"]
+    assert len(resoluciones) == _MAX_PAGINAS_POR_CATEGORIA  # una fila nueva por cada página permitida
+    assert any("Error" in m and "tope" in m and "Resolución" in m for m in messages)

@@ -1,7 +1,10 @@
 import hashlib
 import re
+from pathlib import PurePosixPath
 
 from core.models import RawDocModel
+
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/*?:"<>|\x00-\x1f]')
 
 # Espejo del formato que produce core/scrapers/families/rama_judicial.py::_normalize_title
 # (T_{CODIGO}_{radicado segmentado en 23 dígitos}). No importa TRIBUNAL_CODES desde el
@@ -26,13 +29,39 @@ def compute_doc_id(doc: RawDocModel, include_publication_date: bool = True) -> s
     return make_doc_id(key, doc.f_public)
 
 
+def _sanitize_filename_segment(name: str, fallback: str = "") -> str:
+    """Collapses a value to a single safe path segment before it's used to build
+    a storage key. The filename in this function's callers always comes from a
+    remote server we don't control (an HTTP header, or the URL/page title it
+    served) — without this, a crafted or just unusually-formatted filename
+    could inject `/` or `\\` and land the document in an unexpected subfolder,
+    or start with `..` and escape the storage root entirely. Strips path
+    separators and control characters, and any leading/trailing dots or
+    whitespace (so a lone "." or ".." segment, or a Windows-invalid trailing
+    dot, collapses to nothing and falls back instead of surviving as-is)."""
+    cleaned = _INVALID_FILENAME_CHARS.sub("-", name).strip(" .")
+    return cleaned or fallback
+
+
 def extract_filename(disposition: str, content_type: str, url: str, opt_title: str) -> dict:
     if disposition:
         match = re.search(r'filename="?([^"]+)"?', disposition)
         if match:
             filename = match.group(1)
-            ext = "." + filename.split(".")[-1] if "." in filename else ""
-            return {"filename": filename.split(".")[0], "extension": ext}
+            # rpartition (not split(".")[0]/[-1], which used different dots for
+            # the stem vs. the extension) — a filename like
+            # "Sentencia.T-123.2024.pdf" must keep "Sentencia.T-123.2024" as the
+            # stem and only ".pdf" as the extension, or two documents with
+            # different discriminating middle parts collapse onto the same
+            # storage key and silently overwrite each other in storage.
+            if "." in filename:
+                stem_raw, _, raw_ext = filename.rpartition(".")
+            else:
+                stem_raw, raw_ext = filename, ""
+            sanitized_ext = _sanitize_filename_segment(raw_ext) if raw_ext else ""
+            ext = f".{sanitized_ext}" if sanitized_ext else ""
+            stem = _sanitize_filename_segment(stem_raw, fallback="documento")
+            return {"filename": stem, "extension": ext}
 
     if "rtf" in content_type.lower():
         ext = ".rtf"
@@ -49,9 +78,22 @@ def extract_filename(disposition: str, content_type: str, url: str, opt_title: s
         base, _, url_ext = name.rpartition(".")
         name = base
         if not ext:
-            ext = "." + url_ext
-    return {"filename": name, "extension": ext}
+            sanitized_ext = _sanitize_filename_segment(url_ext) if url_ext else ""
+            ext = f".{sanitized_ext}" if sanitized_ext else ""
+    return {"filename": _sanitize_filename_segment(name, fallback="documento"), "extension": ext}
 
 
 def storage_path(*parts) -> str:
     return "/".join(str(p) for p in parts)
+
+
+def is_safe_storage_key(key: str) -> bool:
+    """True if `key` is safe to join onto a local directory (or use as a ZIP
+    arcname) without escaping it — not empty, not an absolute path, and no
+    ".." traversal segment. Storage keys are always POSIX-style ("/"-delimited)
+    regardless of the host OS, so PurePosixPath is used to split it into
+    segments consistently on every platform."""
+    if not key or key.startswith("/") or key.startswith("\\"):
+        return False
+    parts = PurePosixPath(key).parts
+    return bool(parts) and ".." not in parts and not any(part in ("", ".") for part in parts)

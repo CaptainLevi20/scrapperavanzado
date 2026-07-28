@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
@@ -21,8 +21,8 @@ def post_run(payload: RunCreate, db: Session = Depends(get_db)):
 @router.get("/runs", response_model=list[RunOut])
 def get_runs(
     status_filter: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     return repository.list_runs(db, status=status_filter, limit=limit, offset=offset)

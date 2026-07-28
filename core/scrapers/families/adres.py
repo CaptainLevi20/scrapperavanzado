@@ -142,4 +142,14 @@ class ScrapADRES(BaseScrapper):
                     if next_url not in visitadas:
                         queue.append(next_url)
 
+            if paginas >= _MAX_PAGINAS_POR_CATEGORIA and queue:
+                # The cap was hit with more pages still queued — silently
+                # stopping here would drop whatever comes after page
+                # _MAX_PAGINAS_POR_CATEGORIA with no trace of it ever happening.
+                if on_progress:
+                    on_progress(
+                        f"[{self.source}] Error: se alcanzó el tope de {_MAX_PAGINAS_POR_CATEGORIA} páginas "
+                        f"para {tipo} con más resultados pendientes; puede haber documentos sin recoger."
+                    )
+
         return docs

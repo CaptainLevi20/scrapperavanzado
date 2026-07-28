@@ -158,9 +158,19 @@ class PaginatedDocuments(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str
+    username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=8)
     invite_code: str
+
+    @field_validator("username")
+    @classmethod
+    def _normalize_username(cls, value: str) -> str:
+        # Field(min_length=3) alone would still accept "   " (all whitespace) or
+        # let "  ana  " and "ana" register as if they were different usernames.
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("El nombre de usuario debe tener al menos 3 caracteres")
+        return stripped
 
 
 class LoginRequest(BaseModel):

@@ -1,4 +1,3 @@
-import logging
 import shutil
 import subprocess
 import tempfile
@@ -11,9 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.models import RawDocModel
-from core.utils import extract_filename, storage_path
-
-_WORD_FORMATS = {"rtf": 6, "docx": 16, "pdf": 17}
+from core.utils import extract_filename, is_safe_storage_key, storage_path
 
 # LibreOffice's winget/MSI installer does not add soffice.exe to PATH (verified: absent
 # from both the user and Machine-level PATH env vars after a fresh install), so PATH
@@ -101,97 +98,7 @@ class DownloadResult:
     converted_format: str | None = None
 
 
-def _pdf_to_rtf_fallback(input_path: Path) -> Path:
-    from pypdf import PdfReader
-
-    reader = PdfReader(str(input_path))
-    if reader.is_encrypted:
-        reader.decrypt("")
-    output_path = input_path.with_suffix(".rtf")
-    with open(output_path, "w", encoding="ascii", errors="replace") as f:
-        f.write("{\\rtf1\\ansi\\ansicpg1252\\deff0\n")
-        f.write("{\\fonttbl{\\f0\\froman\\fcharset0 Times New Roman;}}\n")
-        f.write("\\f0\\fs24\n")
-        for page in reader.pages:
-            for line in (page.extract_text() or "").splitlines():
-                escaped = line.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-                rtf_line = "".join(f"\\u{ord(c)}?" if ord(c) > 127 else c for c in escaped)
-                f.write(rtf_line + "\\par\n")
-            f.write("\\par\n")
-        f.write("}\n")
-    return output_path
-
-
-class WordConverter:
-    """Abre Word una sola vez y reutiliza la instancia para todas las conversiones."""
-
-    def __init__(self):
-        self._word = None
-
-    def _get_word(self):
-        if self._word is None:
-            import win32com.client
-
-            self._word = win32com.client.Dispatch("Word.Application")
-            self._word.Visible = False
-            self._word.DisplayAlerts = 0
-        return self._word
-
-    def convert(self, input_path: Path, target_format: str) -> Path:
-        fmt = _WORD_FORMATS.get(target_format)
-        if fmt is None:
-            raise ValueError(f"Formato no soportado: {target_format}")
-
-        output_path = input_path.with_suffix(f".{target_format}")
-        word = self._get_word()
-        doc = word.Documents.Open(
-            str(input_path.resolve()), ConfirmConversions=False, AddToRecentFiles=False
-        )
-        doc.SaveAs(str(output_path.resolve()), FileFormat=fmt)
-        doc.Close(SaveChanges=False)
-
-        if not output_path.exists():
-            raise RuntimeError(f"Word no generó el archivo esperado: {output_path}")
-        return output_path
-
-    def quit(self):
-        if self._word is not None:
-            try:
-                self._word.Quit()
-            except Exception:
-                pass
-            self._word = None
-
-
 class Downloader:
-    def __init__(self):
-        self._word_converter = WordConverter()
-
-    def close(self):
-        if self._word_converter:
-            self._word_converter.quit()
-            self._word_converter = None
-
-    def _convert(self, path: Path, target_format: str) -> Path:
-        if target_format == "rtf_word":
-            try:
-                return self._word_converter.convert(path, "rtf")
-            except Exception as word_err:
-                logging.warning("WordConverter falló (%s): %s. Usando pypdf fallback.", path.name, word_err)
-                try:
-                    return _pdf_to_rtf_fallback(path)
-                except Exception as e:
-                    logging.warning("No se pudo convertir a RTF (%s): %s", path.name, e)
-                    return path
-        elif target_format == "rtf":
-            try:
-                return _pdf_to_rtf_fallback(path)
-            except Exception as e:
-                logging.warning("No se pudo convertir a RTF (%s): %s", path.name, e)
-                return path
-        else:
-            raise ValueError(f"Formato no soportado: {target_format}")
-
     @staticmethod
     def _resolve_jwt_indirect(jwt_url: str, headers: dict) -> requests.Response:
         session = requests.Session()
@@ -261,6 +168,13 @@ class Downloader:
 
                     filename = extract_filename(disposition, content_type, doc.link["url"], doc.title)
                     storage_key = self._resolve_storage_key(doc, filename)
+                    if not is_safe_storage_key(storage_key):
+                        # Backstop in case a family's own save_path template (not
+                        # just the remote filename extract_filename already
+                        # sanitizes) produces something unsafe — fail this one
+                        # document instead of silently writing outside where
+                        # every other document expects to live.
+                        raise ValueError(f"Clave de almacenamiento no segura: {storage_key!r}")
 
                     temp_path = tmp_dir / f"{uuid.uuid4().hex}{filename['extension']}"
                     with open(temp_path, "wb") as f:
@@ -275,19 +189,9 @@ class Downloader:
         else:
             raise last_exc
 
-        converted_format = None
-        if doc.convert_to:
-            converted = self._convert(temp_path, doc.convert_to)
-            if converted != temp_path:
-                storage_key = storage_key.rsplit(".", 1)[0] + ".rtf" if "." in storage_key else storage_key + ".rtf"
-                temp_path = converted
-                converted_format = doc.convert_to
-                content_type = "application/rtf"
-
         return DownloadResult(
             local_path=temp_path,
             storage_key=storage_key,
             content_type=content_type,
             file_size_bytes=temp_path.stat().st_size,
-            converted_format=converted_format,
         )

@@ -311,10 +311,7 @@ export function DocumentPreviewDialog({
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
               <p className="text-sm text-muted-foreground">Vista previa no disponible para este tipo de archivo.</p>
-              <Button
-                variant="outline"
-                onClick={() => downloadDocumentFile(currentDocument.id, buildDownloadFilename(currentDocument))}
-              >
+              <Button variant="outline" onClick={() => handleDownloadOther(currentDocument)}>
                 <Download className="size-3.5" aria-hidden="true" />
                 Descargar
               </Button>

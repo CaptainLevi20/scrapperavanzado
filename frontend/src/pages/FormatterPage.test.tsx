@@ -83,6 +83,41 @@ describe("FormatterPage", () => {
     });
   });
 
+  it("copies a file into the corrected year's folder, not the original one", async () => {
+    // Regression test: correcting a misdetected year used to fix the file's
+    // final NAME but still copy it into the ORIGINAL year folder (yearFolder
+    // was carried over unchanged from the auto-detected — wrong, or here,
+    // absent — value). copyFormattedFiles (copy.ts) uses yearFolder as the
+    // actual destination directory, so this exercises the real end-to-end path.
+    const inputRoot = fakeInputDirectory("Acuerdos Cali", {
+      VARIOS: { "Acuerdo 0005.pdf": "contenido" }, // year not detectable from "VARIOS"
+    });
+    const output = fakeOutputDirectory("salida");
+    const picker = vi.fn().mockResolvedValueOnce(inputRoot).mockResolvedValueOnce(output.handle);
+    vi.stubGlobal("showDirectoryPicker", picker);
+
+    const user = userEvent.setup();
+    render(<FormatterPage />);
+    await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
+
+    await screen.findByText(/año no detectado/i);
+
+    const yearField = screen.getByLabelText(/año para/i);
+    await user.clear(yearField);
+    await user.type(yearField, "1963");
+
+    const numberField = screen.getByLabelText(/número para/i);
+    await user.clear(numberField);
+    await user.type(numberField, "5");
+
+    const copyButton = screen.getByRole("button", { name: /elegir carpeta de salida y copiar/i });
+    await waitFor(() => expect(copyButton).toBeEnabled());
+    await user.click(copyButton);
+
+    await waitFor(() => expect(screen.getByText(/1 archivo copiado/i)).toBeInTheDocument());
+    expect(output.readAll()).toEqual({ "1963/A_CONCALI_0005_1963.pdf": "contenido" });
+  });
+
   it("shows an error when the output folder is the same as the input folder", async () => {
     const sameRoot = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 1962": { "Acuerdo 0005 de 1962.pdf": "contenido" },
