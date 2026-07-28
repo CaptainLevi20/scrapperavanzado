@@ -48,8 +48,7 @@ El frontend se compila y publica automáticamente como una cuarta imagen
 copia de archivos.
 
 Ver `docs/guia-despliegue-sistemas.md` para la guía de instalación
-completa, y `docs/superpowers/specs/2026-07-27-despliegue-produccion-red-interna-design.md`
-para el diseño detrás de esas decisiones.
+completa.
 
 `docker-compose.yml` (sin `.prod`) sigue siendo solo para infraestructura
 local de desarrollo (Postgres/Redis/MinIO).

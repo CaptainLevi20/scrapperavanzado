@@ -1,6 +1,6 @@
 # IURISYNC Admin Dashboard
 
-Panel interno para gestionar fuentes de scraping, disparar/monitorear runs y buscar documentos. Ver el diseño completo en `docs/superpowers/specs/2026-07-10-admin-dashboard-design.md`.
+Panel interno para gestionar fuentes de scraping, disparar/monitorear runs y buscar documentos.
 
 ## Setup local
 
