@@ -86,9 +86,12 @@ def get_documents(
     # Families whose title identifies the case (not one specific actuación) —
     # each has its own title format, so its own check for "does this title
     # actually look like a case title" before it's eligible for grouping.
+    # "samai" checks both formats: Consejo de Estado titles look like
+    # is_samai_case_title, while Tribunal Administrativo titles mirror
+    # rama_judicial's format instead (see core/scrapers/families/samai.py).
     _CASE_TITLE_CHECKS = {
         "rama_judicial": is_radicado_title,
-        "samai": is_samai_case_title,
+        "samai": lambda title: is_samai_case_title(title) or is_radicado_title(title),
     }
     family_keys = repository.get_source_family_keys(db, [d.source_id for d in items])
     counts: dict[str, int] = {}

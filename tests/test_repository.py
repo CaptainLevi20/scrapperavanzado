@@ -1111,6 +1111,32 @@ def test_list_documents_collapse_keeps_only_the_most_recent_actuacion_for_samai(
     assert [d.doc_id for d in items] == ["doc-new"]
 
 
+def test_list_documents_collapse_keeps_only_the_most_recent_actuacion_for_tribunal_administrativo(db_session):
+    """A Tribunal Administrativo source is also family "samai", but its titles
+    look like rama_judicial's format instead of Consejo de Estado's (see
+    core/scrapers/families/samai.py::_normalizar_titulo) — collapsing must
+    still recognize that format as a case title within the samai family."""
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Tribunal Administrativo de Antioquia", family_params={}
+    )
+    shared_title = "T_ANTI_05001_23_33_000_2018_01895_00"
+    from datetime import date
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 7, 14),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 7, 27),
+    )
+
+    items, total = repository.list_documents(db_session, family_key="samai", collapse_case_families=True)
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-new"]
+
+
 def test_list_documents_collapse_does_not_cross_families_between_samai_and_rama_judicial(db_session):
     """A samai and a rama_judicial document never share the same doc-count
     "sibling" pool, even in the (practically impossible, but not code-enforced

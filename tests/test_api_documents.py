@@ -199,6 +199,32 @@ def test_get_documents_reports_null_case_document_count_for_a_unique_radicado(ap
     assert response.json()["items"][0]["case_document_count"] is None
 
 
+def test_get_documents_reports_case_document_count_for_a_tribunal_administrativo(api_client, auth_header, db_session):
+    """A Tribunal Administrativo source is family "samai", but its titles look
+    like rama_judicial's format rather than Consejo de Estado's — the badge
+    must still recognize and count them as a case (see
+    core/scrapers/families/samai.py::_normalizar_titulo)."""
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Tribunal Administrativo de Antioquia", family_params={}
+    )
+    shared_title = "T_ANTI_05001_23_33_000_2018_01895_00"
+    for doc_id in ("doc-1", "doc-2"):
+        repository.insert_document(
+            db_session, doc_id=doc_id, source_id=source.id, title=shared_title,
+            storage_bucket="iurisync-test", storage_key=f"{doc_id}.pdf",
+        )
+
+    response = api_client.get("/documents", params={"family_key": "samai"}, headers=auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["case_document_count"] == 2
+
+
 def test_get_documents_does_not_group_repeated_fallback_titles(api_client, auth_header, db_session):
     """A magistrado-name fallback title repeated across unrelated documents must
     never be reported as a case."""

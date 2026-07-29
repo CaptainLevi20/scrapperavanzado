@@ -13,12 +13,14 @@ _LIKE_ESCAPE_CHAR = "\\"
 
 # Familias cuyo título identifica el CASO (no una actuación puntual), así que varias
 # filas distintas pueden compartir el mismo título legítimamente — cada una de estas
-# entradas es "family_key -> patrón que confirma que el título sí tiene esa forma"
+# entradas es "family_key -> patrones que confirman que el título sí tiene esa forma"
 # (nunca un título de respaldo, como el nombre de un magistrado, que puede repetirse
-# sin ser el mismo caso).
+# sin ser el mismo caso). "samai" tiene dos patrones porque, dentro de esa misma
+# familia, Consejo de Estado y los Tribunales Administrativos usan formatos de título
+# distintos (ver core/scrapers/families/samai.py::_normalizar_titulo).
 _CASE_GROUPING_FAMILY_PATTERNS = {
-    "rama_judicial": RADICADO_TITLE_PATTERN,
-    "samai": SAMAI_CASE_TITLE_PATTERN,
+    "rama_judicial": [RADICADO_TITLE_PATTERN],
+    "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN],
 }
 
 
@@ -435,8 +437,11 @@ def list_documents(
         )
         is_case_title = or_(
             *[
-                and_(OuterSource.family_key == family_key, Document.title.op("~")(pattern.pattern))
-                for family_key, pattern in _CASE_GROUPING_FAMILY_PATTERNS.items()
+                and_(
+                    OuterSource.family_key == family_key,
+                    or_(*[Document.title.op("~")(pattern.pattern) for pattern in patterns]),
+                )
+                for family_key, patterns in _CASE_GROUPING_FAMILY_PATTERNS.items()
             ]
         )
         stmt = stmt.join(OuterSource, OuterSource.id == Document.source_id).where(

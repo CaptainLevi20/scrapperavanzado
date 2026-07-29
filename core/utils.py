@@ -7,9 +7,13 @@ from core.models import RawDocModel
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/*?:"<>|\x00-\x1f]')
 
 # Espejo del formato que produce core/scrapers/families/rama_judicial.py::_normalize_title
-# (T_{CODIGO}_{radicado segmentado en 23 dígitos}). No importa TRIBUNAL_CODES desde el
-# módulo del scraper para no acoplar esta capa a uno de familia específico — el rango de
-# 2-5 letras mayúsculas cubre los códigos reales (3-4 letras) con margen.
+# (T_{CODIGO}_{radicado segmentado en 23 dígitos}). Desde jul. 2026 también es el formato
+# que usa core/scrapers/families/samai.py::_normalizar_titulo para los Tribunales
+# Administrativos (todo corp de SAMAI salvo Consejo de Estado, que sigue con
+# SAMAI_CASE_TITLE_PATTERN) — deliberadamente igual al de Tribunales Superiores, no al de
+# Consejo de Estado. No importa TRIBUNAL_CODES desde el módulo del scraper para no acoplar
+# esta capa a uno de familia específico — el rango de 2-5 letras mayúsculas cubre los
+# códigos reales (3-4 letras) con margen.
 RADICADO_TITLE_PATTERN = re.compile(r"^T_[A-Z]{2,5}_\d{5}_\d{2}_\d{2}_\d{3}_\d{4}_\d{5}_\d{2}$")
 
 
@@ -18,10 +22,12 @@ def is_radicado_title(title: str) -> bool:
 
 
 # Espejo del formato que produce core/scrapers/families/samai.py::_normalizar_titulo
-# ({radicado}({ACRÓNIMO})). El radicado (número del caso, no de una actuación puntual)
-# es lo que se repite entre las distintas actuaciones de un mismo caso — igual que el
-# título de rama_judicial, así que el mismo mecanismo de agrupar "N actuaciones" por
-# título exacto aplica aquí también.
+# ({radicado}({ACRÓNIMO})) — pero solo para Consejo de Estado; los demás corps de SAMAI
+# (Tribunales Administrativos) usan RADICADO_TITLE_PATTERN en su lugar (ver ese
+# comentario). El radicado (número del caso, no de una actuación puntual) es lo que se
+# repite entre las distintas actuaciones de un mismo caso — igual que el título de
+# rama_judicial, así que el mismo mecanismo de agrupar "N actuaciones" por título exacto
+# aplica aquí también.
 SAMAI_CASE_TITLE_PATTERN = re.compile(r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}\([A-Z0-9]+\)$")
 
 

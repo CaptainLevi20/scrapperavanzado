@@ -41,7 +41,10 @@ def test_parse_row_builds_expected_rawdocmodel():
 
     doc = scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15")
 
-    assert doc.title == "25001233300020260001200"
+    # Tribunal Administrativo (no Consejo de Estado): título tipo Tribunal
+    # Superior, "T_{CÓDIGO}_{radicado}" — nunca el bare radicado o el formato
+    # con acrónimo de Consejo de Estado.
+    assert doc.title == "T_CUND_25001233300020260001200"
     assert doc.tipo == "Auto"
     assert doc.detalle == "Auto que rechaza recurso de apelación"
     assert doc.especialidad == "5"  # columna "Clase" cruda (ver _ROW_HTML)
@@ -163,8 +166,11 @@ def test_samai_doc_id_differs_for_distinct_actuaciones_sharing_a_radicado():
 # reales de Consejo de Estado (ver core/scrapers/families/samai.py).
 
 
+_CONSEJO_ESTADO = "1100103"
+
+
 def test_normalizar_titulo_appends_acronym_for_known_clase():
-    assert _normalizar_titulo("11001-03-28-000-2026-00329-00", "ACCIONES DE CUMPLIMIENTO") == (
+    assert _normalizar_titulo("11001-03-28-000-2026-00329-00", "ACCIONES DE CUMPLIMIENTO", _CONSEJO_ESTADO) == (
         "11001-03-28-000-2026-00329-00(ACU)"
     )
 
@@ -172,10 +178,10 @@ def test_normalizar_titulo_appends_acronym_for_known_clase():
 def test_normalizar_titulo_strips_ley_prefix_before_matching():
     # "LEY 1437 NULIDAD" y "Nulidad" son la misma clase — deben caer en el mismo
     # acrónimo aunque una traiga el código de ley y la otra no.
-    assert _normalizar_titulo("11001-03-24-000-2015-00065-00", "LEY 1437 NULIDAD") == (
+    assert _normalizar_titulo("11001-03-24-000-2015-00065-00", "LEY 1437 NULIDAD", _CONSEJO_ESTADO) == (
         "11001-03-24-000-2015-00065-00(N)"
     )
-    assert _normalizar_titulo("11001-03-24-000-2015-00065-00", "Nulidad") == (
+    assert _normalizar_titulo("11001-03-24-000-2015-00065-00", "Nulidad", _CONSEJO_ESTADO) == (
         "11001-03-24-000-2015-00065-00(N)"
     )
 
@@ -184,41 +190,81 @@ def test_normalizar_titulo_strips_accion_de_prefix_before_matching():
     # "ACCION DE NULIDAD" debe caer en el mismo acrónimo que "Nulidad", no
     # quedarse como una clase aparte solo por el prefijo "Acción de".
     assert _normalizar_clase("ACCION DE NULIDAD") == _normalizar_clase("Nulidad")
-    assert _normalizar_titulo("05001-23-33-000-2026-00810-01", "ACCION DE NULIDAD") == (
+    assert _normalizar_titulo("05001-23-33-000-2026-00810-01", "ACCION DE NULIDAD", _CONSEJO_ESTADO) == (
         "05001-23-33-000-2026-00810-01(N)"
     )
 
 
 def test_normalizar_titulo_strips_articulo_decision_reference():
-    assert _normalizar_titulo("11001-03-24-000-2020-00002-00", "NULIDAD RELATIVA ARTÍCULO 172 DECISION 486") == (
-        "11001-03-24-000-2020-00002-00(NR)"
-    )
-    assert _normalizar_titulo("11001-03-24-000-2020-00002-00", "NULIDAD ABSOLUTA ARTÍCULO 172 DECISION 486") == (
-        "11001-03-24-000-2020-00002-00(NA)"
-    )
+    assert _normalizar_titulo(
+        "11001-03-24-000-2020-00002-00", "NULIDAD RELATIVA ARTÍCULO 172 DECISION 486", _CONSEJO_ESTADO
+    ) == "11001-03-24-000-2020-00002-00(NR)"
+    assert _normalizar_titulo(
+        "11001-03-24-000-2020-00002-00", "NULIDAD ABSOLUTA ARTÍCULO 172 DECISION 486", _CONSEJO_ESTADO
+    ) == "11001-03-24-000-2020-00002-00(NA)"
 
 
 def test_normalizar_titulo_is_accent_and_case_insensitive():
-    assert _normalizar_titulo("r1", "reparación directa") == "r1(RD)"
-    assert _normalizar_titulo("r1", "REPARACION DIRECTA") == "r1(RD)"
+    assert _normalizar_titulo("r1", "reparación directa", _CONSEJO_ESTADO) == "r1(RD)"
+    assert _normalizar_titulo("r1", "REPARACION DIRECTA", _CONSEJO_ESTADO) == "r1(RD)"
 
 
 def test_normalizar_titulo_merges_clases_the_user_confirmed_are_the_same():
     # Confirmado con el usuario: aunque el texto es distinto, son la misma clase.
-    assert _normalizar_titulo("r1", "CONFLICTOS DE COMPETENCIA JUDICIAL") == "r1(CCO)"
-    assert _normalizar_titulo("r1", "Protección de los derechos e intereses colectivos") == "r1(PDIC)"
+    assert _normalizar_titulo("r1", "CONFLICTOS DE COMPETENCIA JUDICIAL", _CONSEJO_ESTADO) == "r1(CCO)"
+    assert _normalizar_titulo("r1", "Protección de los derechos e intereses colectivos", _CONSEJO_ESTADO) == "r1(PDIC)"
     # "Acción de grupo" y "reparación de perjuicios causados a un grupo" son
     # clases distintas (confirmado con el usuario) — no deben compartir sigla.
-    assert _normalizar_titulo("r1", "Acción de grupo") == "r1(AG)"
-    assert _normalizar_titulo("r1", "LEY 1437 REPARACION DE PERJUICIOS CAUSADOS A UN GRUPO") == "r1(RPAG)"
+    assert _normalizar_titulo("r1", "Acción de grupo", _CONSEJO_ESTADO) == "r1(AG)"
+    assert _normalizar_titulo(
+        "r1", "LEY 1437 REPARACION DE PERJUICIOS CAUSADOS A UN GRUPO", _CONSEJO_ESTADO
+    ) == "r1(RPAG)"
 
 
 def test_normalizar_titulo_falls_back_to_bare_radicado_for_unknown_clase():
     # Clase que no está en el catálogo (todavía no vista en los datos reales) —
     # se deja el radicado solo, sin acrónimo, hasta que se defina su sigla.
-    assert _normalizar_titulo("11001-03-24-000-2026-99999-00", "Una clase nunca vista") == (
+    assert _normalizar_titulo("11001-03-24-000-2026-99999-00", "Una clase nunca vista", _CONSEJO_ESTADO) == (
         "11001-03-24-000-2026-99999-00"
     )
+
+
+# --- título de Tribunal Administrativo: T_{CÓDIGO}_{radicado segmentado} ------
+#
+# A diferencia de Consejo de Estado, un Tribunal Administrativo NUNCA lleva el
+# acrónimo de la clase — su título debe imitar el de Tribunales Superiores
+# (rama_judicial), no el de Consejo de Estado.
+
+
+def test_normalizar_titulo_for_tribunal_administrativo_mirrors_tribunal_superior_format():
+    titulo = _normalizar_titulo(
+        "05001-23-33-000-2018-01895-00", "Nulidad y restablecimiento del derecho", "0500123"
+    )
+    assert titulo == "T_ANTI_05001_23_33_000_2018_01895_00"
+
+
+def test_normalizar_titulo_for_tribunal_administrativo_ignores_the_clase_entirely():
+    # La clase no debe afectar en nada el título de un Tribunal Administrativo,
+    # a diferencia de Consejo de Estado — ni siquiera para agregar un acrónimo.
+    sin_acronimo = _normalizar_titulo("13001-23-33-000-2026-00400-00", "Una clase nunca vista", "1300123")
+    con_acronimo = _normalizar_titulo("13001-23-33-000-2026-00400-00", "Nulidad", "1300123")
+    assert sin_acronimo == con_acronimo == "T_BOLI_13001_23_33_000_2026_00400_00"
+
+
+def test_normalizar_titulo_for_tribunal_administrativo_never_matches_consejo_de_estado_format():
+    # Requisito del usuario: el nombre de un Tribunal Administrativo no debe
+    # parecerse al de Consejo de Estado (radicado(ACRÓNIMO)).
+    from core.utils import is_samai_case_title
+
+    titulo = _normalizar_titulo("05001-23-33-000-2018-01895-00", "Nulidad", "0500123")
+    assert is_samai_case_title(titulo) is False
+
+
+def test_normalizar_titulo_for_tribunal_administrativo_matches_tribunal_superior_pattern():
+    from core.utils import is_radicado_title
+
+    titulo = _normalizar_titulo("05001-23-33-000-2018-01895-00", "Nulidad", "0500123")
+    assert is_radicado_title(titulo) is True
 
 
 def test_normalizar_titulo_and_especialidad_are_case_law_code_insensitive():

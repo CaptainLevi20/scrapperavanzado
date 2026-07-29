@@ -10,10 +10,15 @@ from bs4 import BeautifulSoup
 
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
+from core.scrapers.families.rama_judicial import TRIBUNAL_CODES
 from core.scrapers.registry import register_family
 from core.utils import storage_path
 
 _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
+
+# El código de SAMAI_CORPS para Consejo de Estado — el único corp cuyo título
+# sigue llevando el acrónimo de la clase entre paréntesis (ver _normalizar_titulo).
+_CONSEJO_DE_ESTADO_CORP_CODE = "1100103"
 
 # La columna "Clase" de SAMAI describe el tipo de proceso, pero el mismo proceso
 # aparece escrito de formas distintas según la sección/época (con o sin el
@@ -76,12 +81,54 @@ _CLASE_ACRONIMOS = {
     "NULIDAD ABSOLUTA": "NA",
     "NULIDAD POR INCONSTITUCIONALIDAD": "NI",
     "INSISTENCIA PETICIONES DE INFORMACION": "IPI",
+    # Vistas por primera vez examinando datos reales de Tribunales Administrativos
+    # (jul. 2026: Antioquia y Bolívar, 1,351 documentos) — la clase no importa para
+    # el título de un Tribunal Administrativo (ver _normalizar_titulo), pero estas
+    # clases también pueden aparecer en Consejo de Estado, así que nutren este mismo
+    # catálogo. Las siguientes son variantes de clases que ya existían arriba:
+    "POPULAR": "AP",
+    "CONFLICTO DE COMPETENCIA": "CCO",
+    "CUMPLIMIENTO DE NORMAS CON FUERZA MATERIAL DE LEY (ACCION DE CUMPLIMIENTO)": "ACU",
+    "PROTECCION DE LOS DERECHOS E INTERESES COLECTIVOS (ACCION POPULAR)": "PDIC",
+    "RECURSO INSISTENCIA": "IPI",
+    "RECURSO DE INSISTENCIA": "IPI",
+    "A. DE NULIDAD CONTRA ACTOS DE CONTENIDO ELECTORAL": "NE",
+    # Estas sí son clases genuinamente nuevas para el catálogo:
+    "APELACION SENTENCIA": "AS",
+    "TUTELA": "T",
+    "EJECUTIVO CONEXO": "EC",
+    "EJECUTIVO SINGULAR": "ES",
+    "REVISION ACUERDOS": "RAC",
+    "APELACION AUTO": "AA",
+    "HABEAS CORPUS": "HC",
+    "MEDIDAS CAUTELARES": "MC",
+    "REVISION DECRETOS": "RDE",
+    "RECURSO DE QUEJA": "RQ",
+    "CONSULTA INCIDENTE DESACATO": "CID",
+    "INCIDENTE DESACATO": "ID",
+    # Confirmado con el usuario: "Electorales" y "Observaciones" NO son lo
+    # mismo que "Nulidad Electoral" — son clases aparte, con su propia sigla.
+    "ELECTORALES": "E",
+    "OBSERVACIONES": "O",
 }
 
 
-def _normalizar_titulo(radicado: str, clase: str) -> str:
-    acronimo = _CLASE_ACRONIMOS.get(_normalizar_clase(clase))
-    return f"{radicado}({acronimo})" if acronimo else radicado
+def _normalizar_titulo(radicado: str, clase: str, corp_code: str) -> str:
+    # Consejo de Estado keeps {radicado}({ACRÓNIMO}) — but Tribunales
+    # Administrativos must NOT look the same (serían fácilmente confundibles
+    # con providencias de Consejo de Estado). En su lugar imitan el formato
+    # de los Tribunales Superiores (core/scrapers/families/rama_judicial.py::
+    # _normalize_title): "T_{CÓDIGO}_{radicado segmentado con guiones bajos}".
+    # El radicado de SAMAI ya llega segmentado con guiones (5-2-2-3-4-5-2
+    # dígitos), así que basta con cambiar "-" por "_" para calzar exactamente
+    # con la segmentación que produce rama_judicial. La clase de proceso no
+    # importa para el título de un Tribunal Administrativo (solo se usa para
+    # nutrir el catálogo de Consejo de Estado — ver _especialidad_legible).
+    if corp_code == _CONSEJO_DE_ESTADO_CORP_CODE:
+        acronimo = _CLASE_ACRONIMOS.get(_normalizar_clase(clase))
+        return f"{radicado}({acronimo})" if acronimo else radicado
+    codigo = TRIBUNAL_CODES.get(corp_code[:2])
+    return f"T_{codigo}_{radicado.replace('-', '_')}" if codigo else radicado
 
 
 # Nombre legible por acrónimo, para la columna Especialidad/Proceso — el sitio
@@ -119,6 +166,20 @@ _ACRONIMO_A_NOMBRE = {
     "NA": "Nulidad absoluta",
     "NI": "Nulidad por inconstitucionalidad",
     "IPI": "Insistencia en peticiones de información",
+    "AS": "Apelación de sentencia",
+    "T": "Tutela",
+    "EC": "Ejecutivo conexo",
+    "ES": "Ejecutivo singular",
+    "RAC": "Revisión de acuerdos",
+    "AA": "Apelación de auto",
+    "HC": "Habeas corpus",
+    "MC": "Medidas cautelares",
+    "RDE": "Revisión de decretos",
+    "RQ": "Recurso de queja",
+    "CID": "Consulta de incidente de desacato",
+    "ID": "Incidente de desacato",
+    "E": "Electorales",
+    "O": "Observaciones",
 }
 
 
@@ -401,7 +462,7 @@ class ScrapTribunales(BaseScrapper):
         palabras = actuacion.split()
         tipo = _safe(palabras[0]) if palabras else ""
         seccion = _safe(sec_name, maxlen=100)
-        titulo = _normalizar_titulo(radicado, clase)
+        titulo = _normalizar_titulo(radicado, clase, corp_code)
         safe_radicado = _safe(radicado)
 
         path = storage_path(corp_name, seccion, estado_fecha_str, tipo, f"{safe_radicado}(extension)")
