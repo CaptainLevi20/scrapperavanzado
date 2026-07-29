@@ -17,6 +17,18 @@ def is_radicado_title(title: str) -> bool:
     return bool(RADICADO_TITLE_PATTERN.match(title))
 
 
+# Espejo del formato que produce core/scrapers/families/samai.py::_normalizar_titulo
+# ({radicado}({ACRÓNIMO})). El radicado (número del caso, no de una actuación puntual)
+# es lo que se repite entre las distintas actuaciones de un mismo caso — igual que el
+# título de rama_judicial, así que el mismo mecanismo de agrupar "N actuaciones" por
+# título exacto aplica aquí también.
+SAMAI_CASE_TITLE_PATTERN = re.compile(r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}\([A-Z0-9]+\)$")
+
+
+def is_samai_case_title(title: str) -> bool:
+    return bool(SAMAI_CASE_TITLE_PATTERN.match(title))
+
+
 def make_doc_id(key: str, f_public: str) -> str:
     return hashlib.sha1(f"{key}_{f_public}".encode()).hexdigest()
 

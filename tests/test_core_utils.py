@@ -160,3 +160,24 @@ def test_is_radicado_title_rejects_an_empty_string():
 def test_is_radicado_title_rejects_a_title_missing_a_segment():
     # Missing the final 2-digit segment.
     assert is_radicado_title("T_BTA_11001_31_03_048_2022_00418") is False
+
+
+from core.utils import is_samai_case_title
+
+
+def test_is_samai_case_title_matches_a_real_formatted_title():
+    assert is_samai_case_title("11001-03-28-000-2026-00271-00(NE)") is True
+
+
+def test_is_samai_case_title_matches_a_multi_letter_acronym():
+    assert is_samai_case_title("11001-03-24-000-2022-00373-00(NSP)") is True
+
+
+def test_is_samai_case_title_rejects_a_bare_radicado_without_acronym():
+    # No known clase matched — _normalizar_titulo leaves it as the bare radicado
+    # (see core/scrapers/families/samai.py), which must not be grouped as a case.
+    assert is_samai_case_title("11001-03-24-000-2022-00373-00") is False
+
+
+def test_is_samai_case_title_rejects_an_empty_string():
+    assert is_samai_case_title("") is False

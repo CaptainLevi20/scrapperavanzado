@@ -82,20 +82,20 @@ export interface PaginatedDocuments {
   offset: number;
 }
 
-export interface FamilyCount {
-  key: string;
-  display_name: string;
-  count: number;
-}
-
 export interface TipoCount {
   tipo: string;
   count: number;
 }
 
+export interface SourceCount {
+  id: number;
+  name: string;
+  count: number;
+}
+
 export interface DocumentStats {
-  by_family: FamilyCount[];
   by_tipo: TipoCount[];
+  by_source: SourceCount[];
   by_month: number[];
   year: number;
   available_years: number[];

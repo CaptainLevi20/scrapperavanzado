@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,8 @@ from bs4 import BeautifulSoup
 
 from core.models import RawDocModel
 from core.utils import extract_filename, is_safe_storage_key, storage_path
+
+_VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net[^"]*)"')
 
 # LibreOffice's winget/MSI installer does not add soffice.exe to PATH (verified: absent
 # from both the user and Machine-level PATH env vars after a fresh install), so PATH
@@ -111,6 +114,16 @@ class Downloader:
             (a["href"] for a in soup.find_all("a", href=True) if "blob.core.windows.net" in a["href"]),
             None,
         )
+        if not blob_url:
+            # SAMAI (Consejo de Estado / Tribunales Administrativos) stopped linking
+            # the file as a plain <a href> and now hands it to a JS PDF viewer instead:
+            # VerProvidenciaViewer.init('...', {"url":"https://...blob.core.windows.net/...pdf?...", ...}).
+            # Confirmed live on 2026-07-28: the <a> search alone silently dropped
+            # every document (0 saved out of 1,906 found in a one-month run).
+            match = _VIEWER_JSON_URL_RE.search(ver.text)
+            if match:
+                blob_url = match.group(1)
+
         if blob_url:
             return session.get(blob_url, stream=True, timeout=120)
 

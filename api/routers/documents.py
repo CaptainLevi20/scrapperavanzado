@@ -21,7 +21,7 @@ from api.schemas import (
 from core.db import repository
 from core.db.models import Document
 from core.storage import presigned_url
-from core.utils import is_radicado_title
+from core.utils import is_radicado_title, is_samai_case_title
 from worker.tasks import generate_document_preview_pdf
 
 logger = logging.getLogger(__name__)
@@ -78,17 +78,26 @@ def get_documents(
         downloaded_to=downloaded_to,
         title_contains=title,
         title_exact=title_exact,
-        collapse_rama_judicial_cases=title_exact is None,
+        collapse_case_families=title_exact is None,
         limit=limit,
         offset=offset,
     )
 
+    # Families whose title identifies the case (not one specific actuación) —
+    # each has its own title format, so its own check for "does this title
+    # actually look like a case title" before it's eligible for grouping.
+    _CASE_TITLE_CHECKS = {
+        "rama_judicial": is_radicado_title,
+        "samai": is_samai_case_title,
+    }
     family_keys = repository.get_source_family_keys(db, [d.source_id for d in items])
-    radicado_titles = [
-        d.title for d in items
-        if family_keys.get(d.source_id) == "rama_judicial" and is_radicado_title(d.title)
-    ]
-    counts = repository.count_rama_judicial_documents_by_title(db, radicado_titles)
+    counts: dict[str, int] = {}
+    for family_key_, is_case_title in _CASE_TITLE_CHECKS.items():
+        titles = [
+            d.title for d in items
+            if family_keys.get(d.source_id) == family_key_ and is_case_title(d.title)
+        ]
+        counts.update(repository.count_documents_by_title_within_family(db, titles, family_key_))
     for d in items:
         count = counts.get(d.title)
         d.case_document_count = count if count and count > 1 else None
@@ -109,6 +118,10 @@ def get_document_stats(year: Optional[int] = None, db: Session = Depends(get_db)
         for key, count in repository.count_documents_by_family(db)
     ]
     by_tipo = [{"tipo": tipo, "count": count} for tipo, count in repository.count_documents_by_tipo(db)]
+    by_source = [
+        {"id": source_id, "name": name, "count": count}
+        for source_id, name, count in repository.count_documents_by_source(db)
+    ]
 
     available_years = repository.list_document_years(db)
     effective_year = year if year is not None else (available_years[0] if available_years else date.today().year)
@@ -117,6 +130,7 @@ def get_document_stats(year: Optional[int] = None, db: Session = Depends(get_db)
     return {
         "by_family": by_family,
         "by_tipo": by_tipo,
+        "by_source": by_source,
         "by_month": by_month,
         "year": effective_year,
         "available_years": available_years,

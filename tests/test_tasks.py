@@ -1121,6 +1121,106 @@ def test_scrape_source_task_interrupts_an_in_flight_download_when_cancelled_mid_
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_cancellation_poller_never_touches_the_run_orm_object(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: the poller thread used to call
+    is_cancel_requested(poll_db, run.id) — `run` is an ORM object bound to the
+    task's own `db` session, not the poller's `poll_db`. SQLAlchemy expires
+    every object on a session after each commit, so `run.id` (an attribute
+    access, not a plain value) can trigger a lazy re-query through `db` from
+    the poller's own thread — a second thread touching a session the main
+    thread may be using at that exact moment, which corrupted its transaction
+    state ("session is in 'prepared' state") during a real, high-volume
+    Consejo de Estado run. The poller must use a plain int captured once up
+    front, so it never dereferences `run` at all.
+
+    The exact race is timing-dependent (needs the main thread's commit and the
+    poller's lazy-load to land on the session at the same instant) and isn't
+    reliably reproducible against the fast in-memory test DB used here — this
+    doesn't fail against the pre-fix code. What it does verify, deterministically,
+    is that the fixed code path runs correctly end to end under real concurrent
+    load: two documents downloaded in parallel (one fast, whose commit expires
+    every object attached to `db` including `run` — exactly what happens
+    repeatedly in production; one slow, which cancels the run and sleeps long
+    enough for the poller, at a 20ms interval, to notice) without raising, and
+    that the poller only ever received a plain int, never the ORM object."""
+    celery_app.conf.task_always_eager = True
+    monkeypatch.setattr(tasks_module, "CANCEL_POLL_INTERVAL_SECONDS", 0.02)
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    run_id = run.id
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/fast", "method": "GET"},
+            title="Documento rapido (dispara el commit que expira run)",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/cancel-mid-download", "method": "GET"},
+            title="Documento cancelado mientras run esta expirado",
+            tipo="Auto",
+            f_public="2026-01-01",
+        ),
+    ]
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    recorded_run_ids = []
+    real_is_cancel_requested = repository.is_cancel_requested
+
+    def _recording_is_cancel_requested(db, passed_run_id):
+        recorded_run_ids.append(passed_run_id)
+        return real_is_cancel_requested(db, passed_run_id)
+
+    monkeypatch.setattr(repository, "is_cancel_requested", _recording_is_cancel_requested)
+
+    responses.add(
+        responses.GET,
+        "https://example.com/fast",
+        status=200,
+        headers={"Content-Type": "application/pdf"},
+        body=b"contenido rapido",
+    )
+
+    def _slow_callback(request):
+        cancel_session = task_session_factory()
+        try:
+            repository.request_run_cancel(cancel_session, run_id)
+        finally:
+            cancel_session.close()
+        time.sleep(0.3)
+        return (200, {"Content-Type": "application/pdf"}, b"contenido que nunca deberia guardarse")
+
+    responses.add_callback(responses.GET, "https://example.com/cancel-mid-download", callback=_slow_callback)
+
+    # Must not raise — the old code could hit InvalidRequestError /
+    # DetachedInstanceError from the poller thread lazily reloading `run`
+    # (expired by the fast document's commit) through the wrong session.
+    scrape_source_task(run_source.id)
+
+    assert recorded_run_ids, "is_cancel_requested was never called"
+    assert all(isinstance(rid, int) and rid == run_id for rid in recorded_run_ids)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "cancelled"
+        assert refreshed.docs_new == 1  # only the fast one made it in
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

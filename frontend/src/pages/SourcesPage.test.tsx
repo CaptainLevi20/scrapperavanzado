@@ -20,22 +20,19 @@ function renderPage() {
 describe("SourcesPage", () => {
   it("renders the fetched sources", async () => {
     server.use(
-      http.get(`${BASE_URL}/source-families`, () =>
-        HttpResponse.json([{ key: "constitucional", display_name: "Corte Constitucional", description: null }])
-      ),
       http.get(`${BASE_URL}/sources`, () =>
-        HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
+        HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Sala Plena", family_params: {}, active: true }])
       )
     );
 
     renderPage();
 
-    expect(await within(screen.getByRole("table")).findByText("Corte Constitucional")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(await within(table).findByText("Sala Plena")).toBeInTheDocument();
   });
 
   it("does not show 'no sources' while the first request is still in flight", async () => {
     server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/sources`, async () => {
         await delay(50);
         return HttpResponse.json([]);
@@ -60,20 +57,22 @@ describe("SourcesPage", () => {
       family_params: {},
       active: true,
     }));
-    let lastUrl = "";
+    const requestedUrls: string[] = [];
     server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/sources`, ({ request }) => {
-        lastUrl = request.url;
+        requestedUrls.push(request.url);
         return HttpResponse.json(sources);
       })
     );
 
     renderPage();
 
-    await screen.findByText("Fuente 1");
-    expect(new URL(lastUrl).searchParams.get("limit")).toBe("21"); // PAGE_SIZE (20) + 1
-    expect(screen.queryByText("Fuente 21")).not.toBeInTheDocument(); // the extra row is never rendered
+    const table = await screen.findByRole("table");
+    await within(table).findByText("Fuente 1");
+    // The page-size-aware fetch (PAGE_SIZE + 1) is one of two /sources calls —
+    // the other is the filter dropdown's unrelated fetch-everything call.
+    expect(requestedUrls.some((url) => new URL(url).searchParams.get("limit") === "21")).toBe(true);
+    expect(within(table).queryByText("Fuente 21")).not.toBeInTheDocument(); // the extra row is never rendered
     expect(screen.getByRole("button", { name: "Siguiente" })).toBeEnabled();
   });
 
@@ -85,21 +84,18 @@ describe("SourcesPage", () => {
       family_params: {},
       active: true,
     }));
-    server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
-      http.get(`${BASE_URL}/sources`, () => HttpResponse.json(sources))
-    );
+    server.use(http.get(`${BASE_URL}/sources`, () => HttpResponse.json(sources)));
 
     renderPage();
 
-    await screen.findByText("Fuente 1");
+    const table = await screen.findByRole("table");
+    await within(table).findByText("Fuente 1");
     expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
   });
 
   it("refetches with the active filter applied when changed", async () => {
     let lastUrl = "";
     server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/sources`, ({ request }) => {
         lastUrl = request.url;
         return HttpResponse.json([]);
@@ -115,10 +111,7 @@ describe("SourcesPage", () => {
   });
 
   it("shows an error banner when the sources request fails", async () => {
-    server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
-      http.get(`${BASE_URL}/sources`, () => new HttpResponse(null, { status: 500 }))
-    );
+    server.use(http.get(`${BASE_URL}/sources`, () => new HttpResponse(null, { status: 500 })));
 
     renderPage();
 
@@ -130,7 +123,6 @@ describe("SourcesPage — toggle active state", () => {
   it("toggles a source's active state", async () => {
     let patchedBody: unknown;
     server.use(
-      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/sources`, () =>
         HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
       ),

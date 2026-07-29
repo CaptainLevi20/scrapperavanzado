@@ -29,6 +29,7 @@ def get_source_families(db: Session = Depends(get_db)):
 
 @router.get("/sources", response_model=list[SourceOut])
 def get_sources(
+    id: Optional[int] = None,
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
     has_documents: Optional[bool] = None,
@@ -37,7 +38,7 @@ def get_sources(
     db: Session = Depends(get_db),
 ):
     return repository.list_sources(
-        db, family_key=family_key, active=active, has_documents=has_documents, limit=limit, offset=offset
+        db, id=id, family_key=family_key, active=active, has_documents=has_documents, limit=limit, offset=offset
     )
 
 

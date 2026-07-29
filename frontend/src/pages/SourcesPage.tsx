@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Power, Radar } from "lucide-react";
-import { fetchSourceFamilies } from "../api/sourceFamilies";
-import { fetchSources, updateSource } from "../api/sources";
+import { fetchAllSources, fetchSources, updateSource } from "../api/sources";
 import type { Source } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Button } from "../components/ui/button";
 import { NativeSelect } from "../components/ui/native-select";
-import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
+import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../lib/tableStyles";
 
 const PAGE_SIZE = 20;
 
@@ -22,7 +21,6 @@ function SourceRow({ source }: { source: Source }) {
   return (
     <tr className={TBODY_ROW}>
       <td className={`${TD} font-medium text-foreground`}>{source.name}</td>
-      <td className={`${TD_MONO}`}>{source.family_key}</td>
       <td className={TD}>
         <span className={`stamp bg-card ${source.active ? "border-verde/50 text-verde" : "border-grafito/40 text-grafito"}`}>
           <span className="stamp-dot" />
@@ -40,21 +38,22 @@ function SourceRow({ source }: { source: Source }) {
 }
 
 export function SourcesPage() {
-  const [familyKey, setFamilyKey] = useState("");
+  const [sourceId, setSourceId] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [page, setPage] = useState(0);
 
-  const familiesQuery = useQuery({ queryKey: ["source-families"], queryFn: fetchSourceFamilies });
+  const allSourcesQuery = useQuery({ queryKey: ["all-sources-for-filter"], queryFn: fetchAllSources });
+  const sortedSourceOptions = [...(allSourcesQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name));
 
   const sourcesQuery = useQuery({
-    queryKey: ["sources", familyKey, activeFilter, page],
+    queryKey: ["sources", sourceId, activeFilter, page],
     queryFn: () =>
       // Asks for one extra row beyond the page size — the backend has no total
       // count to compare against (unlike /documents), so this is how "Siguiente"
       // knows whether there's really another page instead of just guessing from
       // whether the current page happened to come back full.
       fetchSources({
-        family_key: familyKey || undefined,
+        id: sourceId ? Number(sourceId) : undefined,
         active: activeFilter === "all" ? undefined : activeFilter === "true",
         limit: PAGE_SIZE + 1,
         offset: page * PAGE_SIZE,
@@ -75,19 +74,19 @@ export function SourcesPage() {
 
       <div className="flex gap-3">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          Familia
+          Fuente
           <NativeSelect
-            value={familyKey}
+            value={sourceId}
             onChange={(event) => {
-              setFamilyKey(event.target.value);
+              setSourceId(event.target.value);
               setPage(0);
             }}
             className="w-44"
           >
             <option value="">Todas</option>
-            {familiesQuery.data?.map((family) => (
-              <option key={family.key} value={family.key}>
-                {family.display_name}
+            {sortedSourceOptions.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.name}
               </option>
             ))}
           </NativeSelect>
@@ -120,7 +119,6 @@ export function SourcesPage() {
             <thead>
               <tr className={THEAD_ROW}>
                 <th className={TH}>Nombre</th>
-                <th className={TH}>Familia</th>
                 <th className={TH}>Estado</th>
                 <th className={TH}>Acciones</th>
               </tr>

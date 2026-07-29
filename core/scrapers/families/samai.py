@@ -1,5 +1,6 @@
 import re
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List, Optional
@@ -13,6 +14,117 @@ from core.scrapers.registry import register_family
 from core.utils import storage_path
 
 _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
+
+# La columna "Clase" de SAMAI describe el tipo de proceso, pero el mismo proceso
+# aparece escrito de formas distintas según la sección/época (con o sin el
+# prefijo "LEY 1437 ...", con o sin "ACCIÓN (DE) ...", con o sin la referencia
+# "ARTÍCULO ### DECISIÓN ###"/"ART. ##") — _normalizar_clase quita ese ruido
+# antes de buscar el acrónimo.
+_LEY_RE = re.compile(r"LEY\s+[0-9./-]+\s*", re.IGNORECASE)
+_ACCION_RE = re.compile(r"^ACCION(ES)?\s+(DE\s+)?", re.IGNORECASE)
+_ART_RE = re.compile(r"ART(?:ICULO|[IÍ]CULO|\.)?\s*\d+\s*(?:DECISION\s+\d+\s*)?", re.IGNORECASE)
+
+
+def _normalizar_clase(raw: str) -> str:
+    t = _LEY_RE.sub("", raw or "")
+    t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c)).upper()
+    t = _ACCION_RE.sub("", t)
+    t = _ART_RE.sub("", t)
+    return re.sub(r"\s+", " ", t).strip(" -.")
+
+
+# Catálogo dictado directamente por el usuario a partir de un año real de datos
+# de Consejo de Estado (jul. 2026: 1,070 documentos, 6 secciones — un rango más
+# amplio no encontró clases adicionales porque SAMAI solo mantiene visible
+# alrededor de un mes de "estados"). Varias claves distintas apuntan al mismo
+# acrónimo cuando el usuario confirmó que son la misma clase de proceso escrita
+# de otra forma.
+_CLASE_ACRONIMOS = {
+    "NULIDAD Y RESTABLECIMIENTO DEL DERECHO": "NRD",
+    "NULIDAD ELECTORAL": "NE",
+    "NULIDAD CON SUSPENSION PROVISIONAL": "NSP",
+    "NULIDAD Y SUSPENSION PROVISIONAL": "NSP",
+    "NULIDAD": "N",
+    "RECURSO EXTRAORDINARIO DE REVISION": "RER",
+    "REPARACION DIRECTA": "RD",
+    "CONTROVERSIAS CONTRACTUALES": "CTR",
+    "CONTRACTUAL": "CTR",
+    "EJECUTIVO": "EJE",
+    "POPULARES": "AP",
+    "CUMPLIMIENTO": "ACU",
+    "REPETICION": "REP",
+    "EXTENSION DE JURISPRUDENCIA": "EXJ",
+    "REPARACION DE PERJUICIOS CAUSADOS A UN GRUPO": "RPAG",
+    "REPARACION DE LOS PERJUCIOS CAUSADOS A UN GRUPO": "RPAG",
+    "CONFLICTOS DE COMPETENCIA": "CCO",
+    "CONFLICTOS DE COMPETENCIA JUDICIAL": "CCO",
+    "PERDIDA DE INVESTIDURA": "PI",
+    "NULIDAD RELATIVA": "NR",
+    "PERDIDA DE INVESTIDURA 1RA INSTANCIA": "PI1",
+    "NULIDAD Y RESTABLECIMIENTO SUSP. PROV": "NRSP",
+    "RECURSO EXTRAORDINARIO DE UNIFICACION DE JURISPRUDENCIA": "REU",
+    "RECURSO EXTRAORDINARIO DE UNIFICACION": "REU",
+    "PROTECCION DERECHOS E INTERESES COLECTIVOS": "PDIC",
+    "PROTECCION DE LOS DERECHOS E INTERESES COLECTIVOS": "PDIC",
+    "PERDIDA DE INVESTIDURA 2DA INSTANCIA": "PI2",
+    "RECURSO DE ANULACION DE LAUDO ARBITRAL": "RALA",
+    "REVISION": "REV",
+    "NULIDAD INCONSTITUCIONALIDAD SUSP PROV": "NISP",
+    "REVISION EVENTUAL": "REVE",
+    "CONCILIACION": "CON",
+    "GRUPO": "AG",
+    "NULIDAD ABSOLUTA": "NA",
+    "NULIDAD POR INCONSTITUCIONALIDAD": "NI",
+    "INSISTENCIA PETICIONES DE INFORMACION": "IPI",
+}
+
+
+def _normalizar_titulo(radicado: str, clase: str) -> str:
+    acronimo = _CLASE_ACRONIMOS.get(_normalizar_clase(clase))
+    return f"{radicado}({acronimo})" if acronimo else radicado
+
+
+# Nombre legible por acrónimo, para la columna Especialidad/Proceso — el sitio
+# a veces trae la clase con el código de ley ("LEY 1437 NULIDAD...") y otras
+# veces sin él ("Nulidad..."), y esta columna siempre debe mostrar la forma
+# limpia sin importar cuál trajo el sitio para ese documento en particular.
+_ACRONIMO_A_NOMBRE = {
+    "NRD": "Nulidad y restablecimiento del derecho",
+    "NE": "Nulidad electoral",
+    "NSP": "Nulidad con suspensión provisional",
+    "N": "Nulidad",
+    "RER": "Recurso extraordinario de revisión",
+    "RD": "Reparación directa",
+    "CTR": "Controversias contractuales",
+    "EJE": "Ejecutivo",
+    "AP": "Acciones populares",
+    "ACU": "Acciones de cumplimiento",
+    "REP": "Repetición",
+    "EXJ": "Extensión de jurisprudencia",
+    "RPAG": "Reparación de perjuicios causados a un grupo",
+    "CCO": "Conflictos de competencia",
+    "PI": "Pérdida de investidura",
+    "NR": "Nulidad relativa",
+    "PI1": "Pérdida de investidura 1ra instancia",
+    "NRSP": "Nulidad y restablecimiento del derecho con suspensión provisional",
+    "REU": "Recurso extraordinario de unificación de jurisprudencia",
+    "PDIC": "Protección de los derechos e intereses colectivos",
+    "PI2": "Pérdida de investidura 2da instancia",
+    "RALA": "Recurso de anulación de laudo arbitral",
+    "REV": "Revisión",
+    "NISP": "Nulidad por inconstitucionalidad con suspensión provisional",
+    "REVE": "Revisión eventual",
+    "CON": "Conciliación",
+    "AG": "Acción de grupo",
+    "NA": "Nulidad absoluta",
+    "NI": "Nulidad por inconstitucionalidad",
+    "IPI": "Insistencia en peticiones de información",
+}
+
+
+def _especialidad_legible(clase: str) -> str:
+    acronimo = _CLASE_ACRONIMOS.get(_normalizar_clase(clase))
+    return _ACRONIMO_A_NOMBRE.get(acronimo, clase) if acronimo else clase
 
 # Public: enumerated by core/seed.py to create one Source per tribunal.
 SAMAI_CORPS = {
@@ -76,10 +188,19 @@ def _all_inputs(soup) -> dict:
 @register_family("samai")
 class ScrapTribunales(BaseScrapper):
     source = "Tribunales Administrativos"
-    # SAMAI's download goes through an indirect JWT hop, not a direct file URL —
-    # there's nothing cheap to HEAD, so republication checking is out of scope for
-    # this family (see tests/families/test_samai.py).
-    checks_for_republication = False
+    # SAMAI repeats the same "estado" row under a new date when the notification
+    # wasn't claimed — same reasoning as Rama Judicial (core/scrapers/families/
+    # rama_judicial.py): f_public is the date of that listing, not a property of
+    # the document itself, so it must not be part of doc_id or the same file
+    # gets a brand-new identity (and a duplicate row) every time it's relisted.
+    doc_id_uses_publication_date = False
+    # SAMAI's download goes through an indirect JWT hop, not a direct file URL,
+    # so the cheap HEAD in check_remote_content_length can't see the real file
+    # size (it only sees the intermediate viewer page) — every relisting is
+    # treated as a republication candidate and actually re-downloaded, but
+    # _download_and_upload_one's skip_upload_if_size_matches still discards it
+    # without creating a new version when the real downloaded size is unchanged.
+    checks_for_republication = True
 
     def __init__(self, corp_code: str, corp_name: str):
         self._corp_code = corp_code
@@ -268,6 +389,7 @@ class ScrapTribunales(BaseScrapper):
             return None
 
         radicado = tds[1].get_text(strip=True)
+        clase = tds[5].get_text(strip=True)
         actuacion = tds[7].get_text(strip=True)
         fecha_prov_raw = tds[6].get_text(strip=True)
         fecha_prov = _parse_prov_date(fecha_prov_raw)
@@ -279,17 +401,35 @@ class ScrapTribunales(BaseScrapper):
         palabras = actuacion.split()
         tipo = _safe(palabras[0]) if palabras else ""
         seccion = _safe(sec_name, maxlen=100)
+        titulo = _normalizar_titulo(radicado, clase)
         safe_radicado = _safe(radicado)
 
         path = storage_path(corp_name, seccion, estado_fecha_str, tipo, f"{safe_radicado}(extension)")
 
+        # radicado alone identifies the *case*, not a specific document — a case
+        # accumulates many distinct actuaciones (different Autos on different
+        # dates) that all share it, exactly like Rama Judicial. Folding every
+        # relisting of a radicado into one document (see git history — the
+        # first attempt at this) silently buried genuinely different
+        # actuaciones as unreviewable "versions" of whichever was seen first.
+        # f_providencia (the real decision date) is what's actually stable
+        # across a true republication (same decision, relisted because the
+        # notification wasn't claimed) and different across distinct
+        # actuaciones on the same case, so it — not estado_fecha_str, which is
+        # just the listing date — belongs in the identity key.
+        identidad_fecha = fecha_prov or fecha_prov_raw
         return RawDocModel(
             source=corp_name,
-            link={"url": jwt_url, "method": "jwt_indirect", "body": {"path": f"{corp_code}_{radicado}"}},
-            title=radicado,
+            link={
+                "url": jwt_url,
+                "method": "jwt_indirect",
+                "body": {"path": f"{corp_code}_{radicado}_{identidad_fecha}"},
+            },
+            title=titulo,
             tipo=tipo,
             detalle=actuacion,
             seccion=seccion,
+            especialidad=_especialidad_legible(clase),
             f_public=estado_fecha_str,
             f_providencia=fecha_prov,
             save_path=path,
