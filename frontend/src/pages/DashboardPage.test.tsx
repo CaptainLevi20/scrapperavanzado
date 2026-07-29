@@ -49,9 +49,9 @@ const DOCS: Document[] = [
 ];
 
 const STATS = {
-  by_family: [
-    { key: "constitucional", display_name: "Corte Constitucional", count: 2 },
-    { key: "samai", display_name: "SAMAI", count: 1 },
+  by_source: [
+    { id: 1, name: "Corte Constitucional", count: 2 },
+    { id: 2, name: "Consejo de Estado", count: 1 },
   ],
   by_tipo: [
     { tipo: "Resolución", count: 2 },
@@ -145,7 +145,7 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(statCardValue("Sin revisar")).toHaveTextContent("2"));
   });
 
-  it("renders the Documentos por tipo and por familia charts from the aggregated stats endpoint", async () => {
+  it("renders the Documentos por tipo and por fuente charts from the aggregated stats endpoint", async () => {
     mockBaselines();
     mockDocuments();
 
@@ -156,10 +156,10 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(within(tipoCard).getByText("Resolución")).toBeInTheDocument());
     expect(within(tipoCard).getByText("Circular")).toBeInTheDocument();
 
-    const familyHeading = screen.getByText("Documentos por familia");
-    const familyCard = familyHeading.closest(".rounded-lg") as HTMLElement;
-    await waitFor(() => expect(within(familyCard).getByText("Corte Constitucional")).toBeInTheDocument());
-    expect(within(familyCard).getByText("SAMAI")).toBeInTheDocument();
+    const fuenteHeading = screen.getByText("Documentos por fuente");
+    const fuenteCard = fuenteHeading.closest(".rounded-lg") as HTMLElement;
+    await waitFor(() => expect(within(fuenteCard).getByText("Corte Constitucional")).toBeInTheDocument());
+    expect(within(fuenteCard).getByText("Consejo de Estado")).toBeInTheDocument();
   });
 
   it("offers only the years the stats endpoint reports as available", async () => {
@@ -291,7 +291,7 @@ describe("DashboardPage", () => {
         ]);
       }),
       http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
-      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json({ ...STATS, by_family: [], by_tipo: [] })),
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json({ ...STATS, by_source: [], by_tipo: [] })),
       http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }))
     );
 

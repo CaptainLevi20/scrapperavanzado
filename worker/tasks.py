@@ -220,12 +220,27 @@ def scrape_source_task(run_source_id: int):
                     # session (sessions aren't thread-safe), and flips
                     # stop_event the moment someone cancels the run.
                     cancel_poll_stop = threading.Event()
+                    # Captured as a plain int, not read as run.id from inside the
+                    # thread below: `run` is an ORM object bound to the OUTER
+                    # `db` session, and SQLAlchemy expires all of a session's
+                    # objects on every commit — the *next* attribute access
+                    # (even just .id) then lazily re-queries via whichever
+                    # session the object is bound to, regardless of which
+                    # thread does the accessing. With many documents committing
+                    # on `db` throughout this run, that turned "poll_db is a
+                    # separate session" into a false sense of isolation: the
+                    # poller thread ended up touching `db` from a second thread
+                    # concurrently with the main thread, corrupting its
+                    # transaction state ("session is in 'prepared' state").
+                    # Capturing the id once, up front, removes any cross-thread
+                    # access to `run` itself.
+                    run_id = run.id
 
                     def _poll_cancellation():
                         poll_db = SessionLocal()
                         try:
                             while not cancel_poll_stop.wait(timeout=CANCEL_POLL_INTERVAL_SECONDS):
-                                if repository.is_cancel_requested(poll_db, run.id):
+                                if repository.is_cancel_requested(poll_db, run_id):
                                     stop_event.set()
                                     return
                         finally:

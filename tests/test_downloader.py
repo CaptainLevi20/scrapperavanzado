@@ -130,6 +130,38 @@ def test_download_jwt_indirect_raises_file_not_found_when_blob_missing(tmp_path)
 
 
 @responses.activate
+def test_download_jwt_indirect_resolves_blob_url_from_viewer_js_call(tmp_path):
+    # SAMAI (Consejo de Estado / Tribunales Administrativos) stopped linking the
+    # file as a plain <a href> and now hands it to a JS PDF viewer instead — the
+    # real URL only appears inside a VerProvidenciaViewer.init(...) call. Confirmed
+    # live on 2026-07-28: without this fallback, every SAMAI document is silently
+    # dropped as "not available yet".
+    responses.add(
+        responses.GET,
+        "https://example.com/ver",
+        body=(
+            "<html><script>"
+            "VerProvidenciaViewer.init('panel', "
+            '{"url":"https://foo.blob.core.windows.net/doc.pdf?sv=x&sig=y",'
+            '"filename":"doc.pdf"});'
+            "</script></html>"
+        ),
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://foo.blob.core.windows.net/doc.pdf",
+        body=b"contenido blob",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+    downloader = Downloader()
+    doc = _doc(method="jwt_indirect", url="https://example.com/ver")
+    result = downloader.download(doc, tmp_path)
+    assert result.local_path.read_bytes() == b"contenido blob"
+
+
+@responses.activate
 def test_download_raises_file_not_found_when_server_returns_html_instead_of_the_file(tmp_path):
     """Some sites answer a not-yet-published document link with HTTP 200 and their
     own app-shell HTML (a "soft 404") instead of a real 404 status. Without this

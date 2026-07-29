@@ -53,6 +53,24 @@ def test_get_sources_filters_by_has_documents(api_client, auth_header, db_sessio
     assert [s["name"] for s in response.json()] == ["Corte Constitucional"]
 
 
+def test_get_sources_filters_by_id(api_client, auth_header, db_session):
+    # Backs the Fuentes page's "Fuente" filter — it must narrow down to one
+    # specific source (picked by name from the full list), not one family, since
+    # a family can group many distinctly-named sources together.
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    first = repository.create_source(
+        db_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+    repository.create_source(db_session, family_key="constitucional", name="Otra Fuente", family_params={})
+
+    response = api_client.get("/sources", params={"id": first.id}, headers=auth_header)
+
+    assert response.status_code == 200
+    assert [s["name"] for s in response.json()] == ["Corte Constitucional"]
+
+
 def test_get_source_families_reports_which_filter_by_publication_date(api_client, auth_header, db_session):
     """The 'Nuevo run' UI needs to tell the user, per source, whether the fini/ffin
     range will be matched against fecha de publicación or fecha de providencia —

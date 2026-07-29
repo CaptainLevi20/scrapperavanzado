@@ -9,7 +9,7 @@ import type { Document, DocumentReviewStatus } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
 import { formatDateTime, formatRelativeTime, todayDateString } from "../lib/formatters";
-import { familyCountsToBuckets, tipoCountsToBuckets, type CountBucket } from "../lib/dashboardStats";
+import { sourceCountsToBuckets, tipoCountsToBuckets, type CountBucket } from "../lib/dashboardStats";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { NativeSelect } from "../components/ui/native-select";
 
@@ -69,17 +69,19 @@ function BarList({ data }: { data: CountBucket[] }) {
   return (
     <div className="space-y-2.5">
       {data.map((bucket) => (
-        <div key={bucket.label} className="flex items-center gap-3">
-          <span className="w-32 shrink-0 truncate text-xs text-muted-foreground" title={bucket.label}>
-            {bucket.label}
-          </span>
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+        <div key={bucket.label} className="space-y-1">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="truncate text-muted-foreground" title={bucket.label}>
+              {bucket.label}
+            </span>
+            <span className="shrink-0 font-mono-num text-foreground">{bucket.count}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-secondary">
             <div
               className="h-full rounded-full bg-sello transition-[width] motion-reduce:transition-none"
               style={{ width: `${(bucket.count / max) * 100}%` }}
             />
           </div>
-          <span className="w-8 shrink-0 text-right font-mono-num text-xs text-foreground">{bucket.count}</span>
         </div>
       ))}
     </div>
@@ -146,7 +148,7 @@ export function DashboardPage() {
   const recentRuns = recentRunsQuery.data ?? [];
 
   const tipoBuckets = useMemo(() => tipoCountsToBuckets(statsQuery.data?.by_tipo ?? []), [statsQuery.data]);
-  const familyBuckets = useMemo(() => familyCountsToBuckets(statsQuery.data?.by_family ?? []), [statsQuery.data]);
+  const sourceBuckets = useMemo(() => sourceCountsToBuckets(statsQuery.data?.by_source ?? []), [statsQuery.data]);
   const years = statsQuery.data?.available_years ?? [];
   const effectiveYear = statsQuery.data?.year ?? selectedYear ?? new Date().getFullYear();
   const monthlyCounts = statsQuery.data?.by_month ?? new Array(12).fill(0);
@@ -188,9 +190,9 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <h2 className="font-display text-lg font-semibold text-foreground">Documentos por familia</h2>
+          <h2 className="font-display text-lg font-semibold text-foreground">Documentos por fuente</h2>
           <div className="mt-4">
-            <BarList data={familyBuckets} />
+            <BarList data={sourceBuckets} />
           </div>
         </div>
       </div>

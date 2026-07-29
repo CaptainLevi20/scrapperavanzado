@@ -268,7 +268,7 @@ describe("DocumentsPage", () => {
     expect(screen.getByText(/jul/i)).toBeInTheDocument();
   });
 
-  it("renders the Especialidad and Magistrado columns", async () => {
+  it("renders the Especialidad/Proceso and Magistrado columns", async () => {
     mockFilterEndpoints();
     server.use(
       http.get(`${BASE_URL}/documents`, () =>
@@ -283,6 +283,9 @@ describe("DocumentsPage", () => {
 
     renderPage();
 
+    // Consejo de Estado stores its "Clase de Proceso" in this same column, so
+    // the header covers both meanings — not just medical/legal "especialidad".
+    expect(screen.getByText("Especialidad/Proceso")).toBeInTheDocument();
     expect(await screen.findByText("Civil")).toBeInTheDocument();
     expect(screen.getByText("Juan Pérez")).toBeInTheDocument();
   });

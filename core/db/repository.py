@@ -7,9 +7,19 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
-from core.utils import RADICADO_TITLE_PATTERN
+from core.utils import RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN
 
 _LIKE_ESCAPE_CHAR = "\\"
+
+# Familias cuyo título identifica el CASO (no una actuación puntual), así que varias
+# filas distintas pueden compartir el mismo título legítimamente — cada una de estas
+# entradas es "family_key -> patrón que confirma que el título sí tiene esa forma"
+# (nunca un título de respaldo, como el nombre de un magistrado, que puede repetirse
+# sin ser el mismo caso).
+_CASE_GROUPING_FAMILY_PATTERNS = {
+    "rama_judicial": RADICADO_TITLE_PATTERN,
+    "samai": SAMAI_CASE_TITLE_PATTERN,
+}
 
 
 def _escape_like(value: str) -> str:
@@ -60,6 +70,7 @@ def get_source_family(db: Session, key: str) -> Optional[SourceFamily]:
 
 def list_sources(
     db: Session,
+    id: Optional[int] = None,
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
     has_documents: Optional[bool] = None,
@@ -67,6 +78,8 @@ def list_sources(
     offset: int = 0,
 ) -> list[Source]:
     stmt = select(Source)
+    if id is not None:
+        stmt = stmt.where(Source.id == id)
     if family_key is not None:
         stmt = stmt.where(Source.family_key == family_key)
     if active is not None:
@@ -358,7 +371,7 @@ def list_documents(
     downloaded_to: Optional[date] = None,
     title_contains: Optional[str] = None,
     title_exact: Optional[str] = None,
-    collapse_rama_judicial_cases: bool = False,
+    collapse_case_families: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Document], int]:
@@ -388,15 +401,16 @@ def list_documents(
         stmt = stmt.where(Document.title.ilike(f"%{_escape_like(title_contains)}%", escape=_LIKE_ESCAPE_CHAR))
     if title_exact is not None:
         stmt = stmt.where(Document.title == title_exact)
-    if collapse_rama_judicial_cases:
-        # Only affects rama_judicial documents whose title genuinely matches the
-        # radicado format (never a scraper fallback title like a magistrado's name,
-        # which can legitimately repeat without being the same case) — a document
-        # is dropped from the general listing only if a NEWER actuación (by f_public,
-        # ties broken by id) sharing that exact radicado exists within rama_judicial.
-        # Every other document (any other family, or a non-radicado title) is
-        # entirely unaffected by this clause regardless of what it happens to share
-        # a title string with.
+    if collapse_case_families:
+        # Only affects documents, in one of _CASE_GROUPING_FAMILY_PATTERNS, whose
+        # title genuinely matches that family's case-title format (never a scraper
+        # fallback title like a magistrado's name, which can legitimately repeat
+        # without being the same case) — a document is dropped from the general
+        # listing only if a NEWER actuación (by f_public, ties broken by id)
+        # sharing that exact title exists within the SAME family. Every other
+        # document (any other family, or a non-case-format title) is entirely
+        # unaffected by this clause regardless of what it happens to share a title
+        # string with.
         OuterSource = aliased(Source)
         OtherDoc = aliased(Document)
         OtherSource = aliased(Source)
@@ -410,7 +424,7 @@ def list_documents(
             select(OtherDoc.id)
             .join(OtherSource, OtherSource.id == OtherDoc.source_id)
             .where(
-                OtherSource.family_key == "rama_judicial",
+                OtherSource.family_key == OuterSource.family_key,
                 OtherDoc.title == Document.title,
                 or_(
                     other_f_public > this_f_public,
@@ -419,12 +433,14 @@ def list_documents(
             )
             .exists()
         )
+        is_case_title = or_(
+            *[
+                and_(OuterSource.family_key == family_key, Document.title.op("~")(pattern.pattern))
+                for family_key, pattern in _CASE_GROUPING_FAMILY_PATTERNS.items()
+            ]
+        )
         stmt = stmt.join(OuterSource, OuterSource.id == Document.source_id).where(
-            or_(
-                OuterSource.family_key != "rama_judicial",
-                ~Document.title.op("~")(RADICADO_TITLE_PATTERN.pattern),
-                ~has_newer_sibling,
-            )
+            or_(~is_case_title, ~has_newer_sibling)
         )
 
     # COUNT via a subquery instead of materializing every matching Document row
@@ -443,13 +459,13 @@ def get_source_family_keys(db: Session, source_ids: list[int]) -> dict[int, str]
     return dict(db.execute(stmt).all())
 
 
-def count_rama_judicial_documents_by_title(db: Session, titles: list[str]) -> dict[str, int]:
+def count_documents_by_title_within_family(db: Session, titles: list[str], family_key: str) -> dict[str, int]:
     if not titles:
         return {}
     stmt = (
         select(Document.title, func.count(Document.id))
         .join(Source, Source.id == Document.source_id)
-        .where(Source.family_key == "rama_judicial", Document.title.in_(titles))
+        .where(Source.family_key == family_key, Document.title.in_(titles))
         .group_by(Document.title)
     )
     return dict(db.execute(stmt).all())
@@ -462,6 +478,18 @@ def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
         .join(Source, Source.id == Document.source_id)
         .group_by(Source.family_key)
         .order_by(func.count(Document.id).desc())
+    )
+    return list(db.execute(stmt).all())
+
+
+def count_documents_by_source(db: Session, limit: int = 8) -> list[tuple[int, str, int]]:
+    stmt = (
+        select(Source.id, Source.name, func.count(Document.id))
+        .select_from(Document)
+        .join(Source, Source.id == Document.source_id)
+        .group_by(Source.id, Source.name)
+        .order_by(func.count(Document.id).desc())
+        .limit(limit)
     )
     return list(db.execute(stmt).all())
 

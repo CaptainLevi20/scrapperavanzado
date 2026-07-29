@@ -392,6 +392,12 @@ def test_get_document_stats_aggregates_over_the_full_table_not_a_sample(api_clie
     assert by_family == {"corte_suprema": 3, "constitucional": 1}
     assert next(row for row in body["by_family"] if row["key"] == "corte_suprema")["display_name"] == "Corte Suprema de Justicia"
 
+    # by_source must break counts down per individual source, not per family —
+    # two sources can share a family (e.g. two chambers of the same court) and
+    # would be wrongly merged into one bar if this reused the family grouping.
+    by_source = {row["name"]: row["count"] for row in body["by_source"]}
+    assert by_source == {"CSJ": 3, "Corte Constitucional": 1}
+
     by_tipo = {row["tipo"]: row["count"] for row in body["by_tipo"]}
     assert by_tipo == {"Sentencia": 3, "Auto": 1}
 

@@ -863,7 +863,7 @@ def test_get_source_family_keys_returns_empty_dict_for_empty_input(db_session):
     assert repository.get_source_family_keys(db_session, []) == {}
 
 
-def test_count_rama_judicial_documents_by_title_groups_within_the_family_only(db_session):
+def test_count_documents_by_title_within_family_groups_within_the_family_only(db_session):
     """The same title in a DIFFERENT family must not be counted together with the
     rama_judicial ones — a coincidental title collision across families isn't the
     same case."""
@@ -888,13 +888,34 @@ def test_count_rama_judicial_documents_by_title_groups_within_the_family_only(db
         storage_bucket="iurisync-test", storage_key="c.pdf",
     )
 
-    result = repository.count_rama_judicial_documents_by_title(db_session, [shared_title])
+    result = repository.count_documents_by_title_within_family(db_session, [shared_title], "rama_judicial")
 
     assert result == {shared_title: 2}
 
 
-def test_count_rama_judicial_documents_by_title_returns_empty_dict_for_empty_input(db_session):
-    assert repository.count_rama_judicial_documents_by_title(db_session, []) == {}
+def test_count_documents_by_title_within_family_works_for_samai_too(db_session):
+    """Consejo de Estado (samai) cases work the same way as rama_judicial's —
+    several actuaciones on the same case share the exact same title."""
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+
+    shared_title = "11001-03-28-000-2026-00271-00(NE)"
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    result = repository.count_documents_by_title_within_family(db_session, [shared_title], "samai")
+
+    assert result == {shared_title: 2}
+
+
+def test_count_documents_by_title_within_family_returns_empty_dict_for_empty_input(db_session):
+    assert repository.count_documents_by_title_within_family(db_session, [], "rama_judicial") == {}
 
 
 def test_list_documents_collapse_keeps_only_the_most_recent_actuacion(db_session):
@@ -921,7 +942,7 @@ def test_list_documents_collapse_keeps_only_the_most_recent_actuacion(db_session
     )
 
     items, total = repository.list_documents(
-        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+        db_session, family_key="rama_judicial", collapse_case_families=True
     )
 
     assert total == 1
@@ -946,7 +967,7 @@ def test_list_documents_collapse_breaks_ties_by_id_when_f_public_matches(db_sess
     assert second.id > first.id  # sanity check on the tie-break assumption
 
     items, total = repository.list_documents(
-        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+        db_session, family_key="rama_judicial", collapse_case_families=True
     )
 
     assert total == 1
@@ -973,7 +994,7 @@ def test_list_documents_collapse_breaks_ties_by_id_when_f_public_is_null_on_both
     assert second.id > first.id
 
     items, total = repository.list_documents(
-        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+        db_session, family_key="rama_judicial", collapse_case_families=True
     )
 
     assert total == 1
@@ -1002,7 +1023,7 @@ def test_list_documents_collapse_prefers_a_real_date_over_a_null_one_regardless_
     assert undated.id > dated.id  # sanity check: id alone would favor the wrong document
 
     items, total = repository.list_documents(
-        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+        db_session, family_key="rama_judicial", collapse_case_families=True
     )
 
     assert total == 1
@@ -1011,7 +1032,7 @@ def test_list_documents_collapse_prefers_a_real_date_over_a_null_one_regardless_
 
 def test_list_documents_collapse_does_not_apply_to_fallback_titles(db_session):
     """A magistrado-name fallback title repeated across unrelated documents must
-    never be collapsed, even with collapse_rama_judicial_cases=True."""
+    never be collapsed, even with collapse_case_families=True."""
     repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
     source = repository.create_source(
         db_session, family_key="rama_judicial", name="Tribunal Superior de Antioquia", family_params={}
@@ -1026,7 +1047,7 @@ def test_list_documents_collapse_does_not_apply_to_fallback_titles(db_session):
     )
 
     items, total = repository.list_documents(
-        db_session, family_key="rama_judicial", collapse_rama_judicial_cases=True
+        db_session, family_key="rama_judicial", collapse_case_families=True
     )
 
     assert total == 2
@@ -1058,12 +1079,73 @@ def test_list_documents_collapse_does_not_affect_other_families_with_a_coinciden
         storage_bucket="iurisync-test", storage_key="c.pdf", f_public=date(2026, 1, 15),
     )
 
-    items, total = repository.list_documents(db_session, collapse_rama_judicial_cases=True)
+    items, total = repository.list_documents(db_session, collapse_case_families=True)
 
     doc_ids = {d.doc_id for d in items}
     assert "doc-rama-old" not in doc_ids
     assert "doc-rama-new" in doc_ids
     assert "doc-jep" in doc_ids
+    assert total == 2
+
+
+def test_list_documents_collapse_keeps_only_the_most_recent_actuacion_for_samai(db_session):
+    """Consejo de Estado (samai) works the same as rama_judicial's collapse —
+    several actuaciones sharing a case's radicado+acronym title collapse down
+    to just the newest one in the general listing."""
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    shared_title = "11001-03-28-000-2026-00271-00(NE)"
+    from datetime import date
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 7, 14),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 7, 27),
+    )
+
+    items, total = repository.list_documents(db_session, family_key="samai", collapse_case_families=True)
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-new"]
+
+
+def test_list_documents_collapse_does_not_cross_families_between_samai_and_rama_judicial(db_session):
+    """A samai and a rama_judicial document never share the same doc-count
+    "sibling" pool, even in the (practically impossible, but not code-enforced
+    to be impossible) case their titles happened to collide as strings."""
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    samai_source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    rama_source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+
+    samai_title = "11001-03-28-000-2026-00271-00(NE)"
+    rama_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    from datetime import date
+    repository.insert_document(
+        db_session, doc_id="doc-samai-old", source_id=samai_source.id, title=samai_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 7, 14),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-samai-new", source_id=samai_source.id, title=samai_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 7, 27),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-rama-old", source_id=rama_source.id, title=rama_title,
+        storage_bucket="iurisync-test", storage_key="c.pdf", f_public=date(2026, 1, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-rama-new", source_id=rama_source.id, title=rama_title,
+        storage_bucket="iurisync-test", storage_key="d.pdf", f_public=date(2026, 2, 1),
+    )
+
+    items, total = repository.list_documents(db_session, collapse_case_families=True)
+
+    doc_ids = {d.doc_id for d in items}
+    assert doc_ids == {"doc-samai-new", "doc-rama-new"}
     assert total == 2
 
 

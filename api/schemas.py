@@ -142,9 +142,16 @@ class TipoCount(BaseModel):
     count: int
 
 
+class SourceCount(BaseModel):
+    id: int
+    name: str
+    count: int
+
+
 class DocumentStatsOut(BaseModel):
     by_family: list[FamilyCount]
     by_tipo: list[TipoCount]
+    by_source: list[SourceCount]
     by_month: list[int]
     year: int
     available_years: list[int]

@@ -141,7 +141,7 @@ export function DocumentsPage() {
     setCaseDialogError(null);
     try {
       const response = await fetchDocuments({
-        family_key: "rama_judicial",
+        source_id: document.source_id,
         title_exact: document.title,
         limit: 50,
       });
@@ -392,7 +392,7 @@ export function DocumentsPage() {
               <th className={TH}>Fuente</th>
               <th className={TH}>Tipo</th>
               <th className={TH}>Sección</th>
-              <th className={TH}>Especialidad</th>
+              <th className={TH}>Especialidad/Proceso</th>
               <th className={TH}>Magistrado</th>
               <th className={`${TH} whitespace-nowrap`}>Fecha de publicación</th>
               <th className={`${TH} whitespace-nowrap`}>Fecha providencia</th>
