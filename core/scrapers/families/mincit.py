@@ -138,4 +138,44 @@ class ScrapMINCIT(BaseScrapper):
         return docs
 
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
-        return []
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+
+        docs: List[RawDocModel] = []
+        anio_inicial = int(fini[:4])
+        anio_final = int(ffin[:4])
+
+        for categoria, (tipo, letra) in _CATEGORIAS.items():
+            if stop_event is not None and stop_event.is_set():
+                return docs
+            if on_progress:
+                on_progress(f"[{self.source}] Procesando {tipo}...")
+
+            try:
+                resp = session.get(f"{_BASE_URL}/normatividad/{categoria}", timeout=30)
+                resp.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{self.source}] Error consultando índice de {tipo}: {e}")
+                continue
+
+            mapa = _mapa_anio_a_slug(resp.text, categoria)
+            slugs = sorted({mapa[a] for a in range(anio_inicial, anio_final + 1) if a in mapa})
+
+            for slug in slugs:
+                if stop_event is not None and stop_event.is_set():
+                    return docs
+
+                try:
+                    resp = session.get(f"{_BASE_URL}/normatividad/{categoria}/{slug}", timeout=30)
+                    resp.raise_for_status()
+                except Exception as e:
+                    if on_progress:
+                        on_progress(f"[{self.source}] Error consultando {categoria}/{slug}: {e}")
+                    continue
+
+                docs.extend(self._extraer_filas(resp.text, tipo, letra, fini, ffin))
+                if len(docs) >= limit:
+                    return docs[:limit]
+
+        return docs

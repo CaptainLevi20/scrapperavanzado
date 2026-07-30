@@ -13,13 +13,6 @@ def test_mincit_is_registered_under_its_family_key():
     assert FAMILY_REGISTRY["mincit"].__name__ == "ScrapMINCIT"
 
 
-def test_scrap_returns_empty_list_by_default():
-    from core.scrapers.families.mincit import ScrapMINCIT
-
-    scraper = ScrapMINCIT()
-    assert scraper.scrap(fini="2024-01-01", ffin="2024-12-31") == []
-
-
 def test_parse_fecha_converts_ddmmyyyy_to_isoformat():
     assert _parse_fecha("30/12/2025") == "2025-12-30"
 
@@ -191,3 +184,103 @@ def test_extraer_filas_skips_row_without_download_link():
     docs = scraper._extraer_filas(html, "Resolución", "R", "2026-01-01", "2026-12-31")
 
     assert docs == []
+
+
+import responses
+
+_INDICE_RESOLUCIONES_HTML = """
+<a href="/normatividad/resoluciones" class="active">Resoluciones</a>
+<a href="/normatividad/resoluciones/2026">2026</a>
+"""
+
+_INDICE_DECRETOS_HTML = """
+<a href="/normatividad/decretos" class="active">Decretos</a>
+<a href="/normatividad/decretos/2026">2026</a>
+"""
+
+_INDICE_VACIO_HTML = '<a href="/normatividad/circulares" class="active">Circulares</a>'
+
+_PAGINA_RESOLUCION_HTML = """
+<table id="Listado">
+  <thead><th>No</th><th>Archivo</th><th>Tamaño</th><th>Fecha de expedición</th><th>Fecha de publicación</th><th></th></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>Resolución 010 del 5 de enero de 2026, "por la cual se dictan disposiciones".</td>
+      <td>1 MB</td><td>05/01/2026</td><td>06/01/2026</td>
+      <td><a href="/getattachment/aaa/Resolucion-010.aspx">Descargar</a></td>
+    </tr>
+  </tbody>
+</table>
+"""
+
+_PAGINA_DECRETO_HTML = """
+<table id="Listado">
+  <thead><th>No</th><th>Archivo</th><th>Tamaño</th><th>Fecha de expedición</th><th>Fecha de publicación</th><th></th></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>Decreto 020 del 10 de enero de 2026, "por el cual se reglamenta algo".</td>
+      <td>1 MB</td><td>10/01/2026</td><td>11/01/2026</td>
+      <td><a href="/getattachment/bbb/Decreto-020.aspx">Descargar</a></td>
+    </tr>
+  </tbody>
+</table>
+"""
+
+
+@responses.activate
+def test_scrap_aggregates_across_categories_using_year_index():
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones", body=_INDICE_RESOLUCIONES_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2026", body=_PAGINA_RESOLUCION_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos", body=_INDICE_DECRETOS_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos/2026", body=_PAGINA_DECRETO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/circulares", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/leyes", body=_INDICE_VACIO_HTML)
+
+    scraper = ScrapMINCIT()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
+
+    assert {d.title for d in docs} == {"R_MCIT_0010_2026", "D_MCIT_0020_2026"}
+
+
+@responses.activate
+def test_scrap_does_not_request_years_outside_range():
+    indice_con_dos_anios = """
+    <a href="/normatividad/resoluciones/2020">2020</a>
+    <a href="/normatividad/resoluciones/2026">2026</a>
+    """
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones", body=indice_con_dos_anios)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2026", body=_PAGINA_RESOLUCION_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/circulares", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/leyes", body=_INDICE_VACIO_HTML)
+
+    scraper = ScrapMINCIT()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
+
+    assert len(docs) == 1
+    urls_pedidas = {c.request.url for c in responses.calls}
+    assert "https://www.mincit.gov.co/normatividad/resoluciones/2020" not in urls_pedidas
+
+
+@responses.activate
+def test_scrap_continues_past_a_failing_year_page():
+    indice_con_dos_anios = """
+    <a href="/normatividad/resoluciones/2025">2025</a>
+    <a href="/normatividad/resoluciones/2026">2026</a>
+    """
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones", body=indice_con_dos_anios)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2025", status=500)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2026", body=_PAGINA_RESOLUCION_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/circulares", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/leyes", body=_INDICE_VACIO_HTML)
+
+    progreso = []
+    scraper = ScrapMINCIT()
+    docs = scraper.scrap(fini="2025-01-01", ffin="2026-12-31", on_progress=progreso.append)
+
+    assert len(docs) == 1
+    assert docs[0].title == "R_MCIT_0010_2026"
+    assert any("Error" in m and "resoluciones/2025" in m for m in progreso)
