@@ -132,6 +132,15 @@ def test_parse_fecha_does_not_let_a_later_embedded_date_override_the_real_one():
     assert _parse_fecha(texto) == "2023-10-01"
 
 
+def test_parse_fecha_falls_through_past_an_out_of_range_day_to_find_a_valid_date():
+    # Si "45" (fuera de rango 1-31) se captura como día y se abandona la
+    # búsqueda, este texto no encontraría la fecha real (octubre 2023) que
+    # sí es recuperable vía el nivel de mes+año. Simula el caso donde
+    # _resto_tras_numero no pudo recortar el número (numero vacío o no
+    # encontrado en el título), dejando dígitos ajenos antes de la fecha.
+    assert _parse_fecha("DECRETO 99045 DE OCTUBRE DE 2023") == "2023-10-01"
+
+
 def test_madr_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 

@@ -29,6 +29,8 @@ _MESES = {
 }
 _MESES_ALT = "|".join(_MESES.keys())
 
+_DIA = r"(?:0?[1-9]|[12]\d|3[01])"
+
 # Las 4 formas de fecha reales vistas en el sitio, combinadas en UN solo
 # patrón con alternancia (en vez de 4 regex probados por separado, cada uno
 # buscado sobre la cadena completa). Esto importa por dos razones:
@@ -56,9 +58,9 @@ _MESES_ALT = "|".join(_MESES.keys())
 # hipotético "20245").
 _FECHA_PATTERN = re.compile(
     r"(?:"
-    rf"(\d{{1,2}})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
+    rf"(?<!\d)({_DIA})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
     r"|"
-    rf"DE\s+({_MESES_ALT})\s+(\d{{1,2}})\s+DEL?\s+(\d{{4}})(?!\d)"
+    rf"DE\s+({_MESES_ALT})\s+(?<!\d)({_DIA})\s+DEL?\s+(\d{{4}})(?!\d)"
     r"|"
     rf"DE\s+({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
     r"|"
@@ -87,18 +89,11 @@ def _parse_fecha(texto: str) -> Optional[str]:
     dia1, mes1, anio1, mes2, dia2, anio2, mes3, anio3, anio4 = m.groups()
 
     if dia1 is not None:
-        if not (1 <= int(dia1) <= 31):
-            return None
         return f"{anio1}-{_MESES[mes1.lower()]:02d}-{int(dia1):02d}"
-
     if dia2 is not None:
-        if not (1 <= int(dia2) <= 31):
-            return None
         return f"{anio2}-{_MESES[mes2.lower()]:02d}-{int(dia2):02d}"
-
     if mes3 is not None:
         return f"{anio3}-{_MESES[mes3.lower()]:02d}-01"
-
     return f"{anio4}-01-01"
 
 
