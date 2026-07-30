@@ -206,3 +206,65 @@ def test_extraer_articulos_skips_article_without_any_parseable_date():
     docs = scraper._extraer_articulos(html, "Decreto", "D", "2026-01-01", "2026-12-31")
 
     assert docs == []
+
+
+import responses
+
+_PAGINA_LEYES_HTML = """
+<article class="col-12 pb-5 item_norm" data-title="LEY 2311 DE 2023" data-year="2023" data-number="2311">
+  <div class="cnt_item_norm"><h3><a itemprop="url" href="/fileadmin/normatividad/leyes/LEY_2311_DE_2023.pdf">x</a></h3></div>
+</article>
+"""
+
+_PAGINA_DECRETOS_HTML = """
+<article class="col-12 pb-5 item_norm" data-title="DECRETO 0212 DEL 5 DE MARZO DE 2023" data-year="2023" data-number="0212">
+  <div class="cnt_item_norm"><h3><a itemprop="url" href="/fileadmin/normatividad/decretos/DECRETO_0212.pdf">x</a></h3></div>
+</article>
+"""
+
+_PAGINA_VACIA_HTML = "<div class=\"news\"></div>"
+
+
+@responses.activate
+def test_scrap_aggregates_across_the_four_categories():
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/leyes", body=_PAGINA_LEYES_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/decretos", body=_PAGINA_DECRETOS_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/resoluciones", body=_PAGINA_VACIA_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/conpes", body=_PAGINA_VACIA_HTML)
+
+    scraper = ScrapMADR()
+    docs = scraper.scrap(fini="2023-01-01", ffin="2023-12-31")
+
+    assert {d.title for d in docs} == {"L_MADR_2311_2023", "D_MADR_0212_2023"}
+
+
+@responses.activate
+def test_scrap_continues_past_a_failing_category():
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/leyes", body=_PAGINA_LEYES_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/decretos", status=500)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/resoluciones", body=_PAGINA_VACIA_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/conpes", body=_PAGINA_VACIA_HTML)
+
+    progreso = []
+    scraper = ScrapMADR()
+    docs = scraper.scrap(fini="2023-01-01", ffin="2023-12-31", on_progress=progreso.append)
+
+    assert {d.title for d in docs} == {"L_MADR_2311_2023"}
+    assert any("Error" in m and "decretos" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_respects_limit():
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/leyes", body=_PAGINA_LEYES_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/decretos", body=_PAGINA_DECRETOS_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/resoluciones", body=_PAGINA_VACIA_HTML)
+    responses.add(responses.GET, "https://www.minagricultura.gov.co/normatividad/conpes", body=_PAGINA_VACIA_HTML)
+
+    scraper = ScrapMADR()
+    docs = scraper.scrap(fini="2023-01-01", ffin="2023-12-31", limit=1)
+
+    assert len(docs) == 1
+
+
+def test_filters_by_publication_date_stays_at_default_false():
+    assert ScrapMADR.filters_by_publication_date is False

@@ -133,3 +133,28 @@ class ScrapMADR(BaseScrapper):
             ))
 
         return docs
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+
+        docs: List[RawDocModel] = []
+        for categoria, (tipo, letra) in _CATEGORIAS.items():
+            if stop_event is not None and stop_event.is_set():
+                return docs
+            if on_progress:
+                on_progress(f"[{self.source}] Procesando {tipo}...")
+
+            try:
+                resp = session.get(f"{_BASE_URL}/normatividad/{categoria}", timeout=30)
+                resp.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{self.source}] Error consultando {categoria}: {e}")
+                continue
+
+            docs.extend(self._extraer_articulos(resp.text, tipo, letra, fini, ffin, on_progress=on_progress))
+            if len(docs) >= limit:
+                return docs[:limit]
+
+        return docs
