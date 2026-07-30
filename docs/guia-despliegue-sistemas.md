@@ -225,3 +225,61 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 Si la actualización incluye cambios en la base de datos, el equipo de
 desarrollo te lo indicará y habrá que repetir el comando de `alembic upgrade
 head` de la sección 4.
+
+## 8. Respaldos (copias de seguridad)
+
+Esta herramienta guarda dos cosas que conviene respaldar periódicamente: la
+base de datos (usuarios, metadatos de cada documento) y los documentos en sí
+(los archivos). Recomendamos un respaldo diario, automático, guardado en un
+disco o servidor **distinto** al de esta máquina — un respaldo que vive en el
+mismo servidor no sirve de nada si ese servidor falla.
+
+Ubícate en la carpeta donde copiaste los archivos (sección 2) y crea ahí una
+subcarpeta llamada `respaldos`.
+
+### Windows: crea el archivo `respaldo-iurisync.bat`
+
+```bat
+@echo off
+set FECHA=%date:~-4%-%date:~3,2%-%date:~0,2%
+cd /d C:\iurisync
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres pg_dump -U iurisync iurisync > respaldos\bd_%FECHA%.sql
+docker compose --env-file .env.production -f docker-compose.prod.yml cp minio:/data respaldos\documentos_%FECHA%
+```
+
+(Ajusta `C:\iurisync` si copiaste los archivos en otra carpeta.) Luego, en el
+Programador de tareas de Windows (Task Scheduler), crea una tarea nueva que
+ejecute ese archivo todos los días, por ejemplo a las 2:00 a.m.
+
+### Linux: crea el archivo `respaldo-iurisync.sh`
+
+```bash
+#!/bin/bash
+FECHA=$(date +%F)
+cd /opt/iurisync
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres pg_dump -U iurisync iurisync > respaldos/bd_$FECHA.sql
+docker compose --env-file .env.production -f docker-compose.prod.yml cp minio:/data respaldos/documentos_$FECHA
+```
+
+(Ajusta `/opt/iurisync` si copiaste los archivos en otra carpeta.) Dale
+permiso de ejecución (`chmod +x respaldo-iurisync.sh`) y agrégalo al cron para
+que corra todos los días, por ejemplo a las 2:00 a.m.:
+
+```
+0 2 * * * /opt/iurisync/respaldo-iurisync.sh
+```
+
+### Un paso más: sácalos de esta máquina
+
+Los comandos de arriba dejan los respaldos dentro de la misma carpeta
+`respaldos`, en la misma máquina — eso ya protege contra un error humano o de
+la aplicación, pero no contra una falla del servidor completo. Complementa
+esto copiando esa carpeta `respaldos` periódicamente a otro disco, a otro
+servidor de la oficina, o a donde ya respalden el resto de la información de
+la empresa.
+
+### Si alguna vez hay que restaurar un respaldo
+
+Restaurar es una operación delicada (puede sobreescribir datos actuales) —
+si llega a necesitarse de verdad, contacta al equipo de desarrollo antes de
+ejecutar nada, con la fecha del respaldo que quieres restaurar a la mano.
