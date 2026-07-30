@@ -114,21 +114,26 @@ def get_document_tipos(source_id: Optional[int] = None, db: Session = Depends(ge
 
 
 @router.get("/documents/stats", response_model=DocumentStatsOut)
-def get_document_stats(year: Optional[int] = None, db: Session = Depends(get_db)):
+def get_document_stats(
+    year: Optional[int] = None, month: Optional[int] = Query(None, ge=1, le=12), db: Session = Depends(get_db)
+):
     display_name_by_key = {family.key: family.display_name for family in repository.list_source_families(db)}
     by_family = [
         {"key": key, "display_name": display_name_by_key.get(key, key), "count": count}
         for key, count in repository.count_documents_by_family(db)
     ]
     by_tipo = [{"tipo": tipo, "count": count} for tipo, count in repository.count_documents_by_tipo(db)]
-    by_source = [
-        {"id": source_id, "name": name, "count": count}
-        for source_id, name, count in repository.count_documents_by_source(db)
-    ]
 
     available_years = repository.list_document_years(db)
     effective_year = year if year is not None else (available_years[0] if available_years else date.today().year)
     by_month = repository.count_documents_by_month(db, effective_year)
+
+    by_source = [
+        {"id": source_id, "name": name, "count": count}
+        for source_id, name, count in repository.count_documents_by_source(
+            db, year=effective_year if month is not None else None, month=month
+        )
+    ]
 
     return {
         "by_family": by_family,

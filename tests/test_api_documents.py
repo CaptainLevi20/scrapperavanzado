@@ -1149,3 +1149,59 @@ def test_get_document_stats_does_not_cap_by_source_or_by_tipo_at_eight(api_clien
     assert [row["count"] for row in body["by_tipo"]] == sorted(
         (row["count"] for row in body["by_tipo"]), reverse=True
     )
+
+
+def test_get_document_stats_by_source_can_be_scoped_to_a_month(api_client, auth_header, db_session):
+    # Regression + feature test: by_source defaults to the all-time total
+    # (unchanged from today), but passing year+month scopes it down to just
+    # that month — using the same effective date (f_public, falling back to
+    # downloaded_at) that by_month already uses.
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(
+        db_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+
+    repository.insert_document(
+        db_session, doc_id="doc-marzo", source_id=source.id, title="Doc marzo",
+        tipo="Sentencia", storage_bucket="iurisync-test", storage_key="doc-marzo.pdf",
+        f_public=date(2026, 3, 15),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-abril-1", source_id=source.id, title="Doc abril 1",
+        tipo="Sentencia", storage_bucket="iurisync-test", storage_key="doc-abril-1.pdf",
+        f_public=date(2026, 4, 5),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-abril-2", source_id=source.id, title="Doc abril 2",
+        tipo="Sentencia", storage_bucket="iurisync-test", storage_key="doc-abril-2.pdf",
+        f_public=date(2026, 4, 20),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-otro-anio", source_id=source.id, title="Doc otro año",
+        tipo="Sentencia", storage_bucket="iurisync-test", storage_key="doc-otro-anio.pdf",
+        f_public=date(2025, 4, 10),
+    )
+
+    # Sin mes: comportamiento actual, total histórico (las 4).
+    response = api_client.get("/documents/stats", headers=auth_header)
+    assert response.status_code == 200
+    by_source = {row["name"]: row["count"] for row in response.json()["by_source"]}
+    assert by_source == {"Corte Constitucional": 4}
+
+    # Con mes: solo abril de 2026 (2 documentos) — no marzo de 2026 ni abril de 2025.
+    response = api_client.get("/documents/stats", params={"year": 2026, "month": 4}, headers=auth_header)
+    assert response.status_code == 200
+    by_source = {row["name"]: row["count"] for row in response.json()["by_source"]}
+    assert by_source == {"Corte Constitucional": 2}
+
+
+def test_get_document_stats_rejects_month_out_of_range(api_client, auth_header, db_session):
+    response = api_client.get("/documents/stats", params={"month": 13}, headers=auth_header)
+    assert response.status_code == 422
+
+    response = api_client.get("/documents/stats", params={"month": 0}, headers=auth_header)
+    assert response.status_code == 422
