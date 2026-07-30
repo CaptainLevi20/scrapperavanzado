@@ -1105,3 +1105,47 @@ def test_get_documents_title_exact_still_returns_every_actuacion_uncollapsed(api
     body = response.json()
     assert body["total"] == 2
     assert {item["doc_id"] for item in body["items"]} == {"doc-old", "doc-new"}
+
+
+def test_get_document_stats_does_not_cap_by_source_or_by_tipo_at_eight(api_client, auth_header, db_session):
+    # Regression guard: count_documents_by_source/count_documents_by_tipo used
+    # to hard-cap results at limit=8 (ordered by count desc), so a low-volume
+    # source or tipo past the top 8 silently never reached the dashboard —
+    # e.g. a newly added source with few documents so far.
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+
+    tipos = [f"Tipo{i}" for i in range(10)]
+    for i in range(10):
+        source = repository.create_source(
+            db_session, family_key="constitucional", name=f"Fuente {i}", family_params={}
+        )
+        for j in range(10 - i):
+            repository.insert_document(
+                db_session,
+                doc_id=f"doc-{i}-{j}",
+                source_id=source.id,
+                title=f"Documento {i}-{j}",
+                tipo=tipos[i],
+                storage_bucket="iurisync-test",
+                storage_key=f"doc-{i}-{j}.pdf",
+                f_public=date(2026, 3, 10),
+            )
+
+    response = api_client.get("/documents/stats", headers=auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["by_source"]) == 10
+    assert {row["name"] for row in body["by_source"]} == {f"Fuente {i}" for i in range(10)}
+    assert len(body["by_tipo"]) == 10
+    assert {row["tipo"] for row in body["by_tipo"]} == set(tipos)
+    assert [row["count"] for row in body["by_source"]] == sorted(
+        (row["count"] for row in body["by_source"]), reverse=True
+    )
+    assert [row["count"] for row in body["by_tipo"]] == sorted(
+        (row["count"] for row in body["by_tipo"]), reverse=True
+    )
