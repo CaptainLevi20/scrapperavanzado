@@ -1197,3 +1197,11 @@ def test_get_document_stats_by_source_can_be_scoped_to_a_month(api_client, auth_
     assert response.status_code == 200
     by_source = {row["name"]: row["count"] for row in response.json()["by_source"]}
     assert by_source == {"Corte Constitucional": 2}
+
+
+def test_get_document_stats_rejects_month_out_of_range(api_client, auth_header, db_session):
+    response = api_client.get("/documents/stats", params={"month": 13}, headers=auth_header)
+    assert response.status_code == 422
+
+    response = api_client.get("/documents/stats", params={"month": 0}, headers=auth_header)
+    assert response.status_code == 422

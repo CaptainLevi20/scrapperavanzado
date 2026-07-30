@@ -114,7 +114,9 @@ def get_document_tipos(source_id: Optional[int] = None, db: Session = Depends(ge
 
 
 @router.get("/documents/stats", response_model=DocumentStatsOut)
-def get_document_stats(year: Optional[int] = None, month: Optional[int] = None, db: Session = Depends(get_db)):
+def get_document_stats(
+    year: Optional[int] = None, month: Optional[int] = Query(None, ge=1, le=12), db: Session = Depends(get_db)
+):
     display_name_by_key = {family.key: family.display_name for family in repository.list_source_families(db)}
     by_family = [
         {"key": key, "display_name": display_name_by_key.get(key, key), "count": count}

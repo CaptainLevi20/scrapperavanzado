@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Activity, FileClock, FileText, Radar, type LucideIcon } from "lucide-react";
 import { fetchDocuments, fetchDocumentStats } from "../api/documents";
@@ -138,6 +138,7 @@ export function DashboardPage() {
   const statsQuery = useQuery({
     queryKey: ["documents", "stats", selectedYear, selectedMonth],
     queryFn: () => fetchDocumentStats(selectedYear ?? undefined, selectedMonth ?? undefined),
+    placeholderData: keepPreviousData,
   });
 
   const runsLast24h = (recentRunsQuery.data ?? []).filter(
@@ -200,7 +201,7 @@ export function DashboardPage() {
                 onChange={(event) => setSelectedMonth(event.target.value === "" ? null : Number(event.target.value))}
                 className="w-36"
               >
-                <option value="">Todos los meses</option>
+                <option value="">Histórico completo</option>
                 {MONTH_LABELS.map((label, index) => (
                   <option key={label} value={index + 1}>
                     {label}

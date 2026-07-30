@@ -225,8 +225,8 @@ describe("DashboardPage", () => {
     await user.selectOptions(monthSelect, "4");
 
     await waitFor(() => expect(statsRequestedMonth).toBe("4"));
-    await waitFor(() => expect(within(fuenteCard).queryByText("Consejo de Estado")).not.toBeInTheDocument());
-    expect(within(fuenteCard).getByText("5")).toBeInTheDocument();
+    await waitFor(() => expect(within(fuenteCard).getByText("5")).toBeInTheDocument());
+    expect(within(fuenteCard).queryByText("Consejo de Estado")).not.toBeInTheDocument();
   });
 
   it("offers only the years the stats endpoint reports as available", async () => {
