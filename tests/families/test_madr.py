@@ -71,6 +71,55 @@ def test_parse_fecha_does_not_misread_trailing_act_number_digits_as_a_day():
     assert _parse_fecha(resto) == "2023-09-01"
 
 
+def test_parse_fecha_ignores_trailing_free_text_after_full_date():
+    # Real ejemplo del sitio: "DECRETO No. 0175 DEL 24 DE FEBRERO DE 2026 EESE FInanciamiento"
+    resto = _resto_tras_numero("DECRETO No. 0175 DEL 24 DE FEBRERO DE 2026 EESE FInanciamiento", "0175")
+    assert _parse_fecha(resto) == "2026-02-24"
+
+
+def test_parse_fecha_ignores_trailing_free_text_after_month_year():
+    # Real ejemplo: "DECRETO 0810 DE JULIO DE 2025 Parte 2"
+    resto = _resto_tras_numero("DECRETO 0810 DE JULIO DE 2025 Parte 2", "0810")
+    assert _parse_fecha(resto) == "2025-07-01"
+
+
+def test_parse_fecha_ignores_trailing_free_text_after_year_only():
+    # Real ejemplo: "DECRETO 1456 DE 2024 Parte 3"
+    resto = _resto_tras_numero("DECRETO 1456 DE 2024 Parte 3", "1456")
+    assert _parse_fecha(resto) == "2024-01-01"
+
+
+def test_parse_fecha_ignores_parenthetical_suffix():
+    # Real ejemplo: "RESOLUCION No. 000307 de 2024 (003)"
+    resto = _resto_tras_numero("RESOLUCION No. 000307 de 2024 (003)", "000307")
+    assert _parse_fecha(resto) == "2024-01-01"
+
+
+def test_parse_fecha_ignores_trailing_prose_suffix():
+    # Real ejemplo: "Resolución No 000130 de 2017 y Anexos"
+    resto = _resto_tras_numero("Resolución No 000130 de 2017 y Anexos", "000130")
+    assert _parse_fecha(resto) == "2017-01-01"
+
+
+def test_parse_fecha_solo_anio_accepts_del():
+    # Real ejemplo: "Decreto 486 del 2020" — antes fallaba porque el nivel de
+    # solo-año exigía literalmente "DE" + espacio, y "del" no calza con eso.
+    resto = _resto_tras_numero("Decreto 486 del 2020", "486")
+    assert _parse_fecha(resto) == "2020-01-01"
+
+
+def test_parse_fecha_solo_anio_del_without_space():
+    # Real ejemplo: "RESOLUCION 000060 DEL 2026"
+    resto = _resto_tras_numero("RESOLUCION 000060 DEL 2026", "000060")
+    assert _parse_fecha(resto) == "2026-01-01"
+
+
+def test_parse_fecha_solo_anio_accepts_missing_space_before_year():
+    # Real ejemplo: "Decreto 2478 de1999" — sin espacio entre "de" y el año.
+    resto = _resto_tras_numero("Decreto 2478 de1999", "2478")
+    assert _parse_fecha(resto) == "1999-01-01"
+
+
 def test_madr_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 

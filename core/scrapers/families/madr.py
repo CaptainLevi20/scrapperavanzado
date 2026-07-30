@@ -31,19 +31,26 @@ _MESES_ALT = "|".join(_MESES.keys())
 
 # Nivel 1: "{dia} [DE] {mes} DE[L] {año}" — el sitio a veces omite el "DE"
 # entre día y mes ("DEL 27 JULIO DE 2026") y a veces lo incluye ("DEL 15 DE
-# JULIO DEL 2026"); ambas formas comparten este patrón porque "DE" es opcional.
+# JULIO DEL 2026"). Sin ancla de fin de cadena: el sitio real agrega con
+# frecuencia texto libre después de la fecha dentro de data-title (ej. "...
+# DEL 24 DE FEBRERO DE 2026 EESE FInanciamiento", "... DE JULIO DE 2025 Parte
+# 2") — anclar al final descartaba silenciosamente estos documentos reales.
+# Seguro sin ancla porque _extraer_articulos siempre pasa el resto ya
+# recortado por _resto_tras_numero, nunca el título completo cuando hay
+# número — no hay nada antes de la fecha real que el regex pueda confundir.
 _FECHA_DIA_MES_ANIO = re.compile(
-    rf"(\d{{1,2}})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})\s*$", re.IGNORECASE
+    rf"(\d{{1,2}})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})", re.IGNORECASE
 )
-# Nivel 2: "DE {mes} {dia} DE {año}" — orden mes-día invertido, visto en
-# Resoluciones ("DE MAYO 4 DE 2026").
+# Nivel 2: "DE {mes} {dia} DE[L] {año}" — orden mes-día invertido.
 _FECHA_MES_DIA_ANIO = re.compile(
-    rf"DE\s+({_MESES_ALT})\s+(\d{{1,2}})\s+DE\s+(\d{{4}})\s*$", re.IGNORECASE
+    rf"DE\s+({_MESES_ALT})\s+(\d{{1,2}})\s+DEL?\s+(\d{{4}})", re.IGNORECASE
 )
-# Nivel 3: "DE {mes} DE {año}" — mes y año sin día (ej. Leyes: "DE OCTUBRE DE 2023").
-_FECHA_MES_ANIO = re.compile(rf"DE\s+({_MESES_ALT})\s+DE\s+(\d{{4}})\s*$", re.IGNORECASE)
-# Nivel 4: "DE {año}" — solo año. Siempre es el caso de Conpes.
-_FECHA_ANIO = re.compile(r"DE\s+(\d{4})\s*$", re.IGNORECASE)
+# Nivel 3: "DE {mes} DE[L] {año}" — mes y año sin día.
+_FECHA_MES_ANIO = re.compile(rf"DE\s+({_MESES_ALT})\s+DEL?\s+(\d{{4}})", re.IGNORECASE)
+# Nivel 4: "DE[L] {año}" — solo año. Acepta "DEL" (no solo "DE") y espacio
+# opcional antes del año (sitio real: "Decreto 486 del 2020", "Decreto 2478
+# de1999", "RESOLUCION 000060 DEL 2026").
+_FECHA_ANIO = re.compile(r"\bDEL?\s*(\d{4})", re.IGNORECASE)
 
 
 def _resto_tras_numero(data_title: str, numero: str) -> str:
