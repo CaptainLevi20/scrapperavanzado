@@ -188,7 +188,7 @@ describe("DashboardPage", () => {
     const fuenteCard = fuenteHeading.closest(".rounded-lg") as HTMLElement;
     await waitFor(() => expect(within(fuenteCard).getByText("Fuente 1")).toBeInTheDocument());
     expect(within(fuenteCard).getByText("Fuente 10")).toBeInTheDocument();
-    const fuenteScroll = within(fuenteCard).getByText("Fuente 1").closest(".overflow-y-auto");
+    const fuenteScroll = within(fuenteCard).getByText("Fuente 1").closest(".overflow-y-auto") as HTMLElement;
     expect(fuenteCard).toContainElement(fuenteScroll);
     expect(fuenteScroll).toHaveClass("max-h-72");
 
