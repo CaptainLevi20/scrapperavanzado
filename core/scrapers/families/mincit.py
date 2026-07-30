@@ -20,6 +20,39 @@ _CATEGORIAS = {
     "leyes": ("Ley", "L"),
 }
 
+_FECHA_PATTERN = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
+_NUMERO_PATTERN = re.compile(r"^\S+\s+(\d+)")
+# Todo lo anterior al primer "," o ":" es "{tipo} {numero} del {fecha}"; lo que
+# sigue es la descripción, con comillas opcionales alrededor (Resoluciones/
+# Decretos/Leyes usan coma+comillas, Circulares usa dos puntos sin comillas) y
+# un punto final opcional que se descarta junto con la comilla de cierre.
+_DETALLE_PATTERN = re.compile(r'^[^,:]+[,:]\s*"?(.*?)"?\.?$', re.DOTALL)
+
+
+def _parse_fecha(texto: str) -> Optional[str]:
+    m = _FECHA_PATTERN.search(texto)
+    if not m:
+        return None
+    dia, mes, anio = m.groups()
+    return f"{anio}-{mes.zfill(2)}-{dia.zfill(2)}"
+
+
+def _parse_numero(texto_archivo: str) -> Optional[str]:
+    m = _NUMERO_PATTERN.match(texto_archivo.strip())
+    return m.group(1) if m else None
+
+
+def _parse_detalle(texto_archivo: str) -> Optional[str]:
+    m = _DETALLE_PATTERN.match(texto_archivo.strip())
+    if not m:
+        return None
+    detalle = m.group(1).strip()
+    return detalle or None
+
+
+def _normalize_title(letra: str, numero: str, anio: str) -> str:
+    return f"{letra}_MCIT_{int(numero):04d}_{anio}"
+
 
 @register_family("mincit")
 class ScrapMINCIT(BaseScrapper):
