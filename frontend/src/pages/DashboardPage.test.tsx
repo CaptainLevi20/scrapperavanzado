@@ -198,6 +198,37 @@ describe("DashboardPage", () => {
     expect(within(tipoCard).getByText("Tipo 10")).toBeInTheDocument();
   });
 
+  it("filters Documentos por fuente by month when a month is selected", async () => {
+    mockBaselines();
+    const user = userEvent.setup();
+    let statsRequestedMonth: string | null = null;
+    server.use(
+      http.get(`${BASE_URL}/documents/stats`, ({ request }) => {
+        const url = new URL(request.url);
+        const month = url.searchParams.get("month");
+        statsRequestedMonth = month;
+        if (month === "4") {
+          return HttpResponse.json({ ...STATS, by_source: [{ id: 1, name: "Corte Constitucional", count: 5 }] });
+        }
+        return HttpResponse.json(STATS);
+      }),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }))
+    );
+
+    renderPage();
+
+    const fuenteHeading = await screen.findByText("Documentos por fuente");
+    const fuenteCard = fuenteHeading.closest(".rounded-lg") as HTMLElement;
+    await waitFor(() => expect(within(fuenteCard).getByText("Consejo de Estado")).toBeInTheDocument());
+
+    const monthSelect = within(fuenteCard).getByLabelText("Mes");
+    await user.selectOptions(monthSelect, "4");
+
+    await waitFor(() => expect(statsRequestedMonth).toBe("4"));
+    await waitFor(() => expect(within(fuenteCard).queryByText("Consejo de Estado")).not.toBeInTheDocument());
+    expect(within(fuenteCard).getByText("5")).toBeInTheDocument();
+  });
+
   it("offers only the years the stats endpoint reports as available", async () => {
     mockBaselines();
     mockDocuments();
