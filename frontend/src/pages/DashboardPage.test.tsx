@@ -162,6 +162,41 @@ describe("DashboardPage", () => {
     expect(within(fuenteCard).getByText("Consejo de Estado")).toBeInTheDocument();
   });
 
+  it("shows every source/tipo from the stats endpoint, even past the old 8-item cap, inside a scrollable card", async () => {
+    mockBaselines();
+    server.use(
+      http.get(`${BASE_URL}/documents/stats`, () =>
+        HttpResponse.json({
+          ...STATS,
+          by_source: Array.from({ length: 10 }, (_, index) => ({
+            id: index + 1,
+            name: `Fuente ${index + 1}`,
+            count: 10 - index,
+          })),
+          by_tipo: Array.from({ length: 10 }, (_, index) => ({
+            tipo: `Tipo ${index + 1}`,
+            count: 10 - index,
+          })),
+        })
+      ),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }))
+    );
+
+    renderPage();
+
+    const fuenteHeading = await screen.findByText("Documentos por fuente");
+    const fuenteCard = fuenteHeading.closest(".rounded-lg") as HTMLElement;
+    await waitFor(() => expect(within(fuenteCard).getByText("Fuente 1")).toBeInTheDocument());
+    expect(within(fuenteCard).getByText("Fuente 10")).toBeInTheDocument();
+    const fuenteScroll = within(fuenteCard).getByText("Fuente 1").closest(".overflow-y-auto");
+    expect(fuenteScroll).not.toBeNull();
+
+    const tipoHeading = screen.getByText("Documentos por tipo");
+    const tipoCard = tipoHeading.closest(".rounded-lg") as HTMLElement;
+    expect(within(tipoCard).getByText("Tipo 1")).toBeInTheDocument();
+    expect(within(tipoCard).getByText("Tipo 10")).toBeInTheDocument();
+  });
+
   it("offers only the years the stats endpoint reports as available", async () => {
     mockBaselines();
     mockDocuments();
