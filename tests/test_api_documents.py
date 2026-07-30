@@ -1123,16 +1123,17 @@ def test_get_document_stats_does_not_cap_by_source_or_by_tipo_at_eight(api_clien
         source = repository.create_source(
             db_session, family_key="constitucional", name=f"Fuente {i}", family_params={}
         )
-        repository.insert_document(
-            db_session,
-            doc_id=f"doc-{i}",
-            source_id=source.id,
-            title=f"Documento {i}",
-            tipo=tipos[i],
-            storage_bucket="iurisync-test",
-            storage_key=f"doc-{i}.pdf",
-            f_public=date(2026, 3, 10),
-        )
+        for j in range(10 - i):
+            repository.insert_document(
+                db_session,
+                doc_id=f"doc-{i}-{j}",
+                source_id=source.id,
+                title=f"Documento {i}-{j}",
+                tipo=tipos[i],
+                storage_bucket="iurisync-test",
+                storage_key=f"doc-{i}-{j}.pdf",
+                f_public=date(2026, 3, 10),
+            )
 
     response = api_client.get("/documents/stats", headers=auth_header)
 
@@ -1142,3 +1143,9 @@ def test_get_document_stats_does_not_cap_by_source_or_by_tipo_at_eight(api_clien
     assert {row["name"] for row in body["by_source"]} == {f"Fuente {i}" for i in range(10)}
     assert len(body["by_tipo"]) == 10
     assert {row["tipo"] for row in body["by_tipo"]} == set(tipos)
+    assert [row["count"] for row in body["by_source"]] == sorted(
+        (row["count"] for row in body["by_source"]), reverse=True
+    )
+    assert [row["count"] for row in body["by_tipo"]] == sorted(
+        (row["count"] for row in body["by_tipo"]), reverse=True
+    )
