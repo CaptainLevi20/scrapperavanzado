@@ -123,7 +123,6 @@ async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> 
   const token = getStoredToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  headers.set("ngrok-skip-browser-warning", "true");
 
   const response = await fetch(`${BASE_URL}${path}`, { headers });
   if (!response.ok) {
@@ -152,7 +151,7 @@ export function fetchDocumentPreviewUrl(id: number): Promise<string> {
 // browser saves the file under our chosen name regardless of cross-origin
 // `download`-attribute quirks.
 export async function downloadFromUrl(url: string, filename: string): Promise<void> {
-  const response = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" } });
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error("No se pudo descargar el archivo");
   }

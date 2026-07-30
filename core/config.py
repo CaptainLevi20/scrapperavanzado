@@ -10,9 +10,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     s3_endpoint_url: str = "http://localhost:9000"
     # Only needed when the backend itself is reachable at a different address than
-    # MinIO is from an end user's browser (e.g. an ngrok demo tunnel) — presigned
-    # URLs are generated against this host instead, while actual upload/download
-    # traffic between the backend and MinIO still uses s3_endpoint_url directly.
+    # MinIO is from an end user's browser (e.g. the Cloudflare tunnel fronting
+    # MinIO) — presigned URLs are generated against this host instead, while
+    # actual upload/download traffic between the backend and MinIO still uses
+    # s3_endpoint_url directly.
     s3_public_endpoint_url: str | None = None
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"

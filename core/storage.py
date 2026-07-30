@@ -41,8 +41,8 @@ def upload_file(
 def presigned_url(
     bucket: str, key: str, expires_in: int = 3600, response_content_disposition: Optional[str] = None
 ) -> str:
-    # Signed against s3_public_endpoint_url when set (e.g. an ngrok tunnel fronting
-    # MinIO for a demo) — the browser fetching this URL is not necessarily on the
+    # Signed against s3_public_endpoint_url when set (e.g. the Cloudflare tunnel
+    # fronting MinIO) — the browser fetching this URL is not necessarily on the
     # same machine as the backend, so it needs a host it can actually reach, distinct
     # from the internal endpoint upload_file/download_file use for backend<->MinIO
     # traffic.
