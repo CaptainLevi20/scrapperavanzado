@@ -120,6 +120,18 @@ def test_parse_fecha_solo_anio_accepts_missing_space_before_year():
     assert _parse_fecha(resto) == "1999-01-01"
 
 
+def test_parse_fecha_does_not_truncate_a_longer_digit_run_into_a_fake_year():
+    assert _parse_fecha(" DE 20245") is None
+
+
+def test_parse_fecha_does_not_let_a_later_embedded_date_override_the_real_one():
+    # El resto tiene una fecha real (octubre 2023) seguida de texto libre que
+    # por coincidencia contiene OTRA fecha completa ("5 DE ENERO DEL 2024").
+    # Debe ganar la fecha real, que aparece primero.
+    texto = " DE OCTUBRE DE 2023 modificado el 5 DE ENERO DEL 2024"
+    assert _parse_fecha(texto) == "2023-10-01"
+
+
 def test_madr_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 

@@ -29,28 +29,43 @@ _MESES = {
 }
 _MESES_ALT = "|".join(_MESES.keys())
 
-# Nivel 1: "{dia} [DE] {mes} DE[L] {año}" — el sitio a veces omite el "DE"
-# entre día y mes ("DEL 27 JULIO DE 2026") y a veces lo incluye ("DEL 15 DE
-# JULIO DEL 2026"). Sin ancla de fin de cadena: el sitio real agrega con
-# frecuencia texto libre después de la fecha dentro de data-title (ej. "...
-# DEL 24 DE FEBRERO DE 2026 EESE FInanciamiento", "... DE JULIO DE 2025 Parte
-# 2") — anclar al final descartaba silenciosamente estos documentos reales.
-# Seguro sin ancla porque _extraer_articulos siempre pasa el resto ya
-# recortado por _resto_tras_numero, nunca el título completo cuando hay
-# número — no hay nada antes de la fecha real que el regex pueda confundir.
-_FECHA_DIA_MES_ANIO = re.compile(
-    rf"(\d{{1,2}})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})", re.IGNORECASE
+# Las 4 formas de fecha reales vistas en el sitio, combinadas en UN solo
+# patrón con alternancia (en vez de 4 regex probados por separado, cada uno
+# buscado sobre la cadena completa). Esto importa por dos razones:
+#
+# 1. Ninguna alternativa se ancla al final de la cadena ($): el sitio agrega
+#    con frecuencia texto libre después de la fecha en data-title (ej. "...
+#    DEL 24 DE FEBRERO DE 2026 EESE FInanciamiento", "... DE 2024 Parte 3") —
+#    anclar al final descartaba silenciosamente estos documentos reales.
+# 2. Al buscarlas como UNA sola alternancia con un único .search(), gana la
+#    coincidencia más a la izquierda (posición), y el orden de las
+#    alternativas solo desempata cuando varias podrían calzar en la MISMA
+#    posición. Probar cada nivel por separado sobre toda la cadena (la
+#    versión anterior) dejaba que el nivel 1 (día+mes+año, el más
+#    específico) "secuestrara" una fecha completa casual que apareciera más
+#    adelante en texto libre de descripción, ignorando la fecha real y
+#    correcta que aparece antes pero que solo un nivel menos específico
+#    reconoce (ej. "DE OCTUBRE DE 2023 modificado el 5 DE ENERO DEL 2024"
+#    debe resolver a 2023-10-01, no a 2024-01-05). Con una sola búsqueda por
+#    posición, la fecha real —que siempre aparece primero, justo después del
+#    número ya recortado por _resto_tras_numero— gana sin importar qué nivel
+#    la reconozca.
+#
+# El "(?!\d)" al final de cada grupo de año evita que un año se lea como los
+# primeros 4 dígitos de un número más largo (ej. no leer "2024" dentro de un
+# hipotético "20245").
+_FECHA_PATTERN = re.compile(
+    r"(?:"
+    rf"(\d{{1,2}})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
+    r"|"
+    rf"DE\s+({_MESES_ALT})\s+(\d{{1,2}})\s+DEL?\s+(\d{{4}})(?!\d)"
+    r"|"
+    rf"DE\s+({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
+    r"|"
+    r"\bDEL?\s*(\d{4})(?!\d)"
+    r")",
+    re.IGNORECASE,
 )
-# Nivel 2: "DE {mes} {dia} DE[L] {año}" — orden mes-día invertido.
-_FECHA_MES_DIA_ANIO = re.compile(
-    rf"DE\s+({_MESES_ALT})\s+(\d{{1,2}})\s+DEL?\s+(\d{{4}})", re.IGNORECASE
-)
-# Nivel 3: "DE {mes} DE[L] {año}" — mes y año sin día.
-_FECHA_MES_ANIO = re.compile(rf"DE\s+({_MESES_ALT})\s+DEL?\s+(\d{{4}})", re.IGNORECASE)
-# Nivel 4: "DE[L] {año}" — solo año. Acepta "DEL" (no solo "DE") y espacio
-# opcional antes del año (sitio real: "Decreto 486 del 2020", "Decreto 2478
-# de1999", "RESOLUCION 000060 DEL 2026").
-_FECHA_ANIO = re.compile(r"\bDEL?\s*(\d{4})", re.IGNORECASE)
 
 
 def _resto_tras_numero(data_title: str, numero: str) -> str:
@@ -65,28 +80,26 @@ def _normalize_title(letra: str, numero: str, anio: str) -> str:
 
 
 def _parse_fecha(texto: str) -> Optional[str]:
-    m = _FECHA_DIA_MES_ANIO.search(texto)
-    if m:
-        dia, mes_nombre, anio = m.groups()
-        if 1 <= int(dia) <= 31:
-            return f"{anio}-{_MESES[mes_nombre.lower()]:02d}-{int(dia):02d}"
+    m = _FECHA_PATTERN.search(texto)
+    if not m:
+        return None
 
-    m = _FECHA_MES_DIA_ANIO.search(texto)
-    if m:
-        mes_nombre, dia, anio = m.groups()
-        if 1 <= int(dia) <= 31:
-            return f"{anio}-{_MESES[mes_nombre.lower()]:02d}-{int(dia):02d}"
+    dia1, mes1, anio1, mes2, dia2, anio2, mes3, anio3, anio4 = m.groups()
 
-    m = _FECHA_MES_ANIO.search(texto)
-    if m:
-        mes_nombre, anio = m.groups()
-        return f"{anio}-{_MESES[mes_nombre.lower()]:02d}-01"
+    if dia1 is not None:
+        if not (1 <= int(dia1) <= 31):
+            return None
+        return f"{anio1}-{_MESES[mes1.lower()]:02d}-{int(dia1):02d}"
 
-    m = _FECHA_ANIO.search(texto)
-    if m:
-        return f"{m.group(1)}-01-01"
+    if dia2 is not None:
+        if not (1 <= int(dia2) <= 31):
+            return None
+        return f"{anio2}-{_MESES[mes2.lower()]:02d}-{int(dia2):02d}"
 
-    return None
+    if mes3 is not None:
+        return f"{anio3}-{_MESES[mes3.lower()]:02d}-01"
+
+    return f"{anio4}-01-01"
 
 
 @register_family("madr")
