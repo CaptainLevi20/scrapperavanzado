@@ -67,7 +67,7 @@ function BarList({ data }: { data: CountBucket[] }) {
   }
   const max = Math.max(...data.map((d) => d.count), 1);
   return (
-    <div className="space-y-2.5">
+    <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
       {data.map((bucket) => (
         <div key={bucket.label} className="space-y-1">
           <div className="flex items-center justify-between gap-3 text-xs">
