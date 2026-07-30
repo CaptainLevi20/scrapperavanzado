@@ -115,3 +115,79 @@ def test_mapa_anio_a_slug_maps_each_year_including_ranges():
 def test_mapa_anio_a_slug_ignores_other_categories():
     html = '<a href="/normatividad/decretos/2021">2021</a>'
     assert _mapa_anio_a_slug(html, "leyes") == {}
+
+
+from core.scrapers.families.mincit import ScrapMINCIT
+
+_FILA_HTML = """
+<table id="Listado">
+  <thead>
+    <th>No</th>
+    <th>Archivo</th>
+    <th class="text-center">Tamaño</th>
+    <th class="text-center">Fecha de expedición</th>
+    <th class="text-center">Fecha de publicación</th>
+    <th></th>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="text-center">1</td>
+      <td>Resolución 365 del 30 de diciembre de 2025, "por la cual se adopta la determinación final".</td>
+      <td class="text-center">1,35 MB</td>
+      <td class="text-center">30/12/2025</td>
+      <td class="text-center">12/02/2026</td>
+      <td><a href="/getattachment/0764f7b2-98fe-4007-acf0-65689bd02404/Resolucion-365.aspx" target="_blank">Descargar</a></td>
+    </tr>
+  </tbody>
+</table>
+"""
+
+
+def test_extraer_filas_parses_row_and_builds_canonical_title():
+    scraper = ScrapMINCIT()
+    docs = scraper._extraer_filas(_FILA_HTML, "Resolución", "R", "2026-01-01", "2026-12-31")
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.title == "R_MCIT_0365_2025"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Resolución"
+    assert doc.f_public == "2026-02-12"  # Fecha de publicación
+    assert doc.f_providencia == "2025-12-30"  # Fecha de expedición
+    assert doc.detalle == "por la cual se adopta la determinación final"
+    assert doc.link["url"] == "https://www.mincit.gov.co/getattachment/0764f7b2-98fe-4007-acf0-65689bd02404/Resolucion-365.aspx"
+    assert doc.save_path == "Ministerio de Comercio, Industria y Turismo/2026-02-12/Resolución/R_MCIT_0365_2025(extension)"
+
+
+def test_extraer_filas_filters_by_publication_date_not_expedicion():
+    scraper = ScrapMINCIT()
+    # Fecha de expedición (30/12/2025) cae en 2025, pero Fecha de publicación
+    # (12/02/2026) es la que se debe usar para el filtro — el rango pedido es
+    # solo 2025, así que este documento debe quedar excluido.
+    docs = scraper._extraer_filas(_FILA_HTML, "Resolución", "R", "2025-01-01", "2025-12-31")
+
+    assert docs == []
+
+
+def test_extraer_filas_marks_title_unverified_when_no_numero():
+    html = _FILA_HTML.replace(
+        'Resolución 365 del 30 de diciembre de 2025, "por la cual se adopta la determinación final".',
+        'Documento sin número reconocible en el texto.',
+    )
+    scraper = ScrapMINCIT()
+    docs = scraper._extraer_filas(html, "Resolución", "R", "2026-01-01", "2026-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].title == "Documento sin número reconocible en el texto."
+    assert docs[0].title_unverified is True
+
+
+def test_extraer_filas_skips_row_without_download_link():
+    html = _FILA_HTML.replace(
+        '<a href="/getattachment/0764f7b2-98fe-4007-acf0-65689bd02404/Resolucion-365.aspx" target="_blank">Descargar</a>',
+        '',
+    )
+    scraper = ScrapMINCIT()
+    docs = scraper._extraer_filas(html, "Resolución", "R", "2026-01-01", "2026-12-31")
+
+    assert docs == []

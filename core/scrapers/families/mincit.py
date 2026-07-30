@@ -84,5 +84,58 @@ class ScrapMINCIT(BaseScrapper):
     def __init__(self):
         self.source = "Ministerio de Comercio, Industria y Turismo"
 
+    def _extraer_filas(self, html: str, tipo: str, letra: str, fini: str, ffin: str) -> List[RawDocModel]:
+        docs: List[RawDocModel] = []
+        soup = BeautifulSoup(html, "html.parser")
+        tabla = soup.find("table", id="Listado")
+        if tabla is None:
+            return docs
+        tbody = tabla.find("tbody")
+        if tbody is None:
+            return docs
+
+        for fila in tbody.find_all("tr"):
+            celdas = fila.find_all("td")
+            if len(celdas) < 6:
+                continue
+
+            texto_archivo = celdas[1].get_text(" ", strip=True)
+            f_providencia = _parse_fecha(celdas[3].get_text(strip=True))
+            f_public = _parse_fecha(celdas[4].get_text(strip=True))
+            if not f_providencia or not f_public:
+                continue
+            if f_public < fini or f_public > ffin:
+                continue
+
+            enlace = celdas[5].find("a", href=True)
+            if not enlace:
+                continue
+            url = urljoin(_BASE_URL, enlace["href"])
+
+            numero = _parse_numero(texto_archivo)
+            detalle = _parse_detalle(texto_archivo)
+            anio_providencia = f_providencia[:4]
+
+            if numero is not None:
+                title = _normalize_title(letra, numero, anio_providencia)
+                title_unverified = False
+            else:
+                title = texto_archivo
+                title_unverified = True
+
+            docs.append(RawDocModel(
+                source=self.source,
+                link={"url": url, "method": "GET"},
+                title=title,
+                tipo=tipo,
+                f_public=f_public,
+                f_providencia=f_providencia,
+                detalle=detalle,
+                save_path=storage_path(self.source, f_public, tipo, f"{title}(extension)"),
+                title_unverified=title_unverified,
+            ))
+
+        return docs
+
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         return []
