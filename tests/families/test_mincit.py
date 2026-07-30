@@ -75,3 +75,43 @@ def test_normalize_title_pads_short_numbers_to_four_digits():
 def test_normalize_title_uses_letter_per_tipo():
     assert _normalize_title("L", "2094", "2021") == "L_MCIT_2094_2021"
     assert _normalize_title("D", "1438", "2025") == "D_MCIT_1438_2025"
+
+
+from core.scrapers.families.mincit import _anios_del_slug, _mapa_anio_a_slug
+
+_INDICE_HTML = """
+<a href="/normatividad/leyes" class="active">Leyes</a>
+<a href="/normatividad/leyes/2021">2021</a>
+<a href="/normatividad/leyes/1990-1994">1990-1994</a>
+<a href="/normatividad/leyes/1979-1989">1979-1989</a>
+"""
+
+
+def test_anios_del_slug_handles_single_year():
+    assert _anios_del_slug("2021") == [2021]
+
+
+def test_anios_del_slug_handles_range():
+    assert _anios_del_slug("1990-1994") == [1990, 1991, 1992, 1993, 1994]
+
+
+def test_anios_del_slug_handles_reversed_range():
+    assert _anios_del_slug("1995-1990") == [1990, 1991, 1992, 1993, 1994, 1995]
+
+
+def test_anios_del_slug_returns_empty_for_non_year_slug():
+    assert _anios_del_slug("circulares-conjuntas") == []
+
+
+def test_mapa_anio_a_slug_maps_each_year_including_ranges():
+    mapa = _mapa_anio_a_slug(_INDICE_HTML, "leyes")
+
+    assert mapa[2021] == "2021"
+    assert mapa[1990] == "1990-1994"
+    assert mapa[1994] == "1990-1994"
+    assert mapa[1985] == "1979-1989"
+
+
+def test_mapa_anio_a_slug_ignores_other_categories():
+    html = '<a href="/normatividad/decretos/2021">2021</a>'
+    assert _mapa_anio_a_slug(html, "leyes") == {}

@@ -54,6 +54,29 @@ def _normalize_title(letra: str, numero: str, anio: str) -> str:
     return f"{letra}_MCIT_{int(numero):04d}_{anio}"
 
 
+_SLUG_ANIO_PATTERN = re.compile(r"^(\d{4})(?:-(\d{4}))?$")
+
+
+def _anios_del_slug(slug: str) -> List[int]:
+    m = _SLUG_ANIO_PATTERN.match(slug)
+    if not m:
+        return []
+    inicio = int(m.group(1))
+    fin = int(m.group(2)) if m.group(2) else inicio
+    if fin < inicio:
+        inicio, fin = fin, inicio
+    return list(range(inicio, fin + 1))
+
+
+def _mapa_anio_a_slug(html: str, categoria: str) -> dict:
+    patron = re.compile(rf'href="/normatividad/{re.escape(categoria)}/([^"]+)"')
+    mapa = {}
+    for slug in set(patron.findall(html)):
+        for anio in _anios_del_slug(slug):
+            mapa[anio] = slug
+    return mapa
+
+
 @register_family("mincit")
 class ScrapMINCIT(BaseScrapper):
     filters_by_publication_date = True
