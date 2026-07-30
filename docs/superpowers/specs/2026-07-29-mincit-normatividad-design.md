@@ -61,6 +61,19 @@ páginas de archivo por año o por rango de años (confirmado: años sueltos com
 Esto evita asumir `/{categoria}/{año}` para años viejos donde en realidad la
 URL real es un rango, y evita pedir años fuera de rango.
 
+**Margen de un año por el desfase expedición/publicación:** las páginas de
+archivo del sitio agrupan por año de **expedición**, pero el rango `[fini,
+ffin]` que se usa para decidir qué páginas pedir es de **publicación** (ver
+`filters_by_publication_date` más abajo). Una norma expedida en diciembre
+suele publicarse semanas después, ya en el año siguiente (ejemplo real:
+Resolución 365, expedición 30/12/2025, publicación 12/02/2026). Por eso el
+límite inferior del rango de años usado para elegir páginas de archivo se
+amplía en un año (`_ANIOS_DE_MARGEN = 1` en `scrap()`), confiando en que el
+filtro por `f_public` de `_extraer_filas` descarte después lo que quede
+genuinamente fuera del rango pedido. No simplificar este margen sin entender
+esta razón: quitarlo hace que documentos publicados en el año N pero expedidos
+en diciembre del año N-1 desaparezcan silenciosamente de los resultados.
+
 ## Parseo de filas
 
 Cada página de archivo tiene `<table id="Listado">`, con columnas idénticas
