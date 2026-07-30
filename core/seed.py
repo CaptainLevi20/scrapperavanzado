@@ -26,6 +26,10 @@ _FAMILIES = {
         "Rama Judicial (Tribunales Superiores y Juzgados)",
         "Publicaciones procesales de la Rama Judicial; cubre Tribunales Superiores por departamento y Juzgados por tipo",
     ),
+    "mincit": (
+        "Ministerio de Comercio, Industria y Turismo",
+        "Normativa (resoluciones, decretos, circulares, leyes) publicada por el Ministerio de Comercio, Industria y Turismo",
+    ),
 }
 
 
@@ -80,6 +84,10 @@ def seed_source_families_and_sources(db) -> None:
             name=juz_name,
             family_params={"dept_code": "", "dept_name": juz_name, "entidad_id": juz_id},
         )
+
+    repository.create_source_if_missing(
+        db, family_key="mincit", name="Ministerio de Comercio, Industria y Turismo", family_params={}
+    )
 
 
 def main():
