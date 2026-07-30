@@ -41,11 +41,11 @@ def upload_file(
 def presigned_url(
     bucket: str, key: str, expires_in: int = 3600, response_content_disposition: Optional[str] = None
 ) -> str:
-    # Signed against s3_public_endpoint_url when set (e.g. the Cloudflare tunnel
-    # fronting MinIO) — the browser fetching this URL is not necessarily on the
-    # same machine as the backend, so it needs a host it can actually reach, distinct
-    # from the internal endpoint upload_file/download_file use for backend<->MinIO
-    # traffic.
+    # Signed against s3_public_endpoint_url when set (e.g. the office deployment's
+    # Caddy reverse proxy fronting MinIO) — the browser fetching this URL is not
+    # necessarily on the same machine as the backend, so it needs a host it can
+    # actually reach, distinct from the internal endpoint upload_file/download_file
+    # use for backend<->MinIO traffic.
     settings = get_settings()
     client = _client(endpoint_url=settings.s3_public_endpoint_url)
     params = {"Bucket": bucket, "Key": key}

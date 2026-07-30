@@ -12,8 +12,4 @@ __pycache__/
 graphify-out/
 .superpowers/
 
-# Túnel temporal de acceso externo (mientras producción no está lista)
 .dev-logs/
-.tunnel-logs/
-Caddyfile.tunnel
-docker-compose.tunnel.yml
