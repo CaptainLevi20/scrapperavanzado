@@ -487,25 +487,23 @@ def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
     return list(db.execute(stmt).all())
 
 
-def count_documents_by_source(db: Session, limit: int = 8) -> list[tuple[int, str, int]]:
+def count_documents_by_source(db: Session) -> list[tuple[int, str, int]]:
     stmt = (
         select(Source.id, Source.name, func.count(Document.id))
         .select_from(Document)
         .join(Source, Source.id == Document.source_id)
         .group_by(Source.id, Source.name)
         .order_by(func.count(Document.id).desc())
-        .limit(limit)
     )
     return list(db.execute(stmt).all())
 
 
-def count_documents_by_tipo(db: Session, limit: int = 8) -> list[tuple[str, int]]:
+def count_documents_by_tipo(db: Session) -> list[tuple[str, int]]:
     tipo_expr = func.coalesce(Document.tipo, "Sin tipo")
     stmt = (
         select(tipo_expr, func.count(Document.id))
         .group_by(tipo_expr)
         .order_by(func.count(Document.id).desc())
-        .limit(limit)
     )
     return list(db.execute(stmt).all())
 
