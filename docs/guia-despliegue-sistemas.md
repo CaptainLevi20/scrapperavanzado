@@ -10,9 +10,12 @@ equipo de desarrollo antes de continuar.
       al menos: 4 núcleos de procesador, 8 GB de memoria RAM, 100 GB de disco.
 - [ ] Docker instalado en esa máquina. Si no lo tienen, instrucciones oficiales
       aquí: https://docs.docker.com/engine/install/
-- [ ] El nombre exacto del subdominio interno que van a usar (ejemplo:
-      `documentos.avancejuridico.com.co`), y que su DNS interno ya apunte
-      ese nombre a la IP de esta máquina.
+- [ ] Cómo se va a llegar a la máquina desde los demás computadores de la
+      oficina: o un nombre de dominio interno con su DNS ya apuntando a la
+      IP de esta máquina, o — si no tienen servidor de DNS/dominio, que es
+      lo más común — simplemente **la IP interna fija de esta máquina**
+      (ejemplo: `192.168.1.50`). No hace falta nada más: la guía funciona
+      igual de bien con una IP que con un nombre.
 - [ ] Confirmar: ¿tienen una autoridad certificadora (CA) interna propia para
       emitir certificados HTTPS? Si no están seguros, la respuesta por
       defecto es "no" y esta guía funciona igual (ver sección 5).
@@ -39,11 +42,13 @@ Copia `.env.production.example` a un archivo nuevo llamado `.env.production`,
 en la misma carpeta. Ábrelo con un editor de texto simple (Bloc de notas
 sirve) y reemplaza cada valor que dice `CAMBIAR_ESTO` por uno propio:
 
-- `CADDY_DOMAIN` y `CORS_ORIGINS`: el subdominio interno real (el mismo en
-  ambas líneas).
-- `S3_PUBLIC_ENDPOINT_URL`: el mismo subdominio otra vez, pero terminado en
-  `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`). Es la
-  dirección por la que el navegador de cada persona descarga los documentos.
+- `CADDY_DOMAIN` y `CORS_ORIGINS`: el subdominio interno real, o la IP
+  interna fija de la máquina si no tienen dominio (ejemplo: `CADDY_DOMAIN=192.168.1.50`
+  y `CORS_ORIGINS=https://192.168.1.50`) — la misma dirección en ambas líneas.
+- `S3_PUBLIC_ENDPOINT_URL`: la misma dirección otra vez (subdominio o IP),
+  pero terminada en `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`
+  o `https://192.168.1.50:9443`). Es la dirección por la que el navegador de
+  cada persona descarga los documentos.
 - `POSTGRES_PASSWORD` y la contraseña dentro de `DATABASE_URL`: deben ser
   **exactamente la misma contraseña**, elegida por ustedes, en ambos lugares.
 - `S3_ACCESS_KEY` / `S3_SECRET_KEY`: un usuario y contraseña nuevos, elegidos
@@ -104,8 +109,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs api
 ## 5. Sobre el candado de seguridad (HTTPS)
 
 Por defecto, esta instalación genera su propio certificado de seguridad
-("candado casero"). La primera vez que alguien entre desde el navegador al
-subdominio, va a ver una advertencia tipo "conexión no privada" o "sitio no
+("candado casero"). Funciona igual ya sea que se entre por un subdominio o
+por la IP interna de la máquina. La primera vez que alguien entre desde el
+navegador, va a ver una advertencia tipo "conexión no privada" o "sitio no
 verificado" — es normal, hay que darle click en "Avanzado" y luego
 "Continuar de todos modos" (el texto exacto varía según el navegador). Una
 vez aceptado, el navegador no debería volver a preguntar en esa misma
@@ -122,9 +128,9 @@ los documentos simplemente no se van a poder abrir (ni descargar ni
 previsualizar), aunque el resto de la herramienta funcione normal, y sin
 ningún aviso claro de por qué. Si en la oficina se usa Firefox, cada persona
 debe visitar **una sola vez, manualmente**, `https://` seguido del
-subdominio y `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`)
-y aceptar la advertencia ahí también — después de eso no vuelve a pedirlo en
-esa máquina.
+subdominio o la IP y `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`
+o `https://192.168.1.50:9443`) y aceptar la advertencia ahí también —
+después de eso no vuelve a pedirlo en esa máquina.
 
 Si su empresa sí tiene una autoridad certificadora interna propia, avisen al
 equipo de desarrollo — se puede reemplazar este certificado casero por uno
@@ -143,24 +149,26 @@ ambas direcciones.
 ## 6. Verificación final
 
 Desde un computador conectado a la red de la oficina, abre un navegador y
-entra a `https://` seguido del subdominio configurado (ejemplo:
-`https://documentos.avancejuridico.com.co`). Deberías ver la pantalla de
-inicio de sesión de IURISYNC. Usa el `REGISTRATION_CODE` que configuraste en
-el paso 3 para crear la primera cuenta desde la pantalla de registro.
+entra a `https://` seguido del subdominio o la IP configurada (ejemplo:
+`https://documentos.avancejuridico.com.co` o `https://192.168.1.50`).
+Deberías ver la pantalla de inicio de sesión de IURISYNC. Usa el
+`REGISTRATION_CODE` que configuraste en el paso 3 para crear la primera
+cuenta desde la pantalla de registro.
 
-Si la página no carga, revisa en este orden: (1) que el DNS interno
-realmente apunte al servidor (`ping <subdominio>` desde otro computador de la
-oficina), (2) que el firewall deje pasar el puerto 443, (3) el resultado del
-comando `docker compose ... ps` del paso 4.
+Si la página no carga, revisa en este orden: (1) que la dirección
+configurada realmente llegue al servidor (`ping <subdominio o IP>` desde
+otro computador de la oficina — si usan subdominio, que además el DNS
+interno lo resuelva a la IP correcta), (2) que el firewall deje pasar el
+puerto 443, (3) el resultado del comando `docker compose ... ps` del paso 4.
 
 Por último, **abre un documento** desde la herramienta (no basta con verlo en
 la lista: hay que darle click para descargarlo o previsualizarlo). Si la
 página carga y el listado se ve, pero al abrir un documento sale un error o la
 descarga nunca empieza, casi siempre es una de estas tres cosas: el puerto
 **9443** está cerrado en el firewall, `S3_PUBLIC_ENDPOINT_URL` en
-`.env.production` no quedó con el subdominio correcto terminado en `:9443`,
-o (si están en **Firefox**) todavía no se aceptó la advertencia de seguridad
-en esa segunda dirección — ver el aviso de Firefox en la sección 5.
+`.env.production` no quedó con el subdominio o la IP correcta terminada en
+`:9443`, o (si están en **Firefox**) todavía no se aceptó la advertencia de
+seguridad en esa segunda dirección — ver el aviso de Firefox en la sección 5.
 
 ## 7. Mantenimiento: reiniciar, apagar y actualizar
 
