@@ -141,6 +141,11 @@ def test_parse_fecha_falls_through_past_an_out_of_range_day_to_find_a_valid_date
     assert _parse_fecha("DECRETO 99045 DE OCTUBRE DE 2023") == "2023-10-01"
 
 
+def test_parse_fecha_falls_back_to_month_start_on_calendar_impossible_date():
+    # "31 de abril" no existe (abril tiene 30 días) — debe caer al mes/año.
+    assert _parse_fecha(" DEL 31 DE ABRIL DE 2024") == "2024-04-01"
+
+
 def test_madr_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 
@@ -253,6 +258,16 @@ def test_extraer_articulos_sanitizes_title_unverified_for_save_path():
     assert not any(c in ultimo_segmento for c in '\\/*?:"<>|')
 
 
+def test_extraer_articulos_marks_title_unverified_when_data_number_is_not_numeric():
+    html = _ARTICULO_DECRETO_HTML.replace('data-number="0765"', 'data-number="null"')
+    scraper = ScrapMADR()
+    docs = scraper._extraer_articulos(html, "Decreto", "D", "2026-01-01", "2026-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].title == "DECRETO 0765 DEL 15 DE JULIO DEL 2026"
+    assert docs[0].title_unverified is True
+
+
 def test_extraer_articulos_skips_article_without_download_link():
     html = _ARTICULO_DECRETO_HTML.replace(
         '<a itemprop="url" href="/fileadmin/normatividad/decretos/DECRETO_No._0765_DEL_15_DE_JULIO_DE_2026.pdf">',
@@ -276,6 +291,34 @@ def test_extraer_articulos_skips_article_without_any_parseable_date():
     docs = scraper._extraer_articulos(html, "Decreto", "D", "2026-01-01", "2026-12-31")
 
     assert docs == []
+
+
+_ARTICULO_LEY_HTML = """
+<article class="col-12 pb-5 item_norm"
+    data-title="LEY 2311 DE 2023"
+    data-year="2023"
+    data-number="2311">
+    <div class="cnt_item_norm">
+        <h3>
+            <a itemprop="url" href="/fileadmin/normatividad/leyes/LEY_2311_DE_2023.pdf">x</a>
+        </h3>
+    </div>
+</article>
+"""
+
+
+def test_extraer_articulos_parses_multiple_articles_in_one_page():
+    html = _ARTICULO_DECRETO_HTML + _ARTICULO_LEY_HTML
+    scraper = ScrapMADR()
+    docs = scraper._extraer_articulos(html, "Decreto", "D", "2020-01-01", "2026-12-31")
+
+    # Both articles are real documents in this combined page; tipo/letra is a
+    # single argument for the whole _extraer_articulos call (in production,
+    # scrap() only ever passes one page — one category — per call), so both
+    # articles here get letra "D". This test just verifies BOTH articles in
+    # the HTML are found and parsed (i.e. a second <article> doesn't get
+    # dropped or overwrite the first), not that each infers its own tipo.
+    assert {d.title for d in docs} == {"D_MADR_0765_2026", "D_MADR_2311_2023"}
 
 
 import responses

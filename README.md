@@ -55,4 +55,4 @@ local de desarrollo (Postgres/Redis/MinIO).
 
 ## Alcance
 
-Este repo porta las 10 familias de scraping de `WebScrapping_Fuentes` (`constitucional`, `samai`, `corte_suprema`, `jep`, `cndj`, `adr`, `adres`, `ane`, `anh`, `rama_judicial`) más `mincit` (desarrollada directamente en este repo, normativa del Ministerio de Comercio, Industria y Turismo), cada una siguiendo el patrón `core/scrapers/families/` + `@register_family(...)`.
+Este repo porta las 10 familias de scraping de `WebScrapping_Fuentes` (`constitucional`, `samai`, `corte_suprema`, `jep`, `cndj`, `adr`, `adres`, `ane`, `anh`, `rama_judicial`) más `mincit` (normativa del Ministerio de Comercio, Industria y Turismo) y `madr` (normativa del Ministerio de Agricultura y Desarrollo Rural), ambas desarrolladas directamente en este repo, cada una siguiendo el patrón `core/scrapers/families/` + `@register_family(...)`.

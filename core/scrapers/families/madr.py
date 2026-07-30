@@ -1,3 +1,4 @@
+import datetime
 import re
 from typing import List, Optional
 from urllib.parse import urljoin
@@ -89,9 +90,19 @@ def _parse_fecha(texto: str) -> Optional[str]:
     dia1, mes1, anio1, mes2, dia2, anio2, mes3, anio3, anio4 = m.groups()
 
     if dia1 is not None:
-        return f"{anio1}-{_MESES[mes1.lower()]:02d}-{int(dia1):02d}"
+        mes_num = _MESES[mes1.lower()]
+        try:
+            datetime.date(int(anio1), mes_num, int(dia1))
+        except ValueError:
+            return f"{anio1}-{mes_num:02d}-01"
+        return f"{anio1}-{mes_num:02d}-{int(dia1):02d}"
     if dia2 is not None:
-        return f"{anio2}-{_MESES[mes2.lower()]:02d}-{int(dia2):02d}"
+        mes_num = _MESES[mes2.lower()]
+        try:
+            datetime.date(int(anio2), mes_num, int(dia2))
+        except ValueError:
+            return f"{anio2}-{mes_num:02d}-01"
+        return f"{anio2}-{mes_num:02d}-{int(dia2):02d}"
     if mes3 is not None:
         return f"{anio3}-{_MESES[mes3.lower()]:02d}-01"
     return f"{anio4}-01-01"
@@ -113,12 +124,15 @@ class ScrapMADR(BaseScrapper):
             if detalle:
                 detalle = detalle.strip('"')
 
-            enlace = art.find("a", href=True)
+            enlace = art.find("a", attrs={"itemprop": "url"}, href=True) or art.find("a", href=True)
             if not enlace:
+                if on_progress:
+                    on_progress(f"[{self.source}] Aviso: no se encontró enlace de descarga para «{data_title}», se omite")
                 continue
             url = urljoin(_BASE_URL, enlace["href"])
 
-            resto = _resto_tras_numero(data_title, numero) if numero else data_title
+            numero_valido = numero.isdigit()
+            resto = _resto_tras_numero(data_title, numero) if numero_valido else data_title
             fecha = _parse_fecha(resto)
             if fecha is None:
                 if on_progress:
@@ -127,7 +141,7 @@ class ScrapMADR(BaseScrapper):
             if fecha < fini or fecha > ffin:
                 continue
 
-            if numero:
+            if numero_valido:
                 title = _normalize_title(letra, numero, fecha[:4])
                 title_unverified = False
             else:
