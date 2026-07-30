@@ -175,6 +175,31 @@ def test_extraer_filas_marks_title_unverified_when_no_numero():
     assert docs[0].title_unverified is True
 
 
+def test_extraer_filas_sanitizes_title_unverified_for_save_path():
+    # Texto crudo del sitio con caracteres inválidos para una ruta de archivo:
+    # "/" inyectaría un segmento de carpeta extra, ':' y '"' rompen el nombre
+    # de archivo en Windows (incluido el arcname del ZIP de descarga masiva).
+    html = _FILA_HTML.replace(
+        'Resolución 365 del 30 de diciembre de 2025, "por la cual se adopta la determinación final".',
+        'Documento/con "caracteres": invalidos|raros*.',
+    )
+    scraper = ScrapMINCIT()
+    docs = scraper._extraer_filas(html, "Resolución", "R", "2026-01-01", "2026-12-31")
+
+    assert len(docs) == 1
+    doc = docs[0]
+    # El título crudo se conserva tal cual para lectura humana.
+    assert doc.title == 'Documento/con "caracteres": invalidos|raros*.'
+    assert doc.title_unverified is True
+
+    # save_path: fuente/fecha/tipo/archivo — exactamente 4 segmentos, sin que
+    # el "/" del título haya inyectado un segmento extra.
+    segmentos = doc.save_path.split("/")
+    assert len(segmentos) == 4
+    ultimo_segmento = segmentos[-1]
+    assert not any(c in ultimo_segmento for c in '\\/*?:"<>|')
+
+
 def test_extraer_filas_skips_row_without_download_link():
     html = _FILA_HTML.replace(
         '<a href="/getattachment/0764f7b2-98fe-4007-acf0-65689bd02404/Resolucion-365.aspx" target="_blank">Descargar</a>',
@@ -284,3 +309,51 @@ def test_scrap_continues_past_a_failing_year_page():
     assert len(docs) == 1
     assert docs[0].title == "R_MCIT_0010_2026"
     assert any("Error" in m and "resoluciones/2025" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_widens_lower_year_bound_to_catch_publicacion_lag():
+    # Las páginas de archivo se agrupan por año de EXPEDICIÓN. Este documento fue
+    # expedido el 30/12/2025 (por eso vive en la página .../resoluciones/2025) pero
+    # publicado el 12/02/2026 — ya dentro del rango pedido (2026 completo). Sin el
+    # margen de un año hacia atrás, la página .../resoluciones/2025 nunca se pediría
+    # y el documento se perdería silenciosamente.
+    indice_resoluciones = """
+    <a href="/normatividad/resoluciones" class="active">Resoluciones</a>
+    <a href="/normatividad/resoluciones/2025">2025</a>
+    <a href="/normatividad/resoluciones/2026">2026</a>
+    """
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones", body=indice_resoluciones)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2025", body=_FILA_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2026", body="<html></html>")
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/circulares", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/leyes", body=_INDICE_VACIO_HTML)
+
+    scraper = ScrapMINCIT()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
+
+    assert {d.title for d in docs} == {"R_MCIT_0365_2025"}
+
+
+@responses.activate
+def test_scrap_continues_past_a_failing_category_index():
+    # Si el índice de UNA categoría falla (500), las otras 3 categorías deben
+    # seguir procesándose con normalidad — el fallo no debe abortar todo el run.
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones", body=_INDICE_RESOLUCIONES_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/resoluciones/2026", body=_PAGINA_RESOLUCION_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos", body=_INDICE_DECRETOS_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/decretos/2026", body=_PAGINA_DECRETO_HTML)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/circulares", status=500)
+    responses.add(responses.GET, "https://www.mincit.gov.co/normatividad/leyes", body=_INDICE_VACIO_HTML)
+
+    progreso = []
+    scraper = ScrapMINCIT()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
+
+    assert {d.title for d in docs} == {"R_MCIT_0010_2026", "D_MCIT_0020_2026"}
+    assert any("Error" in m and "índice de Circular" in m for m in progreso)
+
+
+def test_filters_by_publication_date_is_enabled():
+    assert ScrapMINCIT.filters_by_publication_date is True

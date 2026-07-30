@@ -22,6 +22,7 @@ _CATEGORIAS = {
 
 _FECHA_PATTERN = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
 _NUMERO_PATTERN = re.compile(r"^\S+\s+(\d+)")
+_INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 # Todo lo anterior al primer "," o ":" es "{tipo} {numero} del {fecha}"; lo que
 # sigue es la descripción, con comillas opcionales alrededor (Resoluciones/
 # Decretos/Leyes usan coma+comillas, Circulares usa dos puntos sin comillas) y
@@ -84,14 +85,18 @@ class ScrapMINCIT(BaseScrapper):
     def __init__(self):
         self.source = "Ministerio de Comercio, Industria y Turismo"
 
-    def _extraer_filas(self, html: str, tipo: str, letra: str, fini: str, ffin: str) -> List[RawDocModel]:
+    def _extraer_filas(self, html: str, tipo: str, letra: str, fini: str, ffin: str, on_progress=None) -> List[RawDocModel]:
         docs: List[RawDocModel] = []
         soup = BeautifulSoup(html, "html.parser")
         tabla = soup.find("table", id="Listado")
         if tabla is None:
+            if on_progress:
+                on_progress(f"[{self.source}] Error: no se encontró la tabla de documentos (id=Listado)")
             return docs
         tbody = tabla.find("tbody")
         if tbody is None:
+            if on_progress:
+                on_progress(f"[{self.source}] Error: la tabla de documentos no tiene <tbody>")
             return docs
 
         for fila in tbody.find_all("tr"):
@@ -123,6 +128,8 @@ class ScrapMINCIT(BaseScrapper):
                 title = texto_archivo
                 title_unverified = True
 
+            safe_title = _INVALID_PATH_CHARS.sub("-", title)[:120].strip(" .")
+
             docs.append(RawDocModel(
                 source=self.source,
                 link={"url": url, "method": "GET"},
@@ -131,7 +138,7 @@ class ScrapMINCIT(BaseScrapper):
                 f_public=f_public,
                 f_providencia=f_providencia,
                 detalle=detalle,
-                save_path=storage_path(self.source, f_public, tipo, f"{title}(extension)"),
+                save_path=storage_path(self.source, f_public, tipo, f"{safe_title}(extension)"),
                 title_unverified=title_unverified,
             ))
 
@@ -142,7 +149,13 @@ class ScrapMINCIT(BaseScrapper):
         session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
         docs: List[RawDocModel] = []
-        anio_inicial = int(fini[:4])
+        # Las páginas de archivo se agrupan por año de EXPEDICIÓN, pero el rango pedido
+        # es de PUBLICACIÓN (ver filters_by_publication_date): una norma expedida en
+        # diciembre suele publicarse semanas después, ya en el año siguiente. Se pide un
+        # año extra hacia atrás; el filtro por f_public de _extraer_filas descarta lo que
+        # quede fuera del rango real.
+        _ANIOS_DE_MARGEN = 1
+        anio_inicial = int(fini[:4]) - _ANIOS_DE_MARGEN
         anio_final = int(ffin[:4])
 
         for categoria, (tipo, letra) in _CATEGORIAS.items():
@@ -160,6 +173,11 @@ class ScrapMINCIT(BaseScrapper):
                 continue
 
             mapa = _mapa_anio_a_slug(resp.text, categoria)
+            if not mapa:
+                if on_progress:
+                    on_progress(f"[{self.source}] Error: el índice de {tipo} no devolvió páginas de archivo reconocibles")
+                continue
+
             slugs = sorted({mapa[a] for a in range(anio_inicial, anio_final + 1) if a in mapa})
 
             for slug in slugs:
@@ -174,7 +192,7 @@ class ScrapMINCIT(BaseScrapper):
                         on_progress(f"[{self.source}] Error consultando {categoria}/{slug}: {e}")
                     continue
 
-                docs.extend(self._extraer_filas(resp.text, tipo, letra, fini, ffin))
+                docs.extend(self._extraer_filas(resp.text, tipo, letra, fini, ffin, on_progress=on_progress))
                 if len(docs) >= limit:
                     return docs[:limit]
 
