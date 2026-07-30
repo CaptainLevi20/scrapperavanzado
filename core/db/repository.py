@@ -487,14 +487,20 @@ def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
     return list(db.execute(stmt).all())
 
 
-def count_documents_by_source(db: Session) -> list[tuple[int, str, int]]:
+def count_documents_by_source(
+    db: Session, year: Optional[int] = None, month: Optional[int] = None
+) -> list[tuple[int, str, int]]:
     stmt = (
         select(Source.id, Source.name, func.count(Document.id))
         .select_from(Document)
         .join(Source, Source.id == Document.source_id)
-        .group_by(Source.id, Source.name)
-        .order_by(func.count(Document.id).desc())
     )
+    if year is not None:
+        date_expr = _effective_date_expr()
+        stmt = stmt.where(func.extract("year", date_expr) == year)
+        if month is not None:
+            stmt = stmt.where(func.extract("month", date_expr) == month)
+    stmt = stmt.group_by(Source.id, Source.name).order_by(func.count(Document.id).desc())
     return list(db.execute(stmt).all())
 
 

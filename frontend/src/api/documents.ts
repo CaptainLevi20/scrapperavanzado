@@ -29,8 +29,8 @@ export function fetchDocumentTipos(sourceId?: number): Promise<string[]> {
 
 // Aggregated server-side (GROUP BY over the whole table) rather than sampled
 // client-side, so counts stay accurate no matter how large the archive gets.
-export function fetchDocumentStats(year?: number): Promise<DocumentStats> {
-  return apiFetch<DocumentStats>(`/documents/stats${buildQuery({ year })}`);
+export function fetchDocumentStats(year?: number, month?: number): Promise<DocumentStats> {
+  return apiFetch<DocumentStats>(`/documents/stats${buildQuery({ year, month })}`);
 }
 
 export function fetchDocument(id: number): Promise<Document> {

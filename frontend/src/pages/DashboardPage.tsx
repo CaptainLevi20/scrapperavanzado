@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Activity, FileClock, FileText, Radar, type LucideIcon } from "lucide-react";
 import { fetchDocuments, fetchDocumentStats } from "../api/documents";
@@ -134,9 +134,11 @@ export function DashboardPage() {
   });
 
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const statsQuery = useQuery({
-    queryKey: ["documents", "stats", selectedYear],
-    queryFn: () => fetchDocumentStats(selectedYear ?? undefined),
+    queryKey: ["documents", "stats", selectedYear, selectedMonth],
+    queryFn: () => fetchDocumentStats(selectedYear ?? undefined, selectedMonth ?? undefined),
+    placeholderData: keepPreviousData,
   });
 
   const runsLast24h = (recentRunsQuery.data ?? []).filter(
@@ -190,7 +192,24 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <h2 className="font-display text-lg font-semibold text-foreground">Documentos por fuente</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-semibold text-foreground">Documentos por fuente</h2>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              Mes
+              <NativeSelect
+                value={selectedMonth === null ? "" : String(selectedMonth)}
+                onChange={(event) => setSelectedMonth(event.target.value === "" ? null : Number(event.target.value))}
+                className="w-36"
+              >
+                <option value="">Histórico completo</option>
+                {MONTH_LABELS.map((label, index) => (
+                  <option key={label} value={index + 1}>
+                    {label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
+          </div>
           <div className="mt-4">
             <BarList data={sourceBuckets} />
           </div>
