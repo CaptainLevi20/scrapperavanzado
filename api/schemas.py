@@ -57,6 +57,7 @@ class RunSourceOut(BaseModel):
     id: int
     run_id: int
     source_id: int
+    source_name: str
     status: str
     docs_new: int
     docs_updated: int

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cancelRun, fetchRun, fetchRunSources } from "../api/runs";
@@ -24,18 +25,24 @@ export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const id = Number(runId);
   const queryClient = useQueryClient();
+  // Set when the user clicks "Reintentar" on a stale run, to resume live
+  // tracking for another MAX_POLL_AGE_MS window instead of a single check —
+  // see isStaleRun's resumedAtMs param.
+  const [resumedAtMs, setResumedAtMs] = useState<number | undefined>(undefined);
 
   const runQuery = useQuery({
     queryKey: ["run", id],
     queryFn: () => fetchRun(id),
     refetchInterval: (query) => {
       const data = query.state.data;
-      return !data || shouldPollRun(data.created_at, data.status) ? POLL_INTERVAL_MS : false;
+      return !data || shouldPollRun(data.created_at, data.status, Date.now(), resumedAtMs) ? POLL_INTERVAL_MS : false;
     },
     enabled: !Number.isNaN(id),
   });
 
-  const runIsStale = runQuery.data ? isStaleRun(runQuery.data.created_at, runQuery.data.status) : false;
+  const runIsStale = runQuery.data
+    ? isStaleRun(runQuery.data.created_at, runQuery.data.status, Date.now(), resumedAtMs)
+    : false;
 
   const sourcesQuery = useQuery({
     queryKey: ["run-sources", id],
@@ -79,8 +86,9 @@ export function RunDetailPage() {
 
       {runIsStale && (
         <ErrorBanner
-          message="Este run lleva mucho tiempo sin actualizarse. Puede haberse quedado colgado — usa Reintentar para revisar su estado más reciente."
+          message="Dejamos de actualizar esta pantalla automáticamente porque el run lleva más de 30 minutos activo (puede seguir trabajando igual, solo dejamos de refrescar solos para no sobrecargar el navegador). Usa Reintentar para retomar las actualizaciones automáticas."
           onRetry={() => {
+            setResumedAtMs(Date.now());
             runQuery.refetch();
             sourcesQuery.refetch();
           }}
@@ -102,7 +110,7 @@ export function RunDetailPage() {
           <table className={TABLE}>
             <thead>
               <tr className={THEAD_ROW}>
-                <th className={TH}>Fuente (id)</th>
+                <th className={TH}>Fuente</th>
                 <th className={TH}>Estado</th>
                 <th className={TH}>Docs nuevos</th>
                 <th className={TH}>Actualizados</th>
@@ -113,7 +121,7 @@ export function RunDetailPage() {
             <tbody>
               {sourcesQuery.data?.map((runSource) => (
                 <tr key={runSource.id} className={TBODY_ROW}>
-                  <td className={TD_MONO}>{runSource.source_id}</td>
+                  <td className={TD}>{runSource.source_name}</td>
                   <td className={TD}>
                     <StatusBadge status={runSource.status} />
                   </td>
