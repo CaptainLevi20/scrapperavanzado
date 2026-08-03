@@ -428,6 +428,9 @@ def list_documents(
     source_id: Optional[int] = None,
     family_key: Optional[str] = None,
     tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    especialidad: Optional[str] = None,
+    magistrado: Optional[str] = None,
     review_status: Optional[str] = None,
     f_public_from: Optional[date] = None,
     f_public_to: Optional[date] = None,
@@ -446,6 +449,12 @@ def list_documents(
         stmt = stmt.join(Source, Source.id == Document.source_id).where(Source.family_key == family_key)
     if tipo is not None:
         stmt = stmt.where(Document.tipo == tipo)
+    if seccion is not None:
+        stmt = stmt.where(Document.seccion == seccion)
+    if especialidad is not None:
+        stmt = stmt.where(Document.especialidad == especialidad)
+    if magistrado is not None:
+        stmt = stmt.where(Document.magistrado == magistrado)
     if review_status is not None:
         stmt = stmt.where(Document.review_status == review_status)
     if f_public_from is not None:

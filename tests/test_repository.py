@@ -402,6 +402,30 @@ def test_list_distinct_document_magistrados_scoped_to_especialidad(db_session):
     assert repository.list_distinct_document_magistrados(db_session, especialidad="Conciliación") == ["Luis Gómez"]
 
 
+def test_list_documents_filters_by_seccion_especialidad_magistrado(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    match = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Coincide",
+        seccion="SECCION PRIMERA", especialidad="Nulidad", magistrado="Ana Pérez",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="No coincide",
+        seccion="SECCION SEGUNDA", especialidad="Conciliación", magistrado="Luis Gómez",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    items, total = repository.list_documents(
+        db_session, seccion="SECCION PRIMERA", especialidad="Nulidad", magistrado="Ana Pérez"
+    )
+
+    assert total == 1
+    assert items[0].id == match.id
+
+
 def test_bulk_update_document_review_status_updates_matching_rows(db_session):
     from core.db import repository
 

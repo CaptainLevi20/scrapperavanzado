@@ -1265,3 +1265,30 @@ def test_get_document_stats_rejects_month_out_of_range(api_client, auth_header, 
 
     response = api_client.get("/documents/stats", params={"month": 0}, headers=auth_header)
     assert response.status_code == 422
+
+
+def test_get_documents_filters_by_seccion_especialidad_magistrado(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Coincide",
+        seccion="SECCION PRIMERA", especialidad="Nulidad", magistrado="Ana Pérez",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="No coincide",
+        seccion="SECCION SEGUNDA", especialidad="Conciliación", magistrado="Luis Gómez",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get(
+        "/documents?seccion=SECCION+PRIMERA&especialidad=Nulidad&magistrado=Ana+P%C3%A9rez",
+        headers=auth_header,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["title"] == "Coincide"
