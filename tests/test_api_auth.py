@@ -16,7 +16,7 @@ def test_register_creates_user_and_returns_a_working_session(api_client, db_sess
 
     me_response = api_client.get("/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
     assert me_response.status_code == 200
-    assert me_response.json() == {"username": "ana"}
+    assert me_response.json() == {"username": "ana", "is_admin": False}
 
 
 def test_register_rejects_wrong_invite_code(api_client):
@@ -138,6 +138,30 @@ def test_login_rejects_wrong_password(api_client, db_session):
 def test_login_rejects_unknown_username(api_client):
     response = api_client.post("/auth/login", json={"username": "ghost", "password": "Password123"})
     assert response.status_code == 401
+
+
+def test_login_reports_is_admin_for_an_admin_user(api_client, db_session):
+    from core.db import repository
+    from core.security import hash_password
+
+    repository.create_user(db_session, username="admin-user", password_hash=hash_password("Password123"), is_admin=True)
+
+    response = api_client.post("/auth/login", json={"username": "admin-user", "password": "Password123"})
+
+    assert response.status_code == 200
+    assert response.json()["is_admin"] is True
+
+
+def test_login_reports_is_admin_false_for_a_regular_user(api_client, db_session):
+    from core.db import repository
+    from core.security import hash_password
+
+    repository.create_user(db_session, username="regular-user", password_hash=hash_password("Password123"))
+
+    response = api_client.post("/auth/login", json={"username": "regular-user", "password": "Password123"})
+
+    assert response.status_code == 200
+    assert response.json()["is_admin"] is False
 
 
 def test_me_rejects_a_missing_or_invalid_token(api_client):
