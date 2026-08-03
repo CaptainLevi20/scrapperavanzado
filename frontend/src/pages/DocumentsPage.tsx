@@ -5,7 +5,7 @@ import { Calendar, Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { createBulkDownload } from "../api/bulkDownloads";
-import { fetchDocuments, fetchDocumentTipos } from "../api/documents";
+import { fetchDocuments, fetchDocumentTipos, fetchDocumentSecciones, fetchDocumentEspecialidades, fetchDocumentMagistrados } from "../api/documents";
 import { fetchAllActiveSourcesWithDocuments } from "../api/sources";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
@@ -45,6 +45,9 @@ function formatDateFilterLabel(from: string, to: string): string {
 export function DocumentsPage() {
   const [title, setTitle] = useState("");
   const [tipo, setTipo] = useState("");
+  const [seccion, setSeccion] = useState("");
+  const [especialidad, setEspecialidad] = useState("");
+  const [magistrado, setMagistrado] = useState("");
   const [sourceId, setSourceId] = useState("");
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus | "">("");
   const [fPublicFrom, setFPublicFrom] = useState("");
@@ -105,17 +108,60 @@ export function DocumentsPage() {
     }
   }, [tipo, tiposQuery.data]);
 
+  const seccionesQuery = useQuery({
+    queryKey: ["documents", "secciones", sourceId, tipo],
+    queryFn: () => fetchDocumentSecciones(sourceId ? Number(sourceId) : undefined, tipo || undefined),
+  });
+
+  useEffect(() => {
+    if (seccion && seccionesQuery.data && !seccionesQuery.data.includes(seccion)) {
+      setSeccion("");
+    }
+  }, [seccion, seccionesQuery.data]);
+
+  const especialidadesQuery = useQuery({
+    queryKey: ["documents", "especialidades", sourceId, tipo, seccion],
+    queryFn: () =>
+      fetchDocumentEspecialidades(sourceId ? Number(sourceId) : undefined, tipo || undefined, seccion || undefined),
+  });
+
+  useEffect(() => {
+    if (especialidad && especialidadesQuery.data && !especialidadesQuery.data.includes(especialidad)) {
+      setEspecialidad("");
+    }
+  }, [especialidad, especialidadesQuery.data]);
+
+  const magistradosQuery = useQuery({
+    queryKey: ["documents", "magistrados", sourceId, tipo, seccion, especialidad],
+    queryFn: () =>
+      fetchDocumentMagistrados(
+        sourceId ? Number(sourceId) : undefined,
+        tipo || undefined,
+        seccion || undefined,
+        especialidad || undefined
+      ),
+  });
+
+  useEffect(() => {
+    if (magistrado && magistradosQuery.data && !magistradosQuery.data.includes(magistrado)) {
+      setMagistrado("");
+    }
+  }, [magistrado, magistradosQuery.data]);
+
   const sourceNameById = useMemo(
     () => new Map((sourcesQuery.data ?? []).map((source) => [source.id, source.name])),
     [sourcesQuery.data]
   );
 
   const documentsQuery = useQuery({
-    queryKey: ["documents", title, tipo, sourceId, reviewStatus, fPublicFrom, fPublicTo, downloadedFrom, downloadedTo, page],
+    queryKey: ["documents", title, tipo, seccion, especialidad, magistrado, sourceId, reviewStatus, fPublicFrom, fPublicTo, downloadedFrom, downloadedTo, page],
     queryFn: () =>
       fetchDocuments({
         title: title || undefined,
         tipo: tipo || undefined,
+        seccion: seccion || undefined,
+        especialidad: especialidad || undefined,
+        magistrado: magistrado || undefined,
         source_id: sourceId ? Number(sourceId) : undefined,
         review_status: reviewStatus || undefined,
         f_public_from: fPublicFrom || undefined,
@@ -236,6 +282,60 @@ export function DocumentsPage() {
             {tiposQuery.data?.map((tipoOption) => (
               <option key={tipoOption} value={tipoOption}>
                 {tipoOption}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Sección
+          <NativeSelect
+            value={seccion}
+            onChange={(event) => {
+              setSeccion(event.target.value);
+              setPage(0);
+            }}
+            className="w-40"
+          >
+            <option value="">Todas</option>
+            {seccionesQuery.data?.map((seccionOption) => (
+              <option key={seccionOption} value={seccionOption}>
+                {seccionOption}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Especialidad/Proceso
+          <NativeSelect
+            value={especialidad}
+            onChange={(event) => {
+              setEspecialidad(event.target.value);
+              setPage(0);
+            }}
+            className="w-40"
+          >
+            <option value="">Todas</option>
+            {especialidadesQuery.data?.map((especialidadOption) => (
+              <option key={especialidadOption} value={especialidadOption}>
+                {especialidadOption}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          Magistrado
+          <NativeSelect
+            value={magistrado}
+            onChange={(event) => {
+              setMagistrado(event.target.value);
+              setPage(0);
+            }}
+            className="w-40"
+          >
+            <option value="">Todos</option>
+            {magistradosQuery.data?.map((magistradoOption) => (
+              <option key={magistradoOption} value={magistradoOption}>
+                {magistradoOption}
               </option>
             ))}
           </NativeSelect>

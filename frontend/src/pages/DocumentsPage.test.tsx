@@ -113,7 +113,10 @@ function mockFilterEndpoints() {
   server.use(
     http.get(`${BASE_URL}/sources`, () => HttpResponse.json([SOURCE])),
     http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([FAMILY])),
-    http.get(`${BASE_URL}/documents/tipos`, () => HttpResponse.json(["Auto", "Sentencia"]))
+    http.get(`${BASE_URL}/documents/tipos`, () => HttpResponse.json(["Auto", "Sentencia"])),
+    http.get(`${BASE_URL}/documents/secciones`, () => HttpResponse.json([])),
+    http.get(`${BASE_URL}/documents/especialidades`, () => HttpResponse.json([])),
+    http.get(`${BASE_URL}/documents/magistrados`, () => HttpResponse.json([]))
   );
 }
 
@@ -285,7 +288,9 @@ describe("DocumentsPage", () => {
 
     // Consejo de Estado stores its "Clase de Proceso" in this same column, so
     // the header covers both meanings — not just medical/legal "especialidad".
-    expect(screen.getByText("Especialidad/Proceso")).toBeInTheDocument();
+    // Scoped to the columnheader role since the Task 5 filter bar now also has
+    // an "Especialidad/Proceso" filter label with the same text.
+    expect(screen.getByRole("columnheader", { name: "Especialidad/Proceso" })).toBeInTheDocument();
     expect(await screen.findByText("Civil")).toBeInTheDocument();
     expect(screen.getByText("Juan Pérez")).toBeInTheDocument();
   });
@@ -417,6 +422,9 @@ describe("DocumentsPage", () => {
           ? HttpResponse.json(["Sentencia"])
           : HttpResponse.json(["Auto", "Sentencia"]);
       }),
+      http.get(`${BASE_URL}/documents/secciones`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents/especialidades`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents/magistrados`, () => HttpResponse.json([])),
       http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }))
     );
     const user = userEvent.setup();
@@ -429,6 +437,48 @@ describe("DocumentsPage", () => {
     await waitFor(() => expect(lastTiposUrl).toContain("source_id=1"));
     await waitFor(() => expect(screen.getByLabelText("Tipo")).not.toHaveTextContent("Auto"));
     expect(screen.getByLabelText("Tipo")).toHaveTextContent("Sentencia");
+  });
+
+  it("scopes the Sección dropdown to the selected Tipo, and resets Sección/Especialidad in cascade when they become invalid (nested filters)", async () => {
+    let lastSeccionesUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([SOURCE])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([FAMILY])),
+      http.get(`${BASE_URL}/documents/tipos`, () => HttpResponse.json(["Auto", "Sentencia"])),
+      http.get(`${BASE_URL}/documents/secciones`, ({ request }) => {
+        lastSeccionesUrl = request.url;
+        return lastSeccionesUrl.includes("tipo=Sentencia")
+          ? HttpResponse.json(["SECCION PRIMERA"])
+          : HttpResponse.json(["SECCION PRIMERA", "SECCION SEGUNDA"]);
+      }),
+      http.get(`${BASE_URL}/documents/especialidades`, ({ request }) => {
+        const url = request.url;
+        return url.includes("seccion=SECCION+SEGUNDA")
+          ? HttpResponse.json(["Conciliación"])
+          : HttpResponse.json(["Nulidad"]);
+      }),
+      http.get(`${BASE_URL}/documents/magistrados`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("Sección")).toHaveTextContent("SECCION SEGUNDA"));
+
+    await user.selectOptions(screen.getByLabelText("Sección"), "SECCION SEGUNDA");
+    await waitFor(() => expect(screen.getByLabelText("Especialidad/Proceso")).toHaveTextContent("Conciliación"));
+    await user.selectOptions(screen.getByLabelText("Especialidad/Proceso"), "Conciliación");
+    expect((screen.getByLabelText("Especialidad/Proceso") as HTMLSelectElement).value).toBe("Conciliación");
+
+    await user.selectOptions(screen.getByLabelText("Tipo"), "Sentencia");
+
+    await waitFor(() => expect(lastSeccionesUrl).toContain("tipo=Sentencia"));
+    // "SECCION SEGUNDA" ya no es una opción válida bajo Tipo="Sentencia" (solo
+    // queda "SECCION PRIMERA"), así que el filtro de Sección debe resetearse a
+    // "Todas" — y ese reseteo, a su vez, invalida "Conciliación" en Especialidad
+    // (que solo aplicaba bajo "SECCION SEGUNDA"), reseteándolo también en cascada.
+    await waitFor(() => expect((screen.getByLabelText("Sección") as HTMLSelectElement).value).toBe(""));
+    await waitFor(() => expect((screen.getByLabelText("Especialidad/Proceso") as HTMLSelectElement).value).toBe(""));
   });
 
   it("refetches with the tipo filter applied, using a dropdown populated from the API", async () => {
