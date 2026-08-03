@@ -304,6 +304,31 @@ class ScrapTribunales(BaseScrapper):
         self._corp_name = corp_name
         self.source = corp_name
 
+    def resolve_unverified_document(self, doc, local_path, content_type) -> None:
+        # Se dispara solo para Consejo de Estado (ver title_unverified en
+        # _parse_row) — este chequeo extra es defensivo: si algún día algo
+        # más marca title_unverified=True, un título de Tribunal
+        # Administrativo simplemente no matchea _TITULO_CE_RE y se ignora.
+        match = _TITULO_CE_RE.match(doc.title)
+        if not match:
+            return
+        radicado = match.group(1)
+
+        try:
+            texto = _extraer_texto_primera_pagina(local_path)
+        except Exception as e:
+            logger.warning(
+                "No se pudo leer la primera página de %s para complementar el título: %s",
+                local_path.name, e,
+            )
+            return
+
+        numero = _numero_extra_desde_texto(texto, radicado)
+        if not numero:
+            return
+
+        doc.title = _complementar_titulo_con_numero(doc.title, numero)
+
     def scrap(self, fini, ffin, q="", limit=1000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         fini_dt = datetime.strptime(fini, "%Y-%m-%d")
         ffin_dt = datetime.strptime(ffin, "%Y-%m-%d")
@@ -530,6 +555,11 @@ class ScrapTribunales(BaseScrapper):
             f_public=estado_fecha_str,
             f_providencia=fecha_prov,
             save_path=path,
+            # Solo Consejo de Estado: algunos de sus documentos traen, en la
+            # primera página del PDF, un número entre paréntesis junto al
+            # radicado que no aparece en esta tabla — resolve_unverified_document
+            # lo busca una vez descargado el archivo y complementa el título.
+            title_unverified=(corp_code == _CONSEJO_DE_ESTADO_CORP_CODE),
         )
 
     @staticmethod
