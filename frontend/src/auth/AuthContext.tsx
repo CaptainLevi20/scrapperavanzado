@@ -5,8 +5,9 @@ import { clearStoredToken, getStoredToken, registerUnauthorizedHandler, setStore
 interface AuthContextValue {
   username: string | null;
   token: string | null;
+  isAdmin: boolean;
   isLoading: boolean;
-  login: (token: string, username: string) => void;
+  login: (token: string, username: string, isAdmin?: boolean) => void;
   logout: () => Promise<void>;
 }
 
@@ -15,12 +16,14 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => getStoredToken());
   const [username, setUsername] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(() => getStoredToken() !== null);
 
   useEffect(() => {
     registerUnauthorizedHandler(() => {
       setToken(null);
       setUsername(null);
+      setIsAdmin(false);
     });
   }, []);
 
@@ -33,7 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     fetchMe()
       .then((me) => {
-        if (!cancelled) setUsername(me.username);
+        if (!cancelled) {
+          setUsername(me.username);
+          setIsAdmin(me.is_admin);
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -49,10 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  function login(newToken: string, newUsername: string) {
+  function login(newToken: string, newUsername: string, newIsAdmin = false) {
     setStoredToken(newToken);
     setToken(newToken);
     setUsername(newUsername);
+    setIsAdmin(newIsAdmin);
   }
 
   async function logout() {
@@ -64,10 +71,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearStoredToken();
     setToken(null);
     setUsername(null);
+    setIsAdmin(false);
   }
 
   return (
-    <AuthContext.Provider value={{ username, token, isLoading, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ username, token, isAdmin, isLoading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

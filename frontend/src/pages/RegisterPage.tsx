@@ -23,8 +23,8 @@ export function RegisterPage() {
     }
     setSubmitting(true);
     try {
-      const { token, username: registeredUsername } = await register(username, password, inviteCode);
-      setSession(token, registeredUsername);
+      const { token, username: registeredUsername, is_admin } = await register(username, password, inviteCode);
+      setSession(token, registeredUsername, is_admin);
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo completar el registro");

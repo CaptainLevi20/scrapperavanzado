@@ -9,13 +9,14 @@ import { AuthProvider, useAuth } from "./AuthContext";
 const BASE_URL = "http://localhost:8000";
 
 function Probe() {
-  const { username, token, isLoading, login, logout } = useAuth();
+  const { username, token, isAdmin, isLoading, login, logout } = useAuth();
   if (isLoading) return <span data-testid="loading">loading</span>;
   return (
     <div>
       <span data-testid="token">{token ?? "none"}</span>
       <span data-testid="username">{username ?? "none"}</span>
-      <button onClick={() => login("new-token", "ana")}>login</button>
+      <span data-testid="is-admin">{String(isAdmin)}</span>
+      <button onClick={() => login("new-token", "ana", true)}>login</button>
       <button onClick={() => logout()}>logout</button>
     </div>
   );
@@ -96,5 +97,32 @@ describe("AuthContext", () => {
 
     await waitFor(() => expect(screen.getByTestId("token")).toHaveTextContent("none"));
     expect(getStoredToken()).toBeNull();
+  });
+
+  it("populates isAdmin from /auth/me on mount", async () => {
+    setStoredToken("existing-token");
+    server.use(http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "ana", is_admin: true })));
+
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    );
+
+    expect(await screen.findByTestId("is-admin")).toHaveTextContent("true");
+  });
+
+  it("login updates isAdmin immediately, without waiting on /auth/me", async () => {
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    );
+    await screen.findByTestId("token");
+
+    await user.click(screen.getByText("login"));
+
+    expect(screen.getByTestId("is-admin")).toHaveTextContent("true");
   });
 });
