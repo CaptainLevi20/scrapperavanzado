@@ -66,3 +66,4 @@ def test_get_run_sources_reports_docs_updated(api_client, auth_header, monkeypat
 
     assert response.status_code == 200
     assert response.json()[0]["docs_updated"] == 3
+    assert response.json()[0]["source_name"] == "Corte Constitucional"

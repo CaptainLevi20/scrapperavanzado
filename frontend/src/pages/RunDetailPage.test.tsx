@@ -37,7 +37,17 @@ const RUN = {
   created_at: new Date().toISOString(),
 };
 
-const RUN_SOURCE = { id: 1, run_id: 1, source_id: 5, status: "failed", docs_new: 2, docs_updated: 0, docs_errors: 1, error_message: "timeout" };
+const RUN_SOURCE = {
+  id: 1,
+  run_id: 1,
+  source_id: 5,
+  source_name: "Corte Constitucional",
+  status: "failed",
+  docs_new: 2,
+  docs_updated: 0,
+  docs_errors: 1,
+  error_message: "timeout",
+};
 
 describe("RunDetailPage", () => {
   it("renders the run header and its sources table", async () => {
@@ -174,11 +184,49 @@ describe("RunDetailPage", () => {
 
     renderPage();
     await waitFor(() => expect(runCallCount).toBe(1));
-    expect(await screen.findByText(/lleva mucho tiempo sin actualizarse/)).toBeInTheDocument();
+    expect(await screen.findByText(/[Dd]ejamos de actualizar esta pantalla/)).toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(4100);
     expect(runCallCount).toBe(1); // no repitió ninguna de las dos consultas automáticas
     expect(sourcesCallCount).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it("resumes automatic polling after Reintentar is clicked on a stale run", async () => {
+    // Regression test: Reintentar used to do a single manual refetch — the
+    // page immediately went back to being frozen (isStaleRun is purely
+    // time-based off created_at, so it stayed true), forcing the user to
+    // click over and over to see any progress. It should instead resume live
+    // tracking for a while, like the run just started polling again.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const staleCreatedAt = new Date(Date.now() - MAX_POLL_AGE_MS - 60_000).toISOString();
+    let runCallCount = 0;
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => {
+        runCallCount += 1;
+        return HttpResponse.json({ ...RUN, status: "running", created_at: staleCreatedAt });
+      }),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([]))
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPage();
+    await waitFor(() => expect(runCallCount).toBe(1));
+    await screen.findByText(/Dejamos de actualizar esta pantalla/);
+
+    await user.click(screen.getByText("Reintentar"));
+
+    // The banner (and its Reintentar button) disappears right away — that's
+    // the visible confirmation the click did something, instead of a silent
+    // refetch that could leave the screen looking unchanged.
+    expect(screen.queryByText(/Dejamos de actualizar esta pantalla/)).not.toBeInTheDocument();
+    await waitFor(() => expect(runCallCount).toBe(2)); // the immediate manual refetch
+
+    // With polling resumed, it should keep firing on its own from here —
+    // no further clicks required.
+    await vi.advanceTimersByTimeAsync(4100);
+    await waitFor(() => expect(runCallCount).toBeGreaterThan(2));
 
     vi.useRealTimers();
   });
