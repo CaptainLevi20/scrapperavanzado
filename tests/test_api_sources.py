@@ -8,7 +8,7 @@ def test_get_sources_rejects_invalid_token(api_client):
     assert response.status_code == 401
 
 
-def test_create_and_list_source(api_client, auth_header, db_session):
+def test_create_and_list_source(api_client, auth_header, admin_auth_header, db_session):
     from core.db import repository
 
     repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
@@ -16,7 +16,7 @@ def test_create_and_list_source(api_client, auth_header, db_session):
     create_response = api_client.post(
         "/sources",
         json={"family_key": "constitucional", "name": "Corte Constitucional", "family_params": {}},
-        headers=auth_header,
+        headers=admin_auth_header,
     )
     assert create_response.status_code == 201
     source_id = create_response.json()["id"]
@@ -25,7 +25,7 @@ def test_create_and_list_source(api_client, auth_header, db_session):
     assert list_response.status_code == 200
     assert [s["name"] for s in list_response.json()] == ["Corte Constitucional"]
 
-    patch_response = api_client.patch(f"/sources/{source_id}", json={"active": False}, headers=auth_header)
+    patch_response = api_client.patch(f"/sources/{source_id}", json={"active": False}, headers=admin_auth_header)
     assert patch_response.status_code == 200
     assert patch_response.json()["active"] is False
 
@@ -88,16 +88,16 @@ def test_get_source_families_reports_which_filter_by_publication_date(api_client
     assert by_key["constitucional"]["filters_by_publication_date"] is False
 
 
-def test_patch_unknown_source_returns_404(api_client, auth_header):
-    response = api_client.patch("/sources/999999", json={"active": False}, headers=auth_header)
+def test_patch_unknown_source_returns_404(api_client, admin_auth_header):
+    response = api_client.patch("/sources/999999", json={"active": False}, headers=admin_auth_header)
     assert response.status_code == 404
 
 
-def test_create_source_with_unknown_family_key_returns_400(api_client, auth_header):
+def test_create_source_with_unknown_family_key_returns_400(api_client, admin_auth_header):
     response = api_client.post(
         "/sources",
         json={"family_key": "no-existe", "name": "Fuente X", "family_params": {}},
-        headers=auth_header,
+        headers=admin_auth_header,
     )
     assert response.status_code == 400
 
@@ -137,3 +137,42 @@ def test_authenticated_request_updates_session_last_used_at(api_client, auth_hea
 
     after = repository.get_valid_session_by_token_hash(db_session, hash_session_token(raw_token))
     assert after.last_used_at is not None
+
+
+def test_post_source_rejects_a_non_admin_user(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+
+    response = api_client.post(
+        "/sources",
+        json={"family_key": "constitucional", "name": "Corte Constitucional", "family_params": {}},
+        headers=auth_header,
+    )
+
+    assert response.status_code == 403
+
+
+def test_patch_source_rejects_a_non_admin_user(api_client, auth_header, admin_auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(
+        db_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+
+    response = api_client.patch(f"/sources/{source.id}", json={"active": False}, headers=auth_header)
+
+    assert response.status_code == 403
+
+
+def test_get_sources_works_for_a_non_admin_user(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+
+    response = api_client.get("/sources", headers=auth_header)
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1

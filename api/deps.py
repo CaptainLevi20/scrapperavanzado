@@ -28,3 +28,9 @@ def require_session(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida o expirada")
     repository.touch_session(db, session.id)
     return user
+
+
+def require_admin(user: User = Depends(require_session)) -> User:
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Esta acción requiere permisos de administrador")
+    return user

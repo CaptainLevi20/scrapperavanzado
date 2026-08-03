@@ -3,9 +3,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from api.deps import get_db, require_session
+from api.deps import get_db, require_admin, require_session
 from api.schemas import SourceCreate, SourceFamilyOut, SourceOut, SourceUpdate
 from core.db import repository
+from core.db.models import User
 from core.scrapers import families  # noqa: F401 — ensures FAMILY_REGISTRY is populated
 from core.scrapers.registry import FAMILY_REGISTRY
 
@@ -43,7 +44,7 @@ def get_sources(
 
 
 @router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
-def post_source(payload: SourceCreate, db: Session = Depends(get_db)):
+def post_source(payload: SourceCreate, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     if repository.get_source_family(db, payload.family_key) is None:
         raise HTTPException(status_code=400, detail=f"Familia técnica desconocida: {payload.family_key}")
     return repository.create_source(
@@ -52,7 +53,12 @@ def post_source(payload: SourceCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/sources/{source_id}", response_model=SourceOut)
-def patch_source(source_id: int, payload: SourceUpdate, db: Session = Depends(get_db)):
+def patch_source(
+    source_id: int,
+    payload: SourceUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     source = repository.update_source(db, source_id, active=payload.active, family_params=payload.family_params)
     if source is None:
         raise HTTPException(status_code=404, detail="Fuente no encontrada")
