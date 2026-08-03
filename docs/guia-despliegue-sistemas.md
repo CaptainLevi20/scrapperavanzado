@@ -176,7 +176,15 @@ entra a `https://` seguido del subdominio o nombre configurado (ejemplo:
 `https://documentos.avancejuridico.com.co` o `https://iurisync.local`).
 Deberías ver la pantalla de inicio de sesión de IURISYNC. Usa el
 `REGISTRATION_CODE` que configuraste en el paso 3 para crear la primera
-cuenta desde la pantalla de registro.
+cuenta desde la pantalla de registro. Esa primera cuenta **no queda como
+administrador automáticamente** — sin este paso, nadie va a poder activar,
+desactivar ni crear fuentes dentro de la herramienta. Para convertirla en
+administrador, ejecuta este comando (reemplaza `NOMBRE_DE_USUARIO` por el
+usuario que acabas de crear):
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres psql -U iurisync -d iurisync -c "UPDATE users SET is_admin = true WHERE username = 'NOMBRE_DE_USUARIO';"
+```
 
 Si la página no carga, revisa en este orden: (1) que la dirección
 configurada realmente llegue al servidor (`ping <subdominio o nombre>`

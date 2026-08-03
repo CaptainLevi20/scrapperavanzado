@@ -131,9 +131,18 @@ esto".
   explícitamente en vez de asumir que cualquier sesión basta).
 - `GET /sources` sigue funcionando igual para admin y no-admin.
 
-**Backend** (`tests/test_repository.py` o archivo de migración dedicado):
-- Tras aplicar la migración sobre datos de prueba con una cuenta `admin` y
-  otras cuentas, solo `admin` queda con `is_admin=true`.
+**Backend — migración de backfill**: la lógica del backfill (`UPDATE ... WHERE
+username = 'admin'`) se verificó manualmente contra una base Postgres
+descartable, con cuentas `admin`, `aulloa`, `Admin` (mayúscula distinta) y
+`smoke-test`: solo `admin` quedó con `is_admin=true`, y el `downgrade`
+también resultó limpio. No se agregó una prueba automatizada porque
+`tests/conftest.py` crea el esquema de pruebas con
+`Base.metadata.create_all(...)` en vez de correr las migraciones de Alembic
+reales, así que el `upgrade()` de esta migración nunca se ejecuta dentro de
+`pytest`; una prueba dedicada que sí invocara Alembic de verdad tropezaría
+con la misma limitación ya conocida de este entorno Windows que hace fallar
+`tests/test_migrations.py::test_alembic_upgrade_head_creates_all_tables`
+(`FileNotFoundError` al invocar el ejecutable `alembic` como subproceso).
 
 **Frontend** (`frontend/src/pages/SourcesPage.test.tsx`):
 - Con `isAdmin=false` en el contexto de auth, el botón
