@@ -11,11 +11,30 @@ equipo de desarrollo antes de continuar.
 - [ ] Docker instalado en esa máquina. Si no lo tienen, instrucciones oficiales
       aquí: https://docs.docker.com/engine/install/
 - [ ] Cómo se va a llegar a la máquina desde los demás computadores de la
-      oficina: o un nombre de dominio interno con su DNS ya apuntando a la
-      IP de esta máquina, o — si no tienen servidor de DNS/dominio, que es
-      lo más común — simplemente **la IP interna fija de esta máquina**
-      (ejemplo: `192.168.1.50`). No hace falta nada más: la guía funciona
-      igual de bien con una IP que con un nombre.
+      oficina: **idealmente un nombre, no una IP pelada.** Dos formas de
+      lograrlo sin necesidad de un servidor de dominio: (a) si tienen DNS
+      interno, un nombre apuntando a la IP de esta máquina, o (b) si no lo
+      tienen — lo más común — un nombre corto inventado (ejemplo:
+      `iurisync.local`) agregado al archivo "hosts" de cada computador de
+      la oficina que vaya a usar la herramienta, apuntando a la IP interna
+      fija de esta máquina (ejemplo: `192.168.1.50`). En Windows esto se
+      hace agregando una línea a `C:\Windows\System32\drivers\etc\hosts`
+      (necesita permisos de administrador); en PowerShell:
+
+      ```
+      Add-Content -Path "$env:windir\System32\drivers\etc\hosts" -Value "192.168.1.50  iurisync.local"
+      ```
+
+      **Importante — no uses la IP directamente en computadores Windows.**
+      Varias versiones de Windows fallan al establecer la conexión segura
+      (HTTPS) cuando se conecta a una IP sin nombre: el navegador muestra
+      `ERR_SSL_PROTOCOL_ERROR` ("el sitio envió una respuesta no válida")
+      en vez de la advertencia normal del candado casero, y no hay forma
+      de aceptarla y seguir. Es una limitación de Windows (falta el
+      nombre del sitio en el saludo de seguridad, algo llamado SNI), no
+      un error de esta instalación. Usar un nombre — aunque sea
+      inventado, resuelto solo por el archivo hosts — evita el problema
+      por completo.
 - [ ] Confirmar: ¿tienen una autoridad certificadora (CA) interna propia para
       emitir certificados HTTPS? Si no están seguros, la respuesta por
       defecto es "no" y esta guía funciona igual (ver sección 5).
@@ -42,13 +61,16 @@ Copia `.env.production.example` a un archivo nuevo llamado `.env.production`,
 en la misma carpeta. Ábrelo con un editor de texto simple (Bloc de notas
 sirve) y reemplaza cada valor que dice `CAMBIAR_ESTO` por uno propio:
 
-- `CADDY_DOMAIN` y `CORS_ORIGINS`: el subdominio interno real, o la IP
-  interna fija de la máquina si no tienen dominio (ejemplo: `CADDY_DOMAIN=192.168.1.50`
-  y `CORS_ORIGINS=https://192.168.1.50`) — la misma dirección en ambas líneas.
-- `S3_PUBLIC_ENDPOINT_URL`: la misma dirección otra vez (subdominio o IP),
-  pero terminada en `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443`
-  o `https://192.168.1.50:9443`). Es la dirección por la que el navegador de
-  cada persona descarga los documentos.
+- `CADDY_DOMAIN` y `CORS_ORIGINS`: el subdominio interno real, o — si no
+  tienen dominio — el nombre inventado que agregaron al archivo hosts de
+  cada computador (ver sección 1; ejemplo: `CADDY_DOMAIN=iurisync.local`
+  y `CORS_ORIGINS=https://iurisync.local`) — la misma dirección en ambas
+  líneas. **No pongas aquí la IP directamente** (ver la advertencia sobre
+  Windows en la sección 1).
+- `S3_PUBLIC_ENDPOINT_URL`: la misma dirección otra vez, pero terminada en
+  `:9443` (ejemplo: `https://documentos.avancejuridico.com.co:9443` o
+  `https://iurisync.local:9443`). Es la dirección por la que el navegador
+  de cada persona descarga los documentos.
 - `POSTGRES_PASSWORD` y la contraseña dentro de `DATABASE_URL`: deben ser
   **exactamente la misma contraseña**, elegida por ustedes, en ambos lugares.
 - `S3_ACCESS_KEY` / `S3_SECRET_KEY`: un usuario y contraseña nuevos, elegidos
@@ -148,18 +170,22 @@ ambas direcciones.
 
 ## 6. Verificación final
 
-Desde un computador conectado a la red de la oficina, abre un navegador y
-entra a `https://` seguido del subdominio o la IP configurada (ejemplo:
-`https://documentos.avancejuridico.com.co` o `https://192.168.1.50`).
+Desde un computador conectado a la red de la oficina — con el archivo hosts
+ya configurado si no tienen dominio, ver sección 1 — abre un navegador y
+entra a `https://` seguido del subdominio o nombre configurado (ejemplo:
+`https://documentos.avancejuridico.com.co` o `https://iurisync.local`).
 Deberías ver la pantalla de inicio de sesión de IURISYNC. Usa el
 `REGISTRATION_CODE` que configuraste en el paso 3 para crear la primera
 cuenta desde la pantalla de registro.
 
 Si la página no carga, revisa en este orden: (1) que la dirección
-configurada realmente llegue al servidor (`ping <subdominio o IP>` desde
-otro computador de la oficina — si usan subdominio, que además el DNS
-interno lo resuelva a la IP correcta), (2) que el firewall deje pasar el
-puerto 443, (3) el resultado del comando `docker compose ... ps` del paso 4.
+configurada realmente llegue al servidor (`ping <subdominio o nombre>`
+desde otro computador de la oficina — debe resolver a la IP correcta,
+por DNS interno o por el archivo hosts), (2) que el firewall deje pasar
+el puerto 443, (3) el resultado del comando `docker compose ... ps` del
+paso 4. Si el navegador muestra `ERR_SSL_PROTOCOL_ERROR` en vez de la
+advertencia normal del candado casero, revisa que no estés entrando por
+la IP directamente — ver la advertencia sobre Windows en la sección 1.
 
 Por último, **abre un documento** desde la herramienta (no basta con verlo en
 la lista: hay que darle click para descargarlo o previsualizarlo). Si la
