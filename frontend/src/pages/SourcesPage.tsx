@@ -7,12 +7,14 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Button } from "../components/ui/button";
 import { NativeSelect } from "../components/ui/native-select";
+import { useAuth } from "../auth/AuthContext";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../lib/tableStyles";
 
 const PAGE_SIZE = 20;
 
 function SourceRow({ source }: { source: Source }) {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const toggleMutation = useMutation({
     mutationFn: () => updateSource(source.id, { active: !source.active }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sources"] }),
@@ -28,10 +30,12 @@ function SourceRow({ source }: { source: Source }) {
         </span>
       </td>
       <td className={TD}>
-        <Button variant="outline" size="sm" onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending}>
-          <Power className="size-3.5" aria-hidden="true" />
-          {source.active ? "Desactivar" : "Activar"}
-        </Button>
+        {isAdmin && (
+          <Button variant="outline" size="sm" onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending}>
+            <Power className="size-3.5" aria-hidden="true" />
+            {source.active ? "Desactivar" : "Activar"}
+          </Button>
+        )}
       </td>
     </tr>
   );

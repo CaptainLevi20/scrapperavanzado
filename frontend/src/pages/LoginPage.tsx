@@ -17,8 +17,8 @@ export function LoginPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const { token, username: loggedInUsername } = await login(username, password);
-      setSession(token, loggedInUsername);
+      const { token, username: loggedInUsername, is_admin } = await login(username, password);
+      setSession(token, loggedInUsername, is_admin);
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Usuario o contraseña incorrectos");

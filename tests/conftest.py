@@ -121,3 +121,18 @@ def auth_header(db_session):
     raw_token = secrets.token_urlsafe(32)
     repository.create_session(db_session, user_id=user.id, token_hash=hash_session_token(raw_token))
     return {"Authorization": f"Bearer {raw_token}"}
+
+
+@pytest.fixture()
+def admin_auth_header(db_session):
+    import secrets
+
+    from core.db import repository
+    from core.security import hash_password, hash_session_token
+
+    user = repository.create_user(
+        db_session, username="tester-admin", password_hash=hash_password("Password123"), is_admin=True
+    )
+    raw_token = secrets.token_urlsafe(32)
+    repository.create_session(db_session, user_id=user.id, token_hash=hash_session_token(raw_token))
+    return {"Authorization": f"Bearer {raw_token}"}

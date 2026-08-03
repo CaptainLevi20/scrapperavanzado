@@ -3,6 +3,7 @@ import { apiFetch } from "./client";
 export interface AuthResponse {
   token: string;
   username: string;
+  is_admin: boolean;
 }
 
 export function login(username: string, password: string): Promise<AuthResponse> {
@@ -23,8 +24,8 @@ export function logoutRequest(): Promise<void> {
   return apiFetch<void>("/auth/logout", { method: "POST" });
 }
 
-export function fetchMe(): Promise<{ username: string }> {
-  return apiFetch<{ username: string }>("/auth/me");
+export function fetchMe(): Promise<{ username: string; is_admin: boolean }> {
+  return apiFetch<{ username: string; is_admin: boolean }>("/auth/me");
 }
 
 export function changePassword(current_password: string, new_password: string): Promise<void> {

@@ -62,7 +62,7 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
 
     user = repository.create_user(db, username=payload.username, password_hash=hash_password(payload.password))
     token = _issue_session(db, user.id)
-    return {"token": token, "username": user.username}
+    return {"token": token, "username": user.username, "is_admin": user.is_admin}
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -73,7 +73,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     repository.touch_user_last_login(db, user.id)
     token = _issue_session(db, user.id)
-    return {"token": token, "username": user.username}
+    return {"token": token, "username": user.username, "is_admin": user.is_admin}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -106,4 +106,4 @@ def change_password(
 
 @router.get("/me", response_model=MeResponse)
 def me(user: User = Depends(require_session)):
-    return {"username": user.username}
+    return {"username": user.username, "is_admin": user.is_admin}

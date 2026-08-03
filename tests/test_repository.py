@@ -396,6 +396,16 @@ def test_create_user_and_lookup_by_username(db_session):
     assert repository.get_user_by_username(db_session, "missing") is None
 
 
+def test_create_user_defaults_to_not_admin(db_session):
+    user = repository.create_user(db_session, username="ana", password_hash="hashed")
+    assert user.is_admin is False
+
+
+def test_create_user_can_be_created_as_admin(db_session):
+    user = repository.create_user(db_session, username="admin", password_hash="hashed", is_admin=True)
+    assert user.is_admin is True
+
+
 def test_create_and_validate_session(db_session):
     user = repository.create_user(db_session, username="ana", password_hash="hashed")
 
