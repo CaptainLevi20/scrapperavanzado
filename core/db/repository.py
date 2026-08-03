@@ -580,8 +580,8 @@ def get_document(db: Session, document_id: int) -> Optional[Document]:
 SESSION_TTL = timedelta(days=30)
 
 
-def create_user(db: Session, username: str, password_hash: str) -> User:
-    user = User(username=username, password_hash=password_hash, active=True)
+def create_user(db: Session, username: str, password_hash: str, is_admin: bool = False) -> User:
+    user = User(username=username, password_hash=password_hash, active=True, is_admin=is_admin)
     db.add(user)
     db.commit()
     db.refresh(user)
