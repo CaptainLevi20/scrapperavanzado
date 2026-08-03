@@ -315,3 +315,62 @@ def test_parse_row_uses_clase_column_to_build_the_polished_title():
     doc = scraper._parse_row(row, "1100103", "Consejo de Estado", "Sección Primera", "2026-06-15")
 
     assert doc.title == "25001233300020260001200(ACU)"
+
+
+# --- número extra entre paréntesis (primera página del PDF) -----------------
+#
+# Algunos documentos de Consejo de Estado traen, junto al radicado en su
+# primera página, un número entre paréntesis que no aparece en la tabla de
+# resultados de SAMAI (ej. "Radicación  25000-...-01 (30146)"). Cuando
+# aparece, se añade al título entre el radicado y la sigla de clase.
+
+from core.scrapers.families.samai import (
+    _TITULO_CE_RE,
+    _numero_extra_desde_texto,
+    _complementar_titulo_con_numero,
+)
+
+
+def test_titulo_ce_re_splits_radicado_and_acronimo():
+    match = _TITULO_CE_RE.match("25000-23-37-000-2021-00423-01(NRD)")
+    assert match.group(1) == "25000-23-37-000-2021-00423-01"
+    assert match.group(2) == "(NRD)"
+
+
+def test_titulo_ce_re_handles_title_without_acronimo():
+    match = _TITULO_CE_RE.match("11001-03-24-000-2026-99999-00")
+    assert match.group(1) == "11001-03-24-000-2026-99999-00"
+    assert match.group(2) is None
+
+
+def test_titulo_ce_re_does_not_match_tribunal_administrativo_titles():
+    assert _TITULO_CE_RE.match("T_CUND_25001233300020260001200") is None
+
+
+def test_numero_extra_desde_texto_finds_number_right_after_radicado():
+    texto = "Radicación  25000-23-37-000-2021-00423-01 (30146)\nDemandante..."
+    assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") == "30146"
+
+
+def test_numero_extra_desde_texto_returns_none_when_absent():
+    texto = "Radicación  25000-23-37-000-2021-00423-01\nDemandante..."
+    assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") is None
+
+
+def test_numero_extra_desde_texto_ignores_unrelated_parenthetical_numbers():
+    # El (30146) aparece en el texto pero NO justo después del radicado —
+    # no debe confundirse con el dato que buscamos.
+    texto = "Ver más en (30146) — Radicación 25000-23-37-000-2021-00423-01 sin número"
+    assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") is None
+
+
+def test_complementar_titulo_con_numero_inserts_between_radicado_and_acronimo():
+    assert _complementar_titulo_con_numero("25000-23-37-000-2021-00423-01(NRD)", "30146") == (
+        "25000-23-37-000-2021-00423-01(30146)(NRD)"
+    )
+
+
+def test_complementar_titulo_con_numero_appends_when_no_acronimo():
+    assert _complementar_titulo_con_numero("11001-03-24-000-2026-99999-00", "30146") == (
+        "11001-03-24-000-2026-99999-00(30146)"
+    )

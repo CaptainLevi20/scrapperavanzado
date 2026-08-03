@@ -1,3 +1,4 @@
+import logging
 import re
 import time
 import unicodedata
@@ -15,6 +16,8 @@ from core.scrapers.registry import register_family
 from core.utils import storage_path
 
 _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
+
+logger = logging.getLogger(__name__)
 
 # El código de SAMAI_CORPS para Consejo de Estado — el único corp cuyo título
 # sigue llevando el acrónimo de la clase entre paréntesis (ver _normalizar_titulo).
@@ -244,6 +247,39 @@ def _all_inputs(soup) -> dict:
         if name:
             out[name] = inp.get("value", "")
     return out
+
+
+# Un título de Consejo de Estado es siempre "{radicado}" o
+# "{radicado}({SIGLA})" (ver _normalizar_titulo) — nunca el formato
+# "T_{CÓDIGO}_..." de un Tribunal Administrativo, así que este patrón sirve
+# tanto para separar el radicado como para confirmar que el título es
+# realmente de Consejo de Estado antes de tocarlo.
+_TITULO_CE_RE = re.compile(r"^([\d-]+)(\([A-Z0-9]+\))?$")
+
+
+def _extraer_texto_primera_pagina(local_path) -> str:
+    # A diferencia de CSJ (core/scrapers/families/corte_suprema.py), SAMAI
+    # solo entrega PDF a través de su hop jwt_indirect — no hace falta
+    # distinguir por content_type ni soportar .docx.
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(local_path))
+    if not reader.pages:
+        return ""
+    return reader.pages[0].extract_text() or ""
+
+
+def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
+    match = re.search(re.escape(radicado) + r"\s*\((\d+)\)", texto or "")
+    return match.group(1) if match else None
+
+
+def _complementar_titulo_con_numero(titulo: str, numero: str) -> str:
+    match = _TITULO_CE_RE.match(titulo)
+    if not match:
+        return titulo
+    radicado, sufijo_acronimo = match.group(1), match.group(2) or ""
+    return f"{radicado}({numero}){sufijo_acronimo}"
 
 
 @register_family("samai")
