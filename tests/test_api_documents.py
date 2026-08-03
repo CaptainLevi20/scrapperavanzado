@@ -372,6 +372,66 @@ def test_get_document_tipos_scoped_to_a_source(api_client, auth_header, db_sessi
     assert response.json() == ["Sentencia"]
 
 
+def test_get_document_secciones_scoped_to_tipo(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", tipo="Sentencia", seccion="SECCION PRIMERA",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", tipo="Auto", seccion="SECCION SEGUNDA",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get(f"/documents/secciones?tipo=Sentencia", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json() == ["SECCION PRIMERA"]
+
+
+def test_get_document_especialidades_scoped_to_seccion(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", seccion="SECCION PRIMERA", especialidad="Nulidad",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", seccion="SECCION SEGUNDA", especialidad="Conciliación",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get("/documents/especialidades?seccion=SECCION+PRIMERA", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json() == ["Nulidad"]
+
+
+def test_get_document_magistrados_scoped_to_especialidad(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", especialidad="Nulidad", magistrado="Ana Pérez",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", especialidad="Conciliación", magistrado="Luis Gómez",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    response = api_client.get("/documents/magistrados?especialidad=Nulidad", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json() == ["Ana Pérez"]
+
+
 def test_get_document_stats_aggregates_over_the_full_table_not_a_sample(api_client, auth_header, db_session):
     # Regression guard: the dashboard used to compute these breakdowns client-side
     # from only the 1000 most-recently-downloaded documents, which silently

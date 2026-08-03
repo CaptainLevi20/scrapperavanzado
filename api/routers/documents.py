@@ -113,6 +113,38 @@ def get_document_tipos(source_id: Optional[int] = None, db: Session = Depends(ge
     return repository.list_distinct_document_tipos(db, source_id=source_id)
 
 
+@router.get("/documents/secciones", response_model=list[str])
+def get_document_secciones(
+    source_id: Optional[int] = None, tipo: Optional[str] = None, db: Session = Depends(get_db)
+):
+    return repository.list_distinct_document_secciones(db, source_id=source_id, tipo=tipo)
+
+
+@router.get("/documents/especialidades", response_model=list[str])
+def get_document_especialidades(
+    source_id: Optional[int] = None,
+    tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    return repository.list_distinct_document_especialidades(
+        db, source_id=source_id, tipo=tipo, seccion=seccion
+    )
+
+
+@router.get("/documents/magistrados", response_model=list[str])
+def get_document_magistrados(
+    source_id: Optional[int] = None,
+    tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    especialidad: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    return repository.list_distinct_document_magistrados(
+        db, source_id=source_id, tipo=tipo, seccion=seccion, especialidad=especialidad
+    )
+
+
 @router.get("/documents/stats", response_model=DocumentStatsOut)
 def get_document_stats(
     year: Optional[int] = None, month: Optional[int] = Query(None, ge=1, le=12), db: Session = Depends(get_db)
