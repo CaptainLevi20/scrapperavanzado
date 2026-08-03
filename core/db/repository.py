@@ -374,6 +374,55 @@ def list_distinct_document_tipos(db: Session, source_id: Optional[int] = None) -
     return list(db.scalars(stmt).all())
 
 
+def list_distinct_document_secciones(
+    db: Session, source_id: Optional[int] = None, tipo: Optional[str] = None
+) -> list[str]:
+    stmt = select(Document.seccion).distinct().where(Document.seccion.is_not(None))
+    if source_id is not None:
+        stmt = stmt.where(Document.source_id == source_id)
+    if tipo is not None:
+        stmt = stmt.where(Document.tipo == tipo)
+    stmt = stmt.order_by(Document.seccion)
+    return list(db.scalars(stmt).all())
+
+
+def list_distinct_document_especialidades(
+    db: Session,
+    source_id: Optional[int] = None,
+    tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+) -> list[str]:
+    stmt = select(Document.especialidad).distinct().where(Document.especialidad.is_not(None))
+    if source_id is not None:
+        stmt = stmt.where(Document.source_id == source_id)
+    if tipo is not None:
+        stmt = stmt.where(Document.tipo == tipo)
+    if seccion is not None:
+        stmt = stmt.where(Document.seccion == seccion)
+    stmt = stmt.order_by(Document.especialidad)
+    return list(db.scalars(stmt).all())
+
+
+def list_distinct_document_magistrados(
+    db: Session,
+    source_id: Optional[int] = None,
+    tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    especialidad: Optional[str] = None,
+) -> list[str]:
+    stmt = select(Document.magistrado).distinct().where(Document.magistrado.is_not(None))
+    if source_id is not None:
+        stmt = stmt.where(Document.source_id == source_id)
+    if tipo is not None:
+        stmt = stmt.where(Document.tipo == tipo)
+    if seccion is not None:
+        stmt = stmt.where(Document.seccion == seccion)
+    if especialidad is not None:
+        stmt = stmt.where(Document.especialidad == especialidad)
+    stmt = stmt.order_by(Document.magistrado)
+    return list(db.scalars(stmt).all())
+
+
 def list_documents(
     db: Session,
     source_id: Optional[int] = None,

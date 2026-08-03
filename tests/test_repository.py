@@ -341,6 +341,67 @@ def test_list_distinct_document_tipos_scoped_to_a_source(db_session):
     assert repository.list_distinct_document_tipos(db_session, source_id=source_b.id) == ["Auto"]
 
 
+def test_list_distinct_document_secciones_scoped_to_tipo(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", tipo="Sentencia", seccion="SECCION PRIMERA",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", tipo="Auto", seccion="SECCION SEGUNDA",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-3", source_id=source.id, title="C", tipo=None, seccion=None,
+        storage_bucket="iurisync-test", storage_key="c.pdf",
+    )
+
+    assert repository.list_distinct_document_secciones(db_session) == ["SECCION PRIMERA", "SECCION SEGUNDA"]
+    assert repository.list_distinct_document_secciones(db_session, source_id=source.id, tipo="Sentencia") == ["SECCION PRIMERA"]
+    assert repository.list_distinct_document_secciones(db_session, tipo="Auto") == ["SECCION SEGUNDA"]
+
+
+def test_list_distinct_document_especialidades_scoped_to_seccion(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", seccion="SECCION PRIMERA", especialidad="Nulidad",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", seccion="SECCION SEGUNDA", especialidad="Conciliación",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    assert repository.list_distinct_document_especialidades(db_session) == ["Conciliación", "Nulidad"]
+    assert repository.list_distinct_document_especialidades(db_session, seccion="SECCION PRIMERA") == ["Nulidad"]
+    assert repository.list_distinct_document_especialidades(db_session, seccion="SECCION SEGUNDA") == ["Conciliación"]
+
+
+def test_list_distinct_document_magistrados_scoped_to_especialidad(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", especialidad="Nulidad", magistrado="Ana Pérez",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="B", especialidad="Conciliación", magistrado="Luis Gómez",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    assert repository.list_distinct_document_magistrados(db_session) == ["Ana Pérez", "Luis Gómez"]
+    assert repository.list_distinct_document_magistrados(db_session, especialidad="Nulidad") == ["Ana Pérez"]
+    assert repository.list_distinct_document_magistrados(db_session, especialidad="Conciliación") == ["Luis Gómez"]
+
+
 def test_bulk_update_document_review_status_updates_matching_rows(db_session):
     from core.db import repository
 
