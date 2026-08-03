@@ -7,6 +7,9 @@ export interface ListDocumentsParams {
   source_id?: number;
   family_key?: string;
   tipo?: string;
+  seccion?: string;
+  especialidad?: string;
+  magistrado?: string;
   title?: string;
   title_exact?: string;
   review_status?: DocumentReviewStatus;
@@ -25,6 +28,25 @@ export function fetchDocuments(params: ListDocumentsParams = {}): Promise<Pagina
 
 export function fetchDocumentTipos(sourceId?: number): Promise<string[]> {
   return apiFetch<string[]>(`/documents/tipos${buildQuery({ source_id: sourceId })}`);
+}
+
+export function fetchDocumentSecciones(sourceId?: number, tipo?: string): Promise<string[]> {
+  return apiFetch<string[]>(`/documents/secciones${buildQuery({ source_id: sourceId, tipo })}`);
+}
+
+export function fetchDocumentEspecialidades(sourceId?: number, tipo?: string, seccion?: string): Promise<string[]> {
+  return apiFetch<string[]>(`/documents/especialidades${buildQuery({ source_id: sourceId, tipo, seccion })}`);
+}
+
+export function fetchDocumentMagistrados(
+  sourceId?: number,
+  tipo?: string,
+  seccion?: string,
+  especialidad?: string
+): Promise<string[]> {
+  return apiFetch<string[]>(
+    `/documents/magistrados${buildQuery({ source_id: sourceId, tipo, seccion, especialidad })}`
+  );
 }
 
 // Aggregated server-side (GROUP BY over the whole table) rather than sampled

@@ -55,6 +55,9 @@ def get_documents(
     source_id: Optional[int] = None,
     family_key: Optional[str] = None,
     tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    especialidad: Optional[str] = None,
+    magistrado: Optional[str] = None,
     title: Optional[str] = None,
     title_exact: Optional[str] = None,
     review_status: Optional[str] = None,
@@ -71,6 +74,9 @@ def get_documents(
         source_id=source_id,
         family_key=family_key,
         tipo=tipo,
+        seccion=seccion,
+        especialidad=especialidad,
+        magistrado=magistrado,
         review_status=review_status,
         f_public_from=f_public_from,
         f_public_to=f_public_to,
@@ -111,6 +117,38 @@ def get_documents(
 @router.get("/documents/tipos", response_model=list[str])
 def get_document_tipos(source_id: Optional[int] = None, db: Session = Depends(get_db)):
     return repository.list_distinct_document_tipos(db, source_id=source_id)
+
+
+@router.get("/documents/secciones", response_model=list[str])
+def get_document_secciones(
+    source_id: Optional[int] = None, tipo: Optional[str] = None, db: Session = Depends(get_db)
+):
+    return repository.list_distinct_document_secciones(db, source_id=source_id, tipo=tipo)
+
+
+@router.get("/documents/especialidades", response_model=list[str])
+def get_document_especialidades(
+    source_id: Optional[int] = None,
+    tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    return repository.list_distinct_document_especialidades(
+        db, source_id=source_id, tipo=tipo, seccion=seccion
+    )
+
+
+@router.get("/documents/magistrados", response_model=list[str])
+def get_document_magistrados(
+    source_id: Optional[int] = None,
+    tipo: Optional[str] = None,
+    seccion: Optional[str] = None,
+    especialidad: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    return repository.list_distinct_document_magistrados(
+        db, source_id=source_id, tipo=tipo, seccion=seccion, especialidad=especialidad
+    )
 
 
 @router.get("/documents/stats", response_model=DocumentStatsOut)

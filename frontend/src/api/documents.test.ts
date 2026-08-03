@@ -8,7 +8,10 @@ import {
   downloadFromUrl,
   fetchDocument,
   fetchDocumentBlob,
+  fetchDocumentEspecialidades,
+  fetchDocumentMagistrados,
   fetchDocumentPreviewUrl,
+  fetchDocumentSecciones,
   fetchDocumentTipos,
   fetchDocuments,
   fetchDocumentVersions,
@@ -42,6 +45,52 @@ describe("documents API", () => {
     const tipos = await fetchDocumentTipos();
 
     expect(tipos).toEqual(["Auto", "Sentencia"]);
+  });
+
+  it("fetchDocumentSecciones fetches the distinct list of secciones, scoped by tipo", async () => {
+    let receivedUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents/secciones`, ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json(["SECCION PRIMERA", "SECCION SEGUNDA"]);
+      })
+    );
+
+    const secciones = await fetchDocumentSecciones(1, "Sentencia");
+
+    expect(secciones).toEqual(["SECCION PRIMERA", "SECCION SEGUNDA"]);
+    expect(receivedUrl).toContain("source_id=1");
+    expect(receivedUrl).toContain("tipo=Sentencia");
+  });
+
+  it("fetchDocumentEspecialidades fetches the distinct list of especialidades, scoped by seccion", async () => {
+    let receivedUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents/especialidades`, ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json(["Nulidad"]);
+      })
+    );
+
+    const especialidades = await fetchDocumentEspecialidades(1, "Sentencia", "SECCION PRIMERA");
+
+    expect(especialidades).toEqual(["Nulidad"]);
+    expect(receivedUrl).toContain("seccion=SECCION+PRIMERA");
+  });
+
+  it("fetchDocumentMagistrados fetches the distinct list of magistrados, scoped by especialidad", async () => {
+    let receivedUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents/magistrados`, ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json(["Ana Pérez"]);
+      })
+    );
+
+    const magistrados = await fetchDocumentMagistrados(1, "Sentencia", "SECCION PRIMERA", "Nulidad");
+
+    expect(magistrados).toEqual(["Ana Pérez"]);
+    expect(receivedUrl).toContain("especialidad=Nulidad");
   });
 
   it("fetchDocument fetches a single document by id", async () => {
