@@ -35,6 +35,19 @@ describe("isStaleRun", () => {
     const createdAt = new Date(now - MAX_POLL_AGE_MS * 10).toISOString();
     expect(isStaleRun(createdAt, "completed", now)).toBe(false);
   });
+
+  it("is not stale right after a resume, even for a long-created run", () => {
+    // "Reintentar" on a stale run resumes live tracking instead of doing a
+    // single silent check — resumedAtMs becomes the new staleness baseline.
+    const createdAt = new Date(now - MAX_POLL_AGE_MS * 10).toISOString();
+    expect(isStaleRun(createdAt, "running", now, now)).toBe(false);
+  });
+
+  it("goes stale again once MAX_POLL_AGE_MS passes since the resume", () => {
+    const createdAt = new Date(now - MAX_POLL_AGE_MS * 10).toISOString();
+    const resumedAtMs = now - MAX_POLL_AGE_MS - 1000;
+    expect(isStaleRun(createdAt, "running", now, resumedAtMs)).toBe(true);
+  });
 });
 
 describe("shouldPollRun", () => {

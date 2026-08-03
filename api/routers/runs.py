@@ -38,7 +38,7 @@ def get_run(run_id: int, db: Session = Depends(get_db)):
 
 @router.get("/runs/{run_id}/sources", response_model=list[RunSourceOut])
 def get_run_sources(run_id: int, db: Session = Depends(get_db)):
-    return repository.list_run_sources(db, run_id)
+    return repository.list_run_sources_with_source_names(db, run_id)
 
 
 @router.post("/runs/{run_id}/cancel", response_model=RunOut)

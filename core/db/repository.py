@@ -201,6 +201,19 @@ def list_run_sources(db: Session, run_id: int) -> list[RunSource]:
     return list(db.scalars(stmt).all())
 
 
+def list_run_sources_with_source_names(db: Session, run_id: int) -> list[RunSource]:
+    stmt = (
+        select(RunSource, Source.name)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(RunSource.run_id == run_id)
+    )
+    run_sources = []
+    for run_source, source_name in db.execute(stmt).all():
+        run_source.source_name = source_name
+        run_sources.append(run_source)
+    return run_sources
+
+
 def set_run_source_status(db: Session, run_source_id: int, status: str, **fields) -> None:
     run_source = db.get(RunSource, run_source_id)
     if run_source is None:

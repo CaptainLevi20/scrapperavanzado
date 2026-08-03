@@ -43,6 +43,7 @@ export interface RunSource {
   id: number;
   run_id: number;
   source_id: number;
+  source_name: string;
   status: RunSourceStatus;
   docs_new: number;
   docs_updated: number;

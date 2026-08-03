@@ -13,3 +13,6 @@ graphify-out/
 .superpowers/
 
 .dev-logs/
+.dev-logs-*.log
+celerybeat-schedule*
+
