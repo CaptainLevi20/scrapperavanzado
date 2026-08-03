@@ -4,15 +4,22 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
+import { clearStoredToken, setStoredToken } from "../api/client";
+import { AuthProvider } from "../auth/AuthContext";
 import { SourcesPage } from "./SourcesPage";
 
 const BASE_URL = "http://localhost:8000";
 
-function renderPage() {
+function renderPage({ isAdmin = true }: { isAdmin?: boolean } = {}) {
+  clearStoredToken();
+  setStoredToken("test-token");
+  server.use(http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "tester", is_admin: isAdmin })));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SourcesPage />
+      <AuthProvider>
+        <SourcesPage />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
@@ -137,5 +144,20 @@ describe("SourcesPage — toggle active state", () => {
     await user.click(await screen.findByText("Desactivar"));
 
     await waitFor(() => expect(patchedBody).toMatchObject({ active: false }));
+  });
+
+  it("hides the Activar/Desactivar button for a non-admin user", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Corte Constitucional", family_params: {}, active: true }])
+      )
+    );
+
+    renderPage({ isAdmin: false });
+
+    const table = await screen.findByRole("table");
+    await within(table).findByText("Corte Constitucional");
+    expect(screen.queryByText("Desactivar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Activar")).not.toBeInTheDocument();
   });
 });
