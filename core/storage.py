@@ -59,6 +59,11 @@ def download_file(bucket: str, key: str, local_path: Path) -> None:
     client.download_file(bucket, key, str(local_path))
 
 
+def delete_object(bucket: str, key: str) -> None:
+    client = _client()
+    client.delete_object(Bucket=bucket, Key=key)
+
+
 def rename_object(bucket: str, old_key: str, new_key: str) -> None:
     """Server-side rename (copy + delete) — the object's bytes never leave
     MinIO/S3 through this process, unlike a download_file + upload_file
@@ -67,4 +72,4 @@ def rename_object(bucket: str, old_key: str, new_key: str) -> None:
         return
     client = _client()
     client.copy_object(Bucket=bucket, CopySource={"Bucket": bucket, "Key": old_key}, Key=new_key)
-    client.delete_object(Bucket=bucket, Key=old_key)
+    delete_object(bucket, old_key)
