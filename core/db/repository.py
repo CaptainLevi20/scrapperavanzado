@@ -643,6 +643,58 @@ def update_document_storage_key(db: Session, document_id: int, storage_key: str)
     return document
 
 
+def purge_documents_for_source(db: Session, source_id: int) -> dict:
+    """Deletes every Document (and its DocumentVersion / RunSource / RunError
+    rows) belonging to source_id — none of the FKs involved have ON DELETE
+    CASCADE, so children are deleted before parents. The Source row itself
+    and every other source's data are left untouched. Object storage isn't
+    touched here — this layer only owns the database; the caller (see
+    core/purge_inactive_source_documents.py) is responsible for deleting the
+    (bucket, key) pairs this returns from the actual storage backend."""
+    document_rows = list(
+        db.execute(
+            select(Document.id, Document.storage_bucket, Document.storage_key, Document.preview_storage_key).where(
+                Document.source_id == source_id
+            )
+        ).all()
+    )
+    document_ids = [row.id for row in document_rows]
+
+    version_rows = (
+        list(
+            db.execute(
+                select(DocumentVersion.storage_bucket, DocumentVersion.storage_key).where(
+                    DocumentVersion.document_id.in_(document_ids)
+                )
+            ).all()
+        )
+        if document_ids
+        else []
+    )
+
+    run_source_ids = list(db.scalars(select(RunSource.id).where(RunSource.source_id == source_id)).all())
+
+    if document_ids:
+        db.execute(delete(DocumentVersion).where(DocumentVersion.document_id.in_(document_ids)))
+        db.execute(delete(Document).where(Document.id.in_(document_ids)))
+    if run_source_ids:
+        db.execute(delete(RunError).where(RunError.run_source_id.in_(run_source_ids)))
+        db.execute(delete(RunSource).where(RunSource.id.in_(run_source_ids)))
+    db.commit()
+
+    storage_objects = [(row.storage_bucket, row.storage_key) for row in document_rows]
+    storage_objects += [
+        (row.storage_bucket, row.preview_storage_key) for row in document_rows if row.preview_storage_key
+    ]
+    storage_objects += [(row.storage_bucket, row.storage_key) for row in version_rows]
+
+    return {
+        "documents_deleted": len(document_ids),
+        "run_sources_deleted": len(run_source_ids),
+        "storage_objects": storage_objects,
+    }
+
+
 def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:
     stmt = (
         update(Document)
