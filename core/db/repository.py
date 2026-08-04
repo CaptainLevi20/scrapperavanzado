@@ -633,6 +633,16 @@ def update_document_title(db: Session, document_id: int, title: str) -> Optional
     return document
 
 
+def update_document_storage_key(db: Session, document_id: int, storage_key: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.storage_key = storage_key
+    db.commit()
+    db.refresh(document)
+    return document
+
+
 def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:
     stmt = (
         update(Document)
