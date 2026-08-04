@@ -291,7 +291,16 @@ def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
     # un dígito. Cuando no hay ningún dígito (ej. "(principal)", que indica
     # cuaderno principal, no un número de caso) se descarta — no es el dato
     # que buscamos.
-    match = re.search(re.escape(radicado) + r"\s*\(([^)]{1,30})\)", texto or "")
+    #
+    # El radicado dentro del PDF tampoco siempre usa guion como separador
+    # entre segmentos — a veces aparece con espacios ("11001 03 25 000 2025
+    # 00135 00"), mismos dígitos exactos, solo cambia el separador (a
+    # diferencia de un typo real, donde los dígitos sí difieren y no se debe
+    # adivinar). Se busca segmento por segmento, aceptando guion o espacio
+    # entre cada uno.
+    segmentos = radicado.split("-")
+    patron_radicado = r"[\s-]".join(re.escape(s) for s in segmentos)
+    match = re.search(patron_radicado + r"\s*\(([^)]{1,30})\)", texto or "")
     if not match:
         return None
     contenido = match.group(1).strip()

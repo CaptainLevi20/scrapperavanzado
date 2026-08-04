@@ -389,6 +389,16 @@ def test_numero_extra_desde_texto_ignores_content_without_any_digit():
     assert _numero_extra_desde_texto(texto, "11001-03-28-000-2026-00085-00") is None
 
 
+def test_numero_extra_desde_texto_finds_number_when_pdf_uses_spaces_instead_of_dashes():
+    # Confirmado con datos reales: el radicado dentro del PDF no siempre usa
+    # guion como separador — a veces aparece con espacios entre segmentos
+    # ("11001 03 25 000 2025 00135 00"), mismos dígitos exactos, solo cambia
+    # el separador (no es un radicado distinto, a diferencia del caso de
+    # typos donde los dígitos sí difieren).
+    texto = "Radicación: 11001 03 25 000 2025 00135 00 (1017-2025) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "11001-03-25-000-2025-00135-00") == "1017-2025"
+
+
 def test_complementar_titulo_con_numero_inserts_between_radicado_and_acronimo():
     assert _complementar_titulo_con_numero("25000-23-37-000-2021-00423-01(NRD)", "30146") == (
         "25000-23-37-000-2021-00423-01(30146)(NRD)"
