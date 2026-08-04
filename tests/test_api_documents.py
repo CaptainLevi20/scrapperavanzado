@@ -1267,6 +1267,31 @@ def test_get_document_stats_rejects_month_out_of_range(api_client, auth_header, 
     assert response.status_code == 422
 
 
+def test_get_documents_includes_pending_case_link_note(api_client, db_session, auth_header):
+    from core.db import repository
+
+    repository.create_source_family_if_missing(db_session, key="samai", display_name="SAMAI")
+    tribunal = repository.create_source(db_session, family_key="samai", name="Tribunal Administrativo de Antioquia", family_params={})
+    consejo = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, title="t1",
+        radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id, title="t2",
+        radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository._create_case_link_suggestion_if_missing(
+        db_session, tribunal.id, "25000234200020200000801", consejo.id, "25000234200020200000802", 22
+    )
+
+    response = api_client.get("/documents", headers=auth_header)
+
+    by_radicado = {d["source_id"]: d for d in response.json()["items"]}
+    assert by_radicado[tribunal.id]["case_link_status"] == "pending"
+    assert by_radicado[tribunal.id]["case_link_other_source_name"] == "Consejo de Estado"
+
+
 def test_get_documents_filters_by_seccion_especialidad_magistrado(api_client, auth_header, db_session):
     from core.db import repository
 
