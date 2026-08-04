@@ -28,7 +28,18 @@ def is_radicado_title(title: str) -> bool:
 # repite entre las distintas actuaciones de un mismo caso — igual que el título de
 # rama_judicial, así que el mismo mecanismo de agrupar "N actuaciones" por título exacto
 # aplica aquí también.
-SAMAI_CASE_TITLE_PATTERN = re.compile(r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}\([A-Z0-9]+\)$")
+#
+# _complementar_titulo_con_numero (mismo módulo de samai.py) puede insertar un número
+# extra entre el radicado y el acrónimo — "{radicado}({número})({ACRÓNIMO})" — así que
+# ese grupo numérico es opcional aquí. El grupo del acrónimo, en cambio, es obligatorio
+# y debe empezar con una letra mayúscula (ver _CLASE_ACRONIMOS en samai.py: todas las
+# siglas reales empiezan con letra, algunas con dígitos al final como "PI1"/"PI2") —
+# nunca puramente numérico, porque un documento sin clase conocida y CON el número extra
+# produce un título "{radicado}({número})" (ver _normalizar_titulo + Finding 2 del
+# review) que de otro modo sería indistinguible de un caso real.
+SAMAI_CASE_TITLE_PATTERN = re.compile(
+    r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\(\d+\))?\([A-Z][A-Z0-9]*\)$"
+)
 
 
 def is_samai_case_title(title: str) -> bool:

@@ -379,6 +379,18 @@ def test_complementar_titulo_con_numero_appends_when_no_acronimo():
     )
 
 
+def test_complementar_titulo_con_numero_is_idempotent_with_acronimo():
+    # Calling it twice (e.g. if resolve_unverified_document ever ran on an
+    # already-complemented title) must not double-append the number.
+    ya_complementado = "25000-23-37-000-2021-00423-01(30146)(NRD)"
+    assert _complementar_titulo_con_numero(ya_complementado, "30146") == ya_complementado
+
+
+def test_complementar_titulo_con_numero_is_idempotent_without_acronimo():
+    ya_complementado = "11001-03-24-000-2026-99999-00(30146)"
+    assert _complementar_titulo_con_numero(ya_complementado, "30146") == ya_complementado
+
+
 # --- title_unverified flag y resolve_unverified_document ----------------------
 
 

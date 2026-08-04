@@ -256,6 +256,15 @@ def _all_inputs(soup) -> dict:
 # realmente de Consejo de Estado antes de tocarlo.
 _TITULO_CE_RE = re.compile(r"^([\d-]+)(\([A-Z0-9]+\))?$")
 
+# Un título ya complementado trae el número justo después del radicado —
+# "{radicado}({número})..." (ver _complementar_titulo_con_numero). Misma forma
+# que valida _YA_COMPLEMENTADO_RE en core/backfill_ce_titles.py, pero definida
+# aquí también para que _complementar_titulo_con_numero sea segura de llamar
+# más de una vez por sí misma — el guard del backfill es, con esto, solo una
+# optimización para no volver a descargar un PDF ya procesado, no lo único que
+# evita duplicar el número.
+_YA_COMPLEMENTADO_RE = re.compile(r"^[\d-]+\(\d+\)")
+
 
 def _extraer_texto_primera_pagina(local_path) -> str:
     # A diferencia de CSJ (core/scrapers/families/corte_suprema.py), SAMAI
@@ -275,6 +284,8 @@ def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
 
 
 def _complementar_titulo_con_numero(titulo: str, numero: str) -> str:
+    if _YA_COMPLEMENTADO_RE.match(titulo):
+        return titulo
     match = _TITULO_CE_RE.match(titulo)
     if not match:
         return titulo
