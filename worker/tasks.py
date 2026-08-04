@@ -331,6 +331,7 @@ def scrape_source_task(run_source_id: int):
                                             seccion=doc.seccion,
                                             especialidad=doc.especialidad,
                                             magistrado=doc.magistrado,
+                                            radicado=doc.radicado,
                                             detalle=doc.detalle,
                                             f_public=_parse_date(doc.f_public),
                                             f_providencia=_parse_date(doc.f_providencia),

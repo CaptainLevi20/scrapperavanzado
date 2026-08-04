@@ -63,6 +63,48 @@ def test_scrape_source_task_downloads_new_document_and_marks_run_source_complete
 
 
 @responses.activate
+def test_scrape_source_task_stores_radicado_from_the_scraped_document(db_session, test_engine, monkeypatch):
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+            radicado="25001233300020260001200",
+        )
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        items, _ = repository.list_documents(assertion_session, source_id=source.id)
+        [document] = items
+        assert document.radicado == "25001233300020260001200"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
 def test_scrape_source_task_processes_multiple_documents_concurrently(db_session, test_engine, monkeypatch):
     """Downloading/converting/uploading now happens on a thread pool (see
     MAX_CONCURRENT_DOCUMENT_DOWNLOADS) instead of one document at a time — this
