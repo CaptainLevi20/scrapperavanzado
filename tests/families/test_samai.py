@@ -141,6 +141,19 @@ def test_parse_row_merges_all_caps_autos_into_auto():
     assert doc.tipo == "Auto"
 
 
+def test_parse_row_populates_radicado_as_digits_only():
+    # El radicado real de SAMAI a veces trae guiones (ej. "25000-23-42-000-
+    # 2020-00008-02" en producción); el campo normalizado siempre queda solo
+    # con dígitos, sin importar cómo lo haya escrito el sitio.
+    row_html = _ROW_HTML.replace("<td>25001233300020260001200</td>", "<td>25001-23-33-000-2026-00012-00</td>", 1)
+    row = BeautifulSoup(row_html, "html.parser").find("tr")
+    scraper = ScrapTribunales(corp_code="1100103", corp_name="Consejo de Estado")
+
+    doc = scraper._parse_row(row, "1100103", "Consejo de Estado", "Sección Primera", "2026-06-15")
+
+    assert doc.radicado == "25001233300020260001200"
+
+
 def test_scrap_section_filters_dates_outside_range(monkeypatch):
     scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
 

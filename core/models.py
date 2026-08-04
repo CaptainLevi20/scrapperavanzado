@@ -14,6 +14,11 @@ class RawDocModel(BaseModel):
     seccion_en_carpeta: bool = True
     especialidad: Optional[str] = None
     magistrado: Optional[str] = None
+    # Número de radicado normalizado (solo dígitos, sin guiones/espacios) —
+    # cuando el scraper lo tiene disponible en crudo (hoy solo SAMAI). Se usa
+    # para detectar cuándo el mismo proceso aparece en otra fuente/tribunal,
+    # nunca se muestra en la interfaz.
+    radicado: Optional[str] = None
     detalle: Optional[str] = None
     save_path: Optional[str] = None
     # True when the scraper couldn't identify a clean title from metadata

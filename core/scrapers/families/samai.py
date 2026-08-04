@@ -704,6 +704,7 @@ class ScrapTribunales(BaseScrapper):
             return None
 
         radicado = tds[1].get_text(strip=True)
+        radicado_digits = re.sub(r"\D", "", radicado)
         clase = tds[5].get_text(strip=True)
         actuacion = tds[7].get_text(strip=True)
         fecha_prov_raw = tds[6].get_text(strip=True)
@@ -748,6 +749,7 @@ class ScrapTribunales(BaseScrapper):
             f_public=estado_fecha_str,
             f_providencia=fecha_prov,
             save_path=path,
+            radicado=radicado_digits or None,
             # Solo Consejo de Estado: algunos de sus documentos traen, en la
             # primera página del PDF, un número entre paréntesis junto al
             # radicado que no aparece en esta tabla — resolve_unverified_document
