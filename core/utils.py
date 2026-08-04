@@ -40,13 +40,20 @@ def is_radicado_title(title: str) -> bool:
 # conocida y CON el número extra produce un título "{radicado}({número})" (ver
 # _normalizar_titulo + Finding 2 del review) que de otro modo sería indistinguible
 # de un caso real.
+# Normalized format (with dashes): 25000-23-42-002-0202-00008-01(NRD)
 SAMAI_CASE_TITLE_PATTERN = re.compile(
     r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
 )
 
+# Raw format (without dashes, for documents captured before scraper started formatting):
+# 25000234200020200000801(NRD)
+SAMAI_CASE_TITLE_RAW_PATTERN = re.compile(
+    r"^\d{23}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
+)
+
 
 def is_samai_case_title(title: str) -> bool:
-    return bool(SAMAI_CASE_TITLE_PATTERN.match(title))
+    return bool(SAMAI_CASE_TITLE_PATTERN.match(title)) or bool(SAMAI_CASE_TITLE_RAW_PATTERN.match(title))
 
 
 def make_doc_id(key: str, f_public: str) -> str:
