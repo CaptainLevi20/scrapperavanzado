@@ -107,3 +107,76 @@ def test_backfill_ignores_documents_from_other_sources(db_session, monkeypatch):
 
     assert called == []
     assert result["documents_updated"] == 0
+
+
+def test_backfill_continues_after_database_commit_failure(db_session, monkeypatch):
+    source = _consejo_de_estado_source(db_session)
+    # First document: its update will fail
+    doc1 = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="25000-23-37-000-2021-00423-01(NRD)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    # Second document: should still be processed even after doc1 fails
+    doc2 = repository.insert_document(
+        db_session,
+        doc_id="doc-2",
+        source_id=source.id,
+        title="25000-23-37-000-2021-00423-02(NRD)",
+        storage_bucket="iurisync-test",
+        storage_key="b.pdf",
+    )
+
+    monkeypatch.setattr(backfill_module, "download_file", lambda *_a, **_k: None)
+
+    # Return text with numbers for both radicados
+    call_count = [0]
+
+    def mock_extract_text(*_a, **_k):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return "Radicación  25000-23-37-000-2021-00423-01 (30146)"
+        else:
+            return "Radicación  25000-23-37-000-2021-00423-02 (30147)"
+
+    monkeypatch.setattr(
+        backfill_module,
+        "_extraer_texto_primera_pagina",
+        mock_extract_text,
+    )
+
+    # Track which documents were attempted for update
+    update_attempts = []
+    original_update = repository.update_document_title
+
+    def update_with_failure(db, document_id, title):
+        update_attempts.append(document_id)
+        if document_id == doc1.id:
+            # Simulate a database error during update
+            raise RuntimeError("Database commit failed for doc1")
+        return original_update(db, document_id, title)
+
+    monkeypatch.setattr(
+        repository,
+        "update_document_title",
+        update_with_failure,
+    )
+
+    result = backfill(db_session)
+
+    # Verify that both documents were ATTEMPTED to be updated
+    assert update_attempts == [doc1.id, doc2.id]
+
+    # doc1 should remain unchanged due to the exception
+    db_session.refresh(doc1)
+    assert doc1.title == "25000-23-37-000-2021-00423-01(NRD)"
+
+    # doc2 should still be updated even though doc1 failed
+    db_session.refresh(doc2)
+    assert doc2.title == "25000-23-37-000-2021-00423-02(30147)(NRD)"
+
+    # Only doc2 should be successfully updated (doc1 failed)
+    assert result["documents_updated"] == 1

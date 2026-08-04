@@ -54,19 +54,19 @@ def backfill(db: Session) -> dict:
             try:
                 download_file(documento.storage_bucket, documento.storage_key, local_path)
                 texto = _extraer_texto_primera_pagina(local_path)
+                numero = _numero_extra_desde_texto(texto, radicado)
+                if not numero:
+                    continue
+
+                nuevo_titulo = _complementar_titulo_con_numero(documento.title, numero)
+                repository.update_document_title(db, documento.id, nuevo_titulo)
+                documents_updated += 1
             except Exception as e:
-                logger.warning("No se pudo leer el documento %s: %s", documento.id, e)
+                logger.warning("No se pudo procesar el documento %s: %s", documento.id, e)
+                db.rollback()
                 continue
             finally:
                 local_path.unlink(missing_ok=True)
-
-            numero = _numero_extra_desde_texto(texto, radicado)
-            if not numero:
-                continue
-
-            nuevo_titulo = _complementar_titulo_con_numero(documento.title, numero)
-            repository.update_document_title(db, documento.id, nuevo_titulo)
-            documents_updated += 1
 
     return {"documents_updated": documents_updated}
 
