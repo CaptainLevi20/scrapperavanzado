@@ -13,7 +13,7 @@ from core.downloader import Downloader, check_remote_content_length, convert_to_
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
-from core.utils import compute_doc_id, is_safe_storage_key
+from core.utils import compute_doc_id, is_safe_storage_key, rekey_filename
 from worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -93,8 +93,13 @@ def _download_and_upload_one(
         if doc.title_unverified and scraper is not None:
             # doc.title (and possibly doc.tipo) get corrected in place from the
             # file's own content — see e.g. ScrapCorteSuprema for the "doc"/"(3)"
-            # placeholder-title case this exists for.
+            # placeholder-title case this exists for. result.storage_key was
+            # already resolved from the pre-correction title, so it must be
+            # rebuilt from the corrected one now (see rekey_filename) — otherwise
+            # the fix only lands in the database and the actual stored file (and
+            # any bulk-download ZIP built from storage_key) keeps the old name.
             scraper.resolve_unverified_document(doc, result.local_path, result.content_type)
+            result.storage_key = rekey_filename(result.storage_key, doc.title)
         if skip_upload_if_size_matches is not None and result.file_size_bytes == skip_upload_if_size_matches:
             return None, None
         upload_key = override_storage_key or result.storage_key

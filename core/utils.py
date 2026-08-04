@@ -119,6 +119,23 @@ def storage_path(*parts) -> str:
     return "/".join(str(p) for p in parts)
 
 
+def rekey_filename(storage_key: str, title: str) -> str:
+    """Rebuilds a storage key's filename segment from `title`, keeping the same
+    directory prefix and extension. Needed because a scraper's
+    resolve_unverified_document (see core/scrapers/base.py) corrects doc.title
+    only *after* the storage key was already resolved from the pre-correction
+    title (e.g. CSJ's "doc"/"(3)" placeholder, or SAMAI's Consejo de Estado
+    radicado before its extra number is read from the downloaded PDF) — without
+    rebuilding the key, the corrected title lands in the database but the file
+    itself keeps its old, uncorrected name in storage, and bulk-download ZIPs
+    (which use storage_key, not title, as the archive entry name) would show
+    the wrong name even though the single-document download already shows the
+    corrected one."""
+    path = PurePosixPath(storage_key)
+    new_stem = _sanitize_filename_segment(title, fallback=path.stem)
+    return str(path.with_name(f"{new_stem}{path.suffix}"))
+
+
 def is_safe_storage_key(key: str) -> bool:
     """True if `key` is safe to join onto a local directory (or use as a ZIP
     arcname) without escaping it — not empty, not an absolute path, and no

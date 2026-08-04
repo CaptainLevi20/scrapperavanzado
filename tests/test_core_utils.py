@@ -1,5 +1,5 @@
 from core.models import RawDocModel
-from core.utils import compute_doc_id, extract_filename, is_safe_storage_key, make_doc_id, storage_path
+from core.utils import compute_doc_id, extract_filename, is_safe_storage_key, make_doc_id, rekey_filename, storage_path
 
 
 def test_make_doc_id_is_deterministic():
@@ -131,6 +131,31 @@ def test_storage_path_joins_with_forward_slashes():
     assert storage_path("Corte Constitucional", "2026-01-01", "Sentencia", "T-1.rtf") == (
         "Corte Constitucional/2026-01-01/Sentencia/T-1.rtf"
     )
+
+
+def test_rekey_filename_replaces_only_the_filename_segment():
+    # CSJ-style key: bucket directory unaffected by title, real extension kept.
+    assert rekey_filename("CSJ/SCT/CSJ_SCT_doc_2026.pdf", "CSJ_SCT_ABC1234_2026") == (
+        "CSJ/SCT/CSJ_SCT_ABC1234_2026.pdf"
+    )
+
+
+def test_rekey_filename_sanitizes_invalid_characters_in_the_new_title():
+    # SAMAI-style title complemented with a parenthesized extra number after
+    # download — invalid filesystem characters in the corrected title must not
+    # leak into the storage key.
+    assert rekey_filename("SAMAI/2026-01-01/Auto/11001-radicado.pdf", "11001-radicado(74.604)CE") == (
+        "SAMAI/2026-01-01/Auto/11001-radicado(74.604)CE.pdf"
+    )
+    rekeyed = rekey_filename("Dummy/2026-01-01/doc.pdf", 'bad:"title"<>')
+    directory, _, new_filename = rekeyed.rpartition("/")
+    assert directory == "Dummy/2026-01-01"
+    assert new_filename.endswith(".pdf")
+    assert not any(c in new_filename for c in ':"<>')
+
+
+def test_rekey_filename_falls_back_to_old_stem_when_title_sanitizes_to_nothing():
+    assert rekey_filename("Dummy/2026-01-01/doc.pdf", "   ") == "Dummy/2026-01-01/doc.pdf"
 
 
 from core.utils import is_radicado_title
