@@ -31,8 +31,14 @@ logger = logging.getLogger(__name__)
 # Un título ya complementado trae el número justo después del radicado —
 # "{radicado}({número})..." — si el título ya tiene esa forma no hay nada
 # que hacer, lo que permite correr este backfill más de una vez sin duplicar
-# el número ni volver a descargar el PDF innecesariamente.
-_YA_COMPLEMENTADO_RE = re.compile(r"^[\d-]+\(\d+\)")
+# el número ni volver a descargar el PDF innecesariamente. El número no
+# siempre es solo dígitos (también aparece como "3104-2023" o "74.604" en
+# datos reales — ver core/scrapers/families/samai.py::_numero_extra_desde_texto),
+# pero siempre empieza con un dígito, a diferencia de la sigla de clase que
+# reemplaza cuando el título aún no está complementado (siempre empieza con
+# letra mayúscula) — basta con mirar el primer carácter para distinguir los
+# dos casos.
+_YA_COMPLEMENTADO_RE = re.compile(r"^[\d-]+\(\d[^)]*\)")
 
 
 def backfill(db: Session) -> dict:

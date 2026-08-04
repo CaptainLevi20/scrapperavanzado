@@ -31,14 +31,17 @@ def is_radicado_title(title: str) -> bool:
 #
 # _complementar_titulo_con_numero (mismo módulo de samai.py) puede insertar un número
 # extra entre el radicado y el acrónimo — "{radicado}({número})({ACRÓNIMO})" — así que
-# ese grupo numérico es opcional aquí. El grupo del acrónimo, en cambio, es obligatorio
-# y debe empezar con una letra mayúscula (ver _CLASE_ACRONIMOS en samai.py: todas las
-# siglas reales empiezan con letra, algunas con dígitos al final como "PI1"/"PI2") —
-# nunca puramente numérico, porque un documento sin clase conocida y CON el número extra
-# produce un título "{radicado}({número})" (ver _normalizar_titulo + Finding 2 del
-# review) que de otro modo sería indistinguible de un caso real.
+# ese grupo numérico es opcional aquí. El número no siempre es solo dígitos (datos
+# reales confirmaron también "3104-2023" y "74.604"), así que el grupo acepta
+# cualquier contenido corto entre paréntesis. El grupo del acrónimo, en cambio, es
+# obligatorio y debe empezar con una letra mayúscula (ver _CLASE_ACRONIMOS en
+# samai.py: todas las siglas reales empiezan con letra, algunas con dígitos al final
+# como "PI1"/"PI2") — nunca puramente numérico, porque un documento sin clase
+# conocida y CON el número extra produce un título "{radicado}({número})" (ver
+# _normalizar_titulo + Finding 2 del review) que de otro modo sería indistinguible
+# de un caso real.
 SAMAI_CASE_TITLE_PATTERN = re.compile(
-    r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\(\d+\))?\([A-Z][A-Z0-9]*\)$"
+    r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
 )
 
 

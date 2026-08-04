@@ -86,6 +86,36 @@ def test_backfill_is_idempotent_across_two_runs(db_session, monkeypatch):
     assert second_result["documents_updated"] == 0
 
 
+def test_backfill_updates_title_with_numero_ano_format(db_session, monkeypatch):
+    # Confirmado con datos reales: el número extra no siempre es solo
+    # dígitos — también aparece como "3104-2023" (número-año), y el guard de
+    # idempotencia debe reconocerlo igual que el formato de solo dígitos.
+    source = _consejo_de_estado_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="66001-23-33-000-2017-00141-01(NRD)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    monkeypatch.setattr(backfill_module, "download_file", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        backfill_module,
+        "_extraer_texto_primera_pagina",
+        lambda *_a, **_k: "Radicación:  66001-23-33-000-2017-00141-01 (3104-2023)",
+    )
+
+    result = backfill(db_session)
+    second_result = backfill(db_session)
+
+    db_session.refresh(doc)
+    assert doc.title == "66001-23-33-000-2017-00141-01(3104-2023)(NRD)"
+    assert result["documents_updated"] == 1
+    assert second_result["documents_updated"] == 0
+
+
 def test_backfill_ignores_documents_from_other_sources(db_session, monkeypatch):
     repository.create_source_family(db_session, key="samai", display_name="SAMAI")
     tribunal = repository.create_source(

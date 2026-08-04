@@ -197,3 +197,14 @@ def test_is_samai_case_title_rejects_a_bare_radicado_complemented_with_only_a_nu
     # mistaken for a real acronimo (which always starts with an uppercase
     # letter — see _CLASE_ACRONIMOS in core/scrapers/families/samai.py).
     assert is_samai_case_title("11001-03-24-000-2026-99999-00(30146)") is False
+
+
+def test_is_samai_case_title_matches_a_complemented_title_with_numero_ano_format():
+    # Confirmado con datos reales: el número extra no siempre es solo
+    # dígitos — también aparece como "3104-2023" (número-año).
+    assert is_samai_case_title("66001-23-33-000-2017-00141-01(3104-2023)(NRD)") is True
+
+
+def test_is_samai_case_title_matches_a_complemented_title_with_dotted_digits():
+    # Confirmado con datos reales: también aparece con punto de miles, ej. "(74.604)".
+    assert is_samai_case_title("11001-03-15-000-2025-04868-00(74.604)(RER)") is True

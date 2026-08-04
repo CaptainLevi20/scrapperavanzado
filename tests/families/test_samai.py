@@ -367,6 +367,28 @@ def test_numero_extra_desde_texto_ignores_unrelated_parenthetical_numbers():
     assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") is None
 
 
+def test_numero_extra_desde_texto_finds_numero_ano_format():
+    # Confirmado con datos reales: no siempre es solo dígitos — a veces trae
+    # un año pegado con guion (ej. "66001-...-01 (3104-2023)").
+    texto = "Radicación:  66001-23-33-000-2017-00141-01 (3104-2023) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "66001-23-33-000-2017-00141-01") == "3104-2023"
+
+
+def test_numero_extra_desde_texto_finds_digits_with_dot_format():
+    # Confirmado con datos reales: algunos documentos usan un punto como
+    # separador de miles (ej. "(74.604)").
+    texto = "Radicación:  11001-03-15-000-2025-04868-00 (74.604) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "11001-03-15-000-2025-04868-00") == "74.604"
+
+
+def test_numero_extra_desde_texto_ignores_content_without_any_digit():
+    # Confirmado con datos reales: a veces lo que aparece entre paréntesis es
+    # "(principal)" — indica "cuaderno principal", no es un número de caso, y
+    # no debe agregarse al título.
+    texto = "Radicación:  11001-03-28-000-2026-00085-00 (principal) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "11001-03-28-000-2026-00085-00") is None
+
+
 def test_complementar_titulo_con_numero_inserts_between_radicado_and_acronimo():
     assert _complementar_titulo_con_numero("25000-23-37-000-2021-00423-01(NRD)", "30146") == (
         "25000-23-37-000-2021-00423-01(30146)(NRD)"
@@ -389,6 +411,19 @@ def test_complementar_titulo_con_numero_is_idempotent_with_acronimo():
 def test_complementar_titulo_con_numero_is_idempotent_without_acronimo():
     ya_complementado = "11001-03-24-000-2026-99999-00(30146)"
     assert _complementar_titulo_con_numero(ya_complementado, "30146") == ya_complementado
+
+
+def test_complementar_titulo_con_numero_is_idempotent_for_numero_ano_format():
+    # El guard de "ya complementado" debe reconocer también los formatos
+    # número-año y dígitos-con-punto, no solo dígitos puros.
+    ya_complementado = "66001-23-33-000-2017-00141-01(3104-2023)(NRD)"
+    assert _complementar_titulo_con_numero(ya_complementado, "3104-2023") == ya_complementado
+
+
+def test_complementar_titulo_con_numero_inserts_numero_ano_format_verbatim():
+    assert _complementar_titulo_con_numero("66001-23-33-000-2017-00141-01(NRD)", "3104-2023") == (
+        "66001-23-33-000-2017-00141-01(3104-2023)(NRD)"
+    )
 
 
 # --- title_unverified flag y resolve_unverified_document ----------------------

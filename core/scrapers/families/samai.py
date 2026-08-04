@@ -257,13 +257,19 @@ def _all_inputs(soup) -> dict:
 _TITULO_CE_RE = re.compile(r"^([\d-]+)(\([A-Z0-9]+\))?$")
 
 # Un título ya complementado trae el número justo después del radicado —
-# "{radicado}({número})..." (ver _complementar_titulo_con_numero). Misma forma
-# que valida _YA_COMPLEMENTADO_RE en core/backfill_ce_titles.py, pero definida
-# aquí también para que _complementar_titulo_con_numero sea segura de llamar
-# más de una vez por sí misma — el guard del backfill es, con esto, solo una
+# "{radicado}({número})..." (ver _complementar_titulo_con_numero). El grupo
+# del número siempre empieza con un dígito (a diferencia de la sigla de
+# clase, que _CLASE_ACRONIMOS garantiza que siempre empieza con una letra
+# mayúscula), así que basta con mirar el primer carácter para distinguir "ya
+# tiene el número" de "todavía no, esto es la sigla" — sin asumir que el
+# número es solo dígitos (ver _numero_extra_desde_texto: también aparece como
+# "3104-2023" o "74.604" en datos reales). Misma forma que valida
+# _YA_COMPLEMENTADO_RE en core/backfill_ce_titles.py, pero definida aquí
+# también para que _complementar_titulo_con_numero sea segura de llamar más
+# de una vez por sí misma — el guard del backfill es, con esto, solo una
 # optimización para no volver a descargar un PDF ya procesado, no lo único que
 # evita duplicar el número.
-_YA_COMPLEMENTADO_RE = re.compile(r"^[\d-]+\(\d+\)")
+_YA_COMPLEMENTADO_RE = re.compile(r"^[\d-]+\(\d[^)]*\)")
 
 
 def _extraer_texto_primera_pagina(local_path) -> str:
@@ -279,8 +285,17 @@ def _extraer_texto_primera_pagina(local_path) -> str:
 
 
 def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
-    match = re.search(re.escape(radicado) + r"\s*\((\d+)\)", texto or "")
-    return match.group(1) if match else None
+    # El número entre paréntesis no siempre son solo dígitos — datos reales
+    # confirmaron también "3104-2023" (número-año) y "74.604" (con punto de
+    # miles). Se acepta el contenido tal cual venga, mientras tenga al menos
+    # un dígito. Cuando no hay ningún dígito (ej. "(principal)", que indica
+    # cuaderno principal, no un número de caso) se descarta — no es el dato
+    # que buscamos.
+    match = re.search(re.escape(radicado) + r"\s*\(([^)]{1,30})\)", texto or "")
+    if not match:
+        return None
+    contenido = match.group(1).strip()
+    return contenido if any(c.isdigit() for c in contenido) else None
 
 
 def _complementar_titulo_con_numero(titulo: str, numero: str) -> str:
