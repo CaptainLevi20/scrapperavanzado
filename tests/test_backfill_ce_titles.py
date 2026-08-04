@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from core.backfill_ce_titles import backfill
+from core.backfill_ce_titles import backfill, backfill_quitar_puntos
 import core.backfill_ce_titles as backfill_module
 from core.db import repository
 
@@ -210,3 +210,124 @@ def test_backfill_continues_after_database_commit_failure(db_session, monkeypatc
 
     # Only doc2 should be successfully updated (doc1 failed)
     assert result["documents_updated"] == 1
+
+
+# --- backfill_quitar_puntos --------------------------------------------------
+
+
+def test_backfill_quitar_puntos_removes_dot_from_already_complemented_title(db_session):
+    source = _consejo_de_estado_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="11001-03-26-000-2026-00084-00(74.369)(RER)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    result = backfill_quitar_puntos(db_session)
+
+    db_session.refresh(doc)
+    assert doc.title == "11001-03-26-000-2026-00084-00(74369)(RER)"
+    assert result["documents_updated"] == 1
+
+
+def test_backfill_quitar_puntos_handles_title_without_acronimo():
+    from core.backfill_ce_titles import _quitar_punto_del_numero
+
+    assert _quitar_punto_del_numero("11001-03-24-000-2026-99999-00(74.369)") == (
+        "11001-03-24-000-2026-99999-00(74369)"
+    )
+
+
+def test_backfill_quitar_puntos_leaves_title_untouched_when_number_has_no_dot(db_session):
+    source = _consejo_de_estado_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="25000-23-37-000-2021-00423-01(30146)(NRD)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    result = backfill_quitar_puntos(db_session)
+
+    db_session.refresh(doc)
+    assert doc.title == "25000-23-37-000-2021-00423-01(30146)(NRD)"
+    assert result["documents_updated"] == 0
+
+
+def test_backfill_quitar_puntos_leaves_numero_ano_format_untouched(db_session):
+    source = _consejo_de_estado_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="66001-23-33-000-2017-00141-01(3104-2023)(NRD)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    result = backfill_quitar_puntos(db_session)
+
+    db_session.refresh(doc)
+    assert doc.title == "66001-23-33-000-2017-00141-01(3104-2023)(NRD)"
+    assert result["documents_updated"] == 0
+
+
+def test_backfill_quitar_puntos_leaves_title_without_number_untouched(db_session):
+    source = _consejo_de_estado_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="25000-23-37-000-2021-00423-01(NRD)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    result = backfill_quitar_puntos(db_session)
+
+    db_session.refresh(doc)
+    assert doc.title == "25000-23-37-000-2021-00423-01(NRD)"
+    assert result["documents_updated"] == 0
+
+
+def test_backfill_quitar_puntos_is_idempotent_across_two_runs(db_session):
+    source = _consejo_de_estado_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="11001-03-26-000-2026-00084-00(74.369)(RER)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    backfill_quitar_puntos(db_session)
+    second_result = backfill_quitar_puntos(db_session)
+
+    db_session.refresh(doc)
+    assert doc.title == "11001-03-26-000-2026-00084-00(74369)(RER)"
+    assert second_result["documents_updated"] == 0
+
+
+def test_backfill_quitar_puntos_ignores_documents_from_other_sources(db_session):
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    tribunal = repository.create_source(
+        db_session, family_key="samai", name="Tribunal Administrativo de Cundinamarca", family_params={}
+    )
+    repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=tribunal.id,
+        title="T_CUND_25001233300020260001200(74.369)",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+
+    result = backfill_quitar_puntos(db_session)
+
+    assert result["documents_updated"] == 0

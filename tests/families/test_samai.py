@@ -374,11 +374,12 @@ def test_numero_extra_desde_texto_finds_numero_ano_format():
     assert _numero_extra_desde_texto(texto, "66001-23-33-000-2017-00141-01") == "3104-2023"
 
 
-def test_numero_extra_desde_texto_finds_digits_with_dot_format():
+def test_numero_extra_desde_texto_strips_dot_from_digits_with_dot_format():
     # Confirmado con datos reales: algunos documentos usan un punto como
-    # separador de miles (ej. "(74.604)").
+    # separador de miles en el PDF (ej. "(74.604)") — se quita, nunca es un
+    # decimal en este dominio, para que el título final quede "(74604)".
     texto = "Radicación:  11001-03-15-000-2025-04868-00 (74.604) \nDemandante..."
-    assert _numero_extra_desde_texto(texto, "11001-03-15-000-2025-04868-00") == "74.604"
+    assert _numero_extra_desde_texto(texto, "11001-03-15-000-2025-04868-00") == "74604"
 
 
 def test_numero_extra_desde_texto_ignores_content_without_any_digit():

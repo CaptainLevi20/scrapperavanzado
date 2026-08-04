@@ -24,7 +24,9 @@ Se validó contra 16 documentos reales descargados: el patrón aparece tal cual 
 
 Ambas corregidas en la misma rama antes de mergear — ver `_numero_extra_desde_texto` en `core/scrapers/families/samai.py`.
 
-Aparte, se encontraron 7 documentos (~1%) donde el radicado dentro del PDF tiene dígitos genuinamente distintos a los de la tabla SAMAI (no solo el separador) — posible typo del propio sitio, o en 2 de los 7 podría tratarse de una actuación real distinta. Por decisión explícita del usuario, estos se dejan sin el número extra: el riesgo de pegar mal un dato no vale la pena para un 1% de los casos.)
+Aparte, se encontraron 7 documentos (~1%) donde el radicado dentro del PDF tiene dígitos genuinamente distintos a los de la tabla SAMAI (no solo el separador) — posible typo del propio sitio, o en 2 de los 7 podría tratarse de una actuación real distinta. Por decisión explícita del usuario, estos se dejan sin el número extra: el riesgo de pegar mal un dato no vale la pena para un 1% de los casos.
+
+Tercera corrección (2026-08-04): el punto de miles del número (ej. "74.604") se quita del título final — queda "74604", no "74.604". `_numero_extra_desde_texto` ya no lo incluye al extraerlo. Los 76 documentos que el backfill ya había complementado con el punto (antes de esta corrección) se arreglan con la nueva función `backfill_quitar_puntos` en `core/backfill_ce_titles.py`, que solo corrige el texto ya guardado — no vuelve a descargar el PDF.)
 
 ```
 25000-23-37-000-2021-00423-01(30146)(NRD)

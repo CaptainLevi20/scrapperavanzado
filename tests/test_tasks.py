@@ -392,7 +392,11 @@ def test_scrape_source_task_calls_resolve_unverified_document_for_flagged_docs(d
     """Wiring check: a doc scraped with title_unverified=True must have the
     scraper's resolve_unverified_document called on it (with the real,
     downloaded local file) before it's inserted, and the correction it makes
-    must land in the stored document."""
+    must land in the stored document — including storage_key, which is resolved
+    from the pre-correction title before resolve_unverified_document runs and
+    must be rebuilt from the corrected one (see core.utils.rekey_filename), or
+    bulk-download ZIPs (which use storage_key, not title, as the entry name)
+    would still show the old, uncorrected name."""
     celery_app.conf.task_always_eager = True
 
     repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
@@ -437,6 +441,8 @@ def test_scrape_source_task_calls_resolve_unverified_document_for_flagged_docs(d
         [document] = items
         assert document.title == "recuperado-del-archivo"
         assert document.tipo == "Auto"
+        assert document.storage_key.endswith("recuperado-del-archivo.pdf")
+        assert "doc1" not in document.storage_key
     finally:
         assertion_session.close()
 
