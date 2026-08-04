@@ -633,6 +633,26 @@ def update_document_title(db: Session, document_id: int, title: str) -> Optional
     return document
 
 
+def update_document_tipo(db: Session, document_id: int, tipo: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.tipo = tipo
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def update_document_especialidad(db: Session, document_id: int, especialidad: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.especialidad = especialidad
+    db.commit()
+    db.refresh(document)
+    return document
+
+
 def update_document_storage_key(db: Session, document_id: int, storage_key: str) -> Optional[Document]:
     document = db.get(Document, document_id)
     if document is None:

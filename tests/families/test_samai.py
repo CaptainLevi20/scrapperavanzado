@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+import requests
 from bs4 import BeautifulSoup
 
 import core.scrapers.families.samai as samai_module
@@ -65,6 +67,78 @@ def test_parse_row_returns_none_without_jwt_link():
     row = BeautifulSoup(html, "html.parser").find("tr")
     scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
     assert scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15") is None
+
+
+# --- tipo: normalización de mayúsculas ---------------------------------------
+#
+# SAMAI no es consistente con las mayúsculas de la primera palabra de la
+# actuación ("Auto", "AUTO", "aUTO" aparecen todas para el mismo tipo de
+# documento) — sin normalizar, un filtro por tipo en la interfaz se salta
+# silenciosamente las variantes que no coinciden exactamente.
+
+
+def test_parse_row_normalizes_all_caps_tipo():
+    row_html = _ROW_HTML.replace(
+        "Auto que rechaza recurso de apelación", "AUTO QUE RECHAZA RECURSO DE APELACIÓN"
+    )
+    row = BeautifulSoup(row_html, "html.parser").find("tr")
+    scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
+
+    doc = scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15")
+
+    assert doc.tipo == "Auto"
+
+
+def test_parse_row_normalizes_lowercase_tipo():
+    row_html = _ROW_HTML.replace(
+        "Auto que rechaza recurso de apelación", "auto que rechaza recurso de apelación"
+    )
+    row = BeautifulSoup(row_html, "html.parser").find("tr")
+    scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
+
+    doc = scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15")
+
+    assert doc.tipo == "Auto"
+
+
+def test_parse_row_normalizes_mixed_case_tipo():
+    row_html = _ROW_HTML.replace(
+        "Auto que rechaza recurso de apelación", "aUTO que rechaza recurso de apelación"
+    )
+    row = BeautifulSoup(row_html, "html.parser").find("tr")
+    scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
+
+    doc = scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15")
+
+    assert doc.tipo == "Auto"
+
+
+def test_parse_row_merges_autos_plural_into_auto():
+    # Confirmado con el usuario: "Autos" es la misma tipología que "Auto",
+    # SAMAI simplemente no es consistente con el singular/plural — a
+    # diferencia de otras variantes de tipo, esta sí se fusiona
+    # explícitamente (ver _TIPO_ALIAS).
+    row_html = _ROW_HTML.replace(
+        "Auto que rechaza recurso de apelación", "Autos que rechazan recurso de apelación"
+    )
+    row = BeautifulSoup(row_html, "html.parser").find("tr")
+    scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
+
+    doc = scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15")
+
+    assert doc.tipo == "Auto"
+
+
+def test_parse_row_merges_all_caps_autos_into_auto():
+    row_html = _ROW_HTML.replace(
+        "Auto que rechaza recurso de apelación", "AUTOS QUE RECHAZAN RECURSO DE APELACIÓN"
+    )
+    row = BeautifulSoup(row_html, "html.parser").find("tr")
+    scraper = ScrapTribunales(corp_code="2500023", corp_name="Tribunal Administrativo de Cundinamarca")
+
+    doc = scraper._parse_row(row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15")
+
+    assert doc.tipo == "Auto"
 
 
 def test_scrap_section_filters_dates_outside_range(monkeypatch):
@@ -270,6 +344,42 @@ def test_normalizar_titulo_for_tribunal_administrativo_matches_tribunal_superior
     assert is_radicado_title(titulo) is True
 
 
+# --- "(ESCRITURAL)"/"(ORAL)"/"S. ORAL": ruido de trámite, no de clase ------
+#
+# Confirmado con el usuario el 2026-08-04: a diferencia de "(R)" (que en al
+# menos un caso — "TUTELA 2 INSTANCIA (R)" — sí obtuvo su propia sigla, T2,
+# distinta de "TUTELA"), escritural/oral nunca cambia la clase. Se quita de
+# forma genérica en vez de agregar cada combinación al catálogo una por una.
+
+
+def test_normalizar_clase_strips_escritural_suffix():
+    assert _normalizar_clase("REPARACION DIRECTA (ESCRITURAL)") == "REPARACION DIRECTA"
+
+
+def test_normalizar_clase_strips_oral_suffix_in_various_forms():
+    assert _normalizar_clase("CUMPLIMIENTO (ORAL)") == "CUMPLIMIENTO"
+    assert _normalizar_clase("CUMPLIMIENTO S. ORAL") == "CUMPLIMIENTO"
+    assert _normalizar_clase("CUMPLIMIENTO ORAL") == "CUMPLIMIENTO"
+
+
+def test_normalizar_clase_does_not_strip_oral_as_substring_of_electoral():
+    # "ORAL" solo se quita como palabra completa (\bORAL\b) — "ELECTORAL"
+    # contiene la letras "ORAL" pero no como palabra separada, y NULIDAD
+    # ELECTORAL es una clase real y distinta (sigla NE) que no debe romperse.
+    assert _normalizar_clase("NULIDAD ELECTORAL") == "NULIDAD ELECTORAL"
+    assert _normalizar_clase("ELECTORAL CON SUSPENSION PROVISIONAL") == "ELECTORAL CON SUSPENSION PROVISIONAL"
+    assert _normalizar_clase("ELECTORALES") == "ELECTORALES"
+
+
+def test_especialidad_legible_resolves_unseen_clase_with_escritural_suffix():
+    # Este texto exacto nunca apareció en la revisión del catálogo — la
+    # generalización debe resolverlo igual, sin necesidad de agregarlo.
+    assert _especialidad_legible("REPARACION DIRECTA (ESCRITURAL)") == "Reparación directa"
+    # Mayúscula/minúscula mixta (como la reportó el usuario) no cambia nada —
+    # _normalizar_clase ya mayusculiza todo antes de buscar en el catálogo.
+    assert _especialidad_legible("rEPARACION DIRECTA (ESCRITURAL)") == "Reparación directa"
+
+
 def test_normalizar_titulo_and_especialidad_are_case_law_code_insensitive():
     # "LEY 1437 NULIDAD Y RESTABLECIMIENTO DEL DERECHO" y "Nulidad y
     # restablecimiento del derecho" son la misma clase, pero el sitio no
@@ -287,6 +397,89 @@ def test_especialidad_legible_falls_back_to_raw_text_for_unknown_clase():
     # No hay forma de "limpiar" una clase que no está en el catálogo — se deja
     # el texto tal cual llegó del sitio.
     assert _especialidad_legible("Una clase nunca vista") == "Una clase nunca vista"
+
+
+# --- catálogo ampliado el 2026-08-04: 51 clases nuevas de Tribunales --------
+# Administrativos, confirmadas una por una con el usuario a partir del run
+# real de los 27 tribunales (8,797 documentos). Cada caso cubre el texto
+# crudo exacto que trajo SAMAI, no una forma ya simplificada.
+
+
+def test_catalogo_ampliado_toda_sigla_nueva_tiene_nombre_legible():
+    # Chequeo de completitud: toda sigla que aparece como valor en
+    # _CLASE_ACRONIMOS debe tener una entrada en _ACRONIMO_A_NOMBRE — si no,
+    # _especialidad_legible cae de vuelta al texto crudo aunque el acrónimo
+    # sí se haya resuelto, y la columna Especialidad/Proceso mostraría un
+    # dato inconsistente con el resto del catálogo.
+    from core.scrapers.families.samai import _ACRONIMO_A_NOMBRE, _CLASE_ACRONIMOS
+
+    for clase, acronimo in _CLASE_ACRONIMOS.items():
+        assert acronimo in _ACRONIMO_A_NOMBRE, f"'{clase}' -> '{acronimo}' no tiene nombre legible"
+
+
+@pytest.mark.parametrize(
+    "clase_cruda,nombre_esperado",
+    [
+        ("EJECUTIVOS", "Ejecutivo"),
+        ("PROCESO EJECUTIVO", "Ejecutivo"),
+        ("ACCION EJECUTIVA", "Ejecutivo"),
+        ("ACCIONES EJECUTIVOS", "Ejecutivo"),
+        ("PROPIEDAD INDUSTRIAL", "Propiedad industrial"),
+        ("NUL. Y REST. CON SUSPENSIÓN PROVISIONAL", "Nulidad y restablecimiento del derecho con suspensión provisional"),
+        # "LEY 1437 ..." se quita antes de matchear, y el punto final de
+        # "COLEC." lo quita el .strip(" -.") de _normalizar_clase.
+        ("LEY 1437 PROTECCION DERECHOS E INTERESES COLEC.", "Protección de los derechos e intereses colectivos"),
+        ("PROTECCIÓN DE DERECHOS E INTERESES COLECTIVOS", "Protección de los derechos e intereses colectivos"),
+        ("VALIDEZ DE ACTOS ADMINISTRATIVOS", "Validez de actos administrativos"),
+        ("ACCIONES POPULARES (R)", "Acciones populares"),
+        ("ACCIONES POPULARES (ESCRITURAL)", "Acciones populares"),
+        ("INSISTENCIA DE RESERVA", "Insistencia de reserva"),
+        ("OBJECIONES", "Objeciones"),
+        ("OBJECIONES A PROYECTOS DE ACUERDO", "Objeciones"),
+        ("OBJECION", "Objeciones"),
+        ("ACCIONES DE OBJECION A PROYECTOS", "Objeciones"),
+        ("NULIDAD SIN SUSPENSION PROVISIONAL", "Nulidad sin suspensión provisional"),
+        ("ACCIONES CONSTITUCIONALES", "Acciones constitucionales"),
+        # Confirmado con el usuario: para este texto exacto manda RPAG, aunque
+        # "Acción de grupo" (AG) sola sea una clase distinta.
+        ("REPARACION DE LOS PERJUICIOS CAUSADOS A UN GRUPO (ACCION DE GRUPO)", "Reparación de perjuicios causados a un grupo"),
+        ("IMPEDIMENTO O RECUSACIÓN", "Impedimento o recusación"),
+        ("INCIDENTE DE IMPEDIMENTO", "Impedimento o recusación"),
+        ("RECUSACIÓN", "Impedimento o recusación"),
+        ("OBSERVACIONES CONSTITUCIONALES Y LEGALES S. ORAL", "Observaciones constitucionales y legales"),
+        ("EXPROPIACION POR VIA ADMINISTRATIVA", "Expropiación por vía administrativa"),
+        ("EXPROPIACIÓN", "Expropiación por vía administrativa"),
+        ("APELACIÓN (ESCRITURAL)", "Apelación"),
+        ("CONTROVERSIAS CONTRACTUALES (ESCRITURAL)", "Controversias contractuales"),
+        ("CONTROVERSIA CONTRACTUAL", "Controversias contractuales"),
+        ("ACCION CONTRACTUAL CON SUSPENSION PROVISIONAL", "Acción contractual con suspensión provisional"),
+        ("ACCION DE TUTELA 2 INSTANCIA (R)", "Tutela 2da instancia"),
+        ("ACCIONES DE TUTELA (R)", "Tutela"),
+        ("EXEQUIBILIDAD", "Exequibilidad"),
+        ("IMPUGNACIÓN TUTELA", "Impugnación tutela"),
+        ("ACCION DE DEFINICION DE COMPETENCIAS", "Acción de definición de competencias"),
+        ("ACCIONES DE DEFINICION DE COMPETENCIA", "Acción de definición de competencias"),
+        ("CONTROL INMEDIATO DE LEGALIDAD", "Control inmediato de legalidad"),
+        ("ELECTORAL CON SUSPENSION PROVISIONAL", "Electoral con suspensión provisional"),
+        ("INCIDENTE DE REGULACION DE PERJUICIOS", "Incidente de regulación de perjuicios"),
+        ("JUICIOS VARIOS", "Juicios varios"),
+        ("NULIDAD Y RESTABLECIMIENTO DEL DERECHO (ESCRITURAL)", "Nulidad y restablecimiento del derecho"),
+        ("REVISION DE ACUERDOS Y DECRETOS", "Revisión de acuerdos y decretos"),
+        ("REVISION DE LEGALIDAD", "Revisión de legalidad"),
+        ("REVISION JURIDICA", "Revisión jurídica"),
+        ("CONCILIACION PREJUDICIAL", "Conciliación"),
+        ("CONCILIACION EXTRAJUDICIAL", "Conciliación extrajudicial"),
+        ("OBSERVACION", "Observaciones"),
+        ("ASUNTOS AGRARIOS", "Asuntos agrarios"),
+        ("APELACION SENTENCIA EJECUTIVO", "Apelación de sentencia ejecutivo"),
+        ("RESTITUCION DE INMUEBLE", "Restitución de inmueble"),
+        ("IMPUGNACION ACCION CUMPLIMIENTO", "Impugnación acción de cumplimiento"),
+        ("DISCIPLINARIOS", "Disciplinarios"),
+        ("ACCION SIMPLE DE NULIDAD", "Nulidad"),
+    ],
+)
+def test_especialidad_legible_resolves_new_tribunal_administrativo_clases(clase_cruda, nombre_esperado):
+    assert _especialidad_legible(clase_cruda) == nombre_esperado
 
 
 def test_parse_row_stores_readable_clase_de_proceso_in_especialidad():
@@ -520,6 +713,121 @@ def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatc
         scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")  # no debe lanzar
 
     assert doc.title == "25000-23-37-000-2021-00423-01(NRD)"
+
+
+# --- _fetch: qué fallas de red se reintentan -------------------------------
+#
+# SAMAI es un sitio ASP.NET viejo, no una API estable — antes solo se
+# reintentaba requests.exceptions.Timeout; un corte de conexión a medio
+# request o un 5xx de su propio servidor se propagaban de inmediato y esa
+# fecha/sección se perdía sin segundo intento.
+
+
+def test_fetch_retries_after_connection_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(samai_module.time, "sleep", lambda *_a, **_k: None)
+    scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    calls = {"n": 0}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+    def _fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise requests.exceptions.ConnectionError("conexión cortada a medio request")
+        return _Resp()
+
+    result = scraper._fetch(_fn)
+
+    assert calls["n"] == 2
+    assert isinstance(result, _Resp)
+
+
+def test_fetch_retries_after_5xx_http_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(samai_module.time, "sleep", lambda *_a, **_k: None)
+    scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    calls = {"n": 0}
+
+    class _FailResp:
+        status_code = 503
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError("503 Service Unavailable", response=self)
+
+    class _OkResp:
+        def raise_for_status(self):
+            return None
+
+    def _fn():
+        calls["n"] += 1
+        return _FailResp() if calls["n"] == 1 else _OkResp()
+
+    result = scraper._fetch(_fn)
+
+    assert calls["n"] == 2
+    assert isinstance(result, _OkResp)
+
+
+def test_fetch_does_not_retry_a_4xx_http_error():
+    # Un 404 es una respuesta real del servidor, no un corte transitorio —
+    # reintentarlo no cambiaría el resultado, así que debe propagarse de
+    # inmediato sin gastar un segundo intento.
+    scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    calls = {"n": 0}
+
+    class _NotFoundResp:
+        status_code = 404
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError("404 Not Found", response=self)
+
+    def _fn():
+        calls["n"] += 1
+        return _NotFoundResp()
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        scraper._fetch(_fn)
+
+    assert calls["n"] == 1
+
+
+def test_fetch_still_retries_on_timeout(monkeypatch):
+    # Comportamiento preexistente — no debe romperse al ampliar la lista de
+    # fallas reintentables.
+    monkeypatch.setattr(samai_module.time, "sleep", lambda *_a, **_k: None)
+    scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    calls = {"n": 0}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+    def _fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise requests.exceptions.Timeout("se agotó el tiempo")
+        return _Resp()
+
+    result = scraper._fetch(_fn)
+
+    assert calls["n"] == 2
+    assert isinstance(result, _Resp)
+
+
+def test_fetch_does_not_retry_twice_on_persistent_connection_error(monkeypatch):
+    monkeypatch.setattr(samai_module.time, "sleep", lambda *_a, **_k: None)
+    scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    calls = {"n": 0}
+
+    def _fn():
+        calls["n"] += 1
+        raise requests.exceptions.ConnectionError("conexión cortada a medio request")
+
+    with pytest.raises(requests.exceptions.ConnectionError):
+        scraper._fetch(_fn)
+
+    assert calls["n"] == 2
 
 
 def test_resolve_unverified_document_ignores_tribunal_administrativo_title_format(monkeypatch):
