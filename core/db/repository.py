@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import and_, cast, delete, exists, func, or_, select, update
+from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
@@ -635,6 +635,227 @@ def list_pending_case_link_suggestions(db: Session) -> list[CaseLinkSuggestion]:
         .order_by(CaseLinkSuggestion.created_at.desc())
     )
     return list(db.scalars(stmt).all())
+
+
+def get_case_link_suggestion(db: Session, suggestion_id: int) -> Optional[CaseLinkSuggestion]:
+    return db.get(CaseLinkSuggestion, suggestion_id)
+
+
+def _get_case_link_stage(db: Session, source_id: int, radicado: str) -> Optional[CaseLinkStage]:
+    stmt = select(CaseLinkStage).where(CaseLinkStage.source_id == source_id, CaseLinkStage.radicado == radicado)
+    return db.scalars(stmt).first()
+
+
+def _link_case_group(db: Session, source_id_a: int, radicado_a: str, source_id_b: int, radicado_b: str) -> CaseLink:
+    stage_a = _get_case_link_stage(db, source_id_a, radicado_a)
+    stage_b = _get_case_link_stage(db, source_id_b, radicado_b)
+
+    if stage_a is not None and stage_b is not None:
+        if stage_a.case_link_id != stage_b.case_link_id:
+            # Los dos lados ya pertenecían a expedientes distintos (ej. se
+            # confirmaron por separado antes de saber que eran el mismo
+            # proceso) — se funden en uno solo en vez de dejar dos.
+            other_stages = db.scalars(
+                select(CaseLinkStage).where(CaseLinkStage.case_link_id == stage_b.case_link_id)
+            ).all()
+            for stage in other_stages:
+                stage.case_link_id = stage_a.case_link_id
+            db.commit()
+        return db.get(CaseLink, stage_a.case_link_id)
+
+    if stage_a is not None:
+        db.add(CaseLinkStage(case_link_id=stage_a.case_link_id, source_id=source_id_b, radicado=radicado_b))
+        db.commit()
+        return db.get(CaseLink, stage_a.case_link_id)
+
+    if stage_b is not None:
+        db.add(CaseLinkStage(case_link_id=stage_b.case_link_id, source_id=source_id_a, radicado=radicado_a))
+        db.commit()
+        return db.get(CaseLink, stage_b.case_link_id)
+
+    case_link = CaseLink()
+    db.add(case_link)
+    db.flush()
+    db.add(CaseLinkStage(case_link_id=case_link.id, source_id=source_id_a, radicado=radicado_a))
+    db.add(CaseLinkStage(case_link_id=case_link.id, source_id=source_id_b, radicado=radicado_b))
+    db.commit()
+    db.refresh(case_link)
+    return case_link
+
+
+def confirm_case_link_suggestion(db: Session, suggestion_id: int) -> Optional[CaseLink]:
+    suggestion = db.get(CaseLinkSuggestion, suggestion_id)
+    if suggestion is None or suggestion.status != "pending":
+        return None
+    case_link = _link_case_group(
+        db, suggestion.source_id_a, suggestion.radicado_a, suggestion.source_id_b, suggestion.radicado_b
+    )
+    suggestion.status = "confirmed"
+    suggestion.resolved_at = datetime.now(timezone.utc)
+    db.commit()
+    return case_link
+
+
+def dismiss_case_link_suggestion(db: Session, suggestion_id: int) -> Optional[CaseLinkSuggestion]:
+    suggestion = db.get(CaseLinkSuggestion, suggestion_id)
+    if suggestion is None or suggestion.status != "pending":
+        return None
+    suggestion.status = "dismissed"
+    suggestion.resolved_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(suggestion)
+    return suggestion
+
+
+def create_manual_case_link(
+    db: Session, source_id_a: int, radicado_a: str, source_id_b: int, radicado_b: str
+) -> CaseLink:
+    return _link_case_group(db, source_id_a, radicado_a, source_id_b, radicado_b)
+
+
+def get_case_link(db: Session, case_link_id: int) -> Optional[CaseLink]:
+    return db.get(CaseLink, case_link_id)
+
+
+def list_case_link_stages(db: Session, case_link_id: int) -> list[CaseLinkStage]:
+    stmt = select(CaseLinkStage).where(CaseLinkStage.case_link_id == case_link_id)
+    return list(db.scalars(stmt).all())
+
+
+def list_documents_by_source_and_radicado(db: Session, source_id: int, radicado: str) -> list[Document]:
+    stmt = (
+        select(Document)
+        .where(Document.source_id == source_id, Document.radicado == radicado)
+        .order_by(Document.f_public.asc().nulls_last(), Document.id.asc())
+    )
+    return list(db.scalars(stmt).all())
+
+
+def case_group_summary(db: Session, source_id: int, radicado: str) -> dict:
+    stmt = select(
+        func.count(Document.id), func.min(Document.f_public), func.max(Document.f_public)
+    ).where(Document.source_id == source_id, Document.radicado == radicado)
+    count, f_min, f_max = db.execute(stmt).one()
+    return {"document_count": count, "f_public_min": f_min, "f_public_max": f_max}
+
+
+def find_confirmed_case_link_for_document(db: Session, document_id: int) -> Optional[CaseLink]:
+    document = db.get(Document, document_id)
+    if document is None or document.radicado is None:
+        return None
+    stage = _get_case_link_stage(db, document.source_id, document.radicado)
+    if stage is None:
+        return None
+    return db.get(CaseLink, stage.case_link_id)
+
+
+def find_pending_case_link_suggestion_for_document(db: Session, document_id: int) -> Optional[CaseLinkSuggestion]:
+    document = db.get(Document, document_id)
+    if document is None or document.radicado is None:
+        return None
+    stmt = select(CaseLinkSuggestion).where(
+        CaseLinkSuggestion.status == "pending",
+        or_(
+            and_(
+                CaseLinkSuggestion.source_id_a == document.source_id,
+                CaseLinkSuggestion.radicado_a == document.radicado,
+            ),
+            and_(
+                CaseLinkSuggestion.source_id_b == document.source_id,
+                CaseLinkSuggestion.radicado_b == document.radicado,
+            ),
+        ),
+    )
+    return db.scalars(stmt).first()
+
+
+def get_case_link_status_for_documents(db: Session, document_ids: list[int]) -> dict[int, dict]:
+    """Versión en lote de find_confirmed_case_link_for_document +
+    find_pending_case_link_suggestion_for_document — usada por el listado de
+    documentos (api/routers/documents.py) para no hacer 2 consultas por cada
+    fila de la página (mismo patrón que count_documents_by_title_within_family
+    ya usa para 'actuaciones')."""
+    if not document_ids:
+        return {}
+    docs = db.execute(
+        select(Document.id, Document.source_id, Document.radicado).where(
+            Document.id.in_(document_ids), Document.radicado.is_not(None)
+        )
+    ).all()
+    if not docs:
+        return {}
+    pairs = {(d.source_id, d.radicado) for d in docs}
+
+    confirmed_by_pair: dict[tuple[int, str], dict] = {}
+    stages = list(
+        db.scalars(
+            select(CaseLinkStage).where(tuple_(CaseLinkStage.source_id, CaseLinkStage.radicado).in_(pairs))
+        ).all()
+    )
+    if stages:
+        case_link_ids = {s.case_link_id for s in stages}
+        all_stages = list(
+            db.scalars(select(CaseLinkStage).where(CaseLinkStage.case_link_id.in_(case_link_ids))).all()
+        )
+        stages_by_link: dict[int, list[CaseLinkStage]] = {}
+        for stage in all_stages:
+            stages_by_link.setdefault(stage.case_link_id, []).append(stage)
+        source_names = dict(
+            db.execute(
+                select(Source.id, Source.name).where(Source.id.in_({s.source_id for s in all_stages}))
+            ).all()
+        )
+        for stage in stages:
+            others = [
+                s for s in stages_by_link[stage.case_link_id]
+                if (s.source_id, s.radicado) != (stage.source_id, stage.radicado)
+            ]
+            other_label = ", ".join(sorted({source_names.get(o.source_id, "otra fuente") for o in others})) or None
+            confirmed_by_pair[(stage.source_id, stage.radicado)] = {
+                "status": "confirmed",
+                "case_link_id": stage.case_link_id,
+                "suggestion_id": None,
+                "other_source_name": other_label,
+            }
+
+    remaining_pairs = pairs - set(confirmed_by_pair)
+    pending_by_pair: dict[tuple[int, str], dict] = {}
+    if remaining_pairs:
+        suggestions = list(
+            db.scalars(
+                select(CaseLinkSuggestion).where(
+                    CaseLinkSuggestion.status == "pending",
+                    or_(
+                        tuple_(CaseLinkSuggestion.source_id_a, CaseLinkSuggestion.radicado_a).in_(remaining_pairs),
+                        tuple_(CaseLinkSuggestion.source_id_b, CaseLinkSuggestion.radicado_b).in_(remaining_pairs),
+                    ),
+                )
+            ).all()
+        )
+        if suggestions:
+            other_source_ids = {s.source_id_a for s in suggestions} | {s.source_id_b for s in suggestions}
+            source_names = dict(
+                db.execute(select(Source.id, Source.name).where(Source.id.in_(other_source_ids))).all()
+            )
+            for s in suggestions:
+                pair_a, pair_b = (s.source_id_a, s.radicado_a), (s.source_id_b, s.radicado_b)
+                if pair_a in remaining_pairs:
+                    pending_by_pair[pair_a] = {
+                        "status": "pending", "case_link_id": None, "suggestion_id": s.id,
+                        "other_source_name": source_names.get(s.source_id_b),
+                    }
+                if pair_b in remaining_pairs:
+                    pending_by_pair[pair_b] = {
+                        "status": "pending", "case_link_id": None, "suggestion_id": s.id,
+                        "other_source_name": source_names.get(s.source_id_a),
+                    }
+
+    result: dict[int, dict] = {}
+    for d in docs:
+        info = confirmed_by_pair.get((d.source_id, d.radicado)) or pending_by_pair.get((d.source_id, d.radicado))
+        if info:
+            result[d.id] = info
+    return result
 
 
 def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
