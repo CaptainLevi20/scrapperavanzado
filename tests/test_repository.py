@@ -1291,3 +1291,91 @@ def test_list_documents_collapse_defaults_to_false(db_session):
     items, total = repository.list_documents(db_session, family_key="rama_judicial")
 
     assert total == 2
+
+
+def _make_samai_source(db_session, name):
+    repository.create_source_family_if_missing(db_session, key="samai", display_name="SAMAI")
+    return repository.create_source(db_session, family_key="samai", name=name, family_params={})
+
+
+def test_generate_case_link_suggestions_for_run_creates_a_pending_suggestion_across_sources(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
+        title="25000234200020200000801(NRD)", radicado="25000234200020200000801",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id,
+        title="25000234200020200000802(NRD)", radicado="25000234200020200000802",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
+
+    assert created == 1
+    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
+    assert suggestion.matched_digits == 22
+    assert (suggestion.source_id_a, suggestion.radicado_a) == (tribunal.id, "25000234200020200000801")
+    assert (suggestion.source_id_b, suggestion.radicado_b) == (consejo.id, "25000234200020200000802")
+
+
+def test_generate_case_link_suggestions_ignores_documents_in_the_same_source(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t2", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
+
+    assert created == 0
+    assert repository.list_pending_case_link_suggestions(db_session) == []
+
+
+def test_generate_case_link_suggestions_does_not_duplicate_an_existing_pair(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id,
+        title="t2", radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository.generate_case_link_suggestions_for_run(db_session, run.id)
+
+    created_again = repository.generate_case_link_suggestions_for_run(db_session, run.id)
+
+    assert created_again == 0
+    assert len(repository.list_pending_case_link_suggestions(db_session)) == 1
+
+
+def test_generate_case_link_suggestions_ignores_non_samai_families(db_session):
+    repository.create_source_family_if_missing(db_session, key="rama_judicial", display_name="Rama Judicial")
+    juzgado = repository.create_source(db_session, family_key="rama_judicial", name="Juzgado X", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=juzgado.id)
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=juzgado.id, run_source_id=run_source.id,
+        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
+
+    assert created == 0

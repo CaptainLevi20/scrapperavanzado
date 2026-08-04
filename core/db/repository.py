@@ -6,8 +6,8 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
-from core.utils import RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN
+from core.db.models import BulkDownload, CaseLink, CaseLinkStage, CaseLinkSuggestion, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
 
@@ -545,6 +545,96 @@ def count_documents_by_title_within_family(db: Session, titles: list[str], famil
         .group_by(Document.title)
     )
     return dict(db.execute(stmt).all())
+
+
+def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
+    stmt = (
+        select(Document.source_id, Document.radicado)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == "samai", Document.radicado.is_not(None))
+        .distinct()
+    )
+    return list(db.execute(stmt).all())
+
+
+def _create_case_link_suggestion_if_missing(
+    db: Session, source_id_a: int, radicado_a: str, source_id_b: int, radicado_b: str, matched_digits: int
+) -> bool:
+    # Orden consistente por (source_id, radicado) para que el mismo cruce
+    # nunca genere dos filas espejo (A~B y B~A) — ver spec, sección
+    # "Cómo se generan las sugerencias".
+    if (source_id_b, radicado_b) < (source_id_a, radicado_a):
+        source_id_a, radicado_a, source_id_b, radicado_b = source_id_b, radicado_b, source_id_a, radicado_a
+
+    exists_stmt = select(CaseLinkSuggestion.id).where(
+        CaseLinkSuggestion.source_id_a == source_id_a,
+        CaseLinkSuggestion.radicado_a == radicado_a,
+        CaseLinkSuggestion.source_id_b == source_id_b,
+        CaseLinkSuggestion.radicado_b == radicado_b,
+    )
+    if db.scalars(exists_stmt).first() is not None:
+        return False
+
+    db.add(CaseLinkSuggestion(
+        source_id_a=source_id_a, radicado_a=radicado_a,
+        source_id_b=source_id_b, radicado_b=radicado_b,
+        matched_digits=matched_digits, status="pending",
+    ))
+    db.commit()
+    return True
+
+
+def generate_case_link_suggestions(db: Session, new_groups: list[tuple[int, str]]) -> int:
+    """Por cada (source_id, radicado) en new_groups, compara contra TODOS los
+    grupos samai existentes de una fuente distinta; crea una sugerencia
+    pendiente por cada coincidencia de al menos MIN_MATCH_DIGITS dígitos
+    iniciales que no exista ya. Devuelve cuántas sugerencias nuevas se
+    crearon."""
+    all_groups = _samai_case_groups(db)
+    created = 0
+    for source_id, radicado in new_groups:
+        for other_source_id, other_radicado in all_groups:
+            if other_source_id == source_id:
+                continue
+            matched = matching_prefix_length(radicado, other_radicado)
+            if matched < MIN_MATCH_DIGITS:
+                continue
+            if _create_case_link_suggestion_if_missing(
+                db, source_id, radicado, other_source_id, other_radicado, matched
+            ):
+                created += 1
+    return created
+
+
+def generate_case_link_suggestions_for_run(db: Session, run_id: int) -> int:
+    """Se corre después de que un run terminó de guardar sus documentos (ver
+    worker/tasks.py::_finalize_run). Solo mira las fuentes samai que
+    participaron en ESTE run — el resto del archivo ya fue comparado en runs
+    anteriores o en el backfill (core/backfill_samai_radicado.py)."""
+    run_sources = list_run_sources(db, run_id)
+    samai_source_ids = {
+        rs.source_id for rs in run_sources
+        if (source := db.get(Source, rs.source_id)) is not None and source.family_key == "samai"
+    }
+    if not samai_source_ids:
+        return 0
+
+    stmt = (
+        select(Document.source_id, Document.radicado)
+        .where(Document.source_id.in_(samai_source_ids), Document.radicado.is_not(None))
+        .distinct()
+    )
+    new_groups = list(db.execute(stmt).all())
+    return generate_case_link_suggestions(db, new_groups)
+
+
+def list_pending_case_link_suggestions(db: Session) -> list[CaseLinkSuggestion]:
+    stmt = (
+        select(CaseLinkSuggestion)
+        .where(CaseLinkSuggestion.status == "pending")
+        .order_by(CaseLinkSuggestion.created_at.desc())
+    )
+    return list(db.scalars(stmt).all())
 
 
 def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
