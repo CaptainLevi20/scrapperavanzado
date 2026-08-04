@@ -18,6 +18,8 @@ Radicación  25000-23-37-000-2021-00423-01 (30146)
 
 Se validó contra 16 documentos reales descargados: el patrón aparece tal cual (radicado + espacio + número entre paréntesis) en un **subconjunto pequeño** de los casos (1 de 16 en la muestra) — no es un dato que la fuente entregue siempre. Cuando aparece, debe añadirse al título final, entre el radicado y la sigla:
 
+(Nota post-implementación: la muestra de 16 subestimó la frecuencia real — al correr el backfill contra los 1,056 documentos existentes, el patrón apareció en 217 de ellos, un 20.5%.)
+
 ```
 25000-23-37-000-2021-00423-01(30146)(NRD)
 ```
@@ -46,7 +48,7 @@ Se reutiliza tal cual, sin cambiar el hook ni el modelo:
 
 ## Backfill de los 1,056 documentos existentes
 
-Nuevo script `core/backfill_ce_titles.py`, siguiendo el mismo patrón que `core/backfill_samai_radicado.py` (ya existente en el proyecto para otro backfill):
+Nuevo script `core/backfill_ce_titles.py`, siguiendo el patrón de scripts de una sola corrida usado en otros backfills de este proyecto (SessionLocal directo, idempotente, ejecutable con `python -m`):
 
 - Recorre los documentos cuya fuente es `Consejo de Estado`.
 - Para cada uno, descarga el PDF ya guardado en MinIO (`core/storage.py::download_file`, sin volver a golpear el sitio de SAMAI).
@@ -61,6 +63,10 @@ Nuevo script `core/backfill_ce_titles.py`, siguiendo el mismo patrón que `core/
 - No se agrega este número a los Tribunales Administrativos.
 - No se busca el número en páginas distintas a la primera.
 
+## Interacción con el agrupado de casos (detectada en revisión, ya corregida)
+
+`core/utils.py::SAMAI_CASE_TITLE_PATTERN` es el patrón que usa el sistema para reconocer "este título es un caso de Consejo de Estado" y así agrupar sus actuaciones y mostrar el badge de "N actuaciones" (`core/db/repository.py::collapse_case_families`, `api/routers/documents.py::case_document_count`). Un título complementado tiene un grupo de paréntesis adicional (`{radicado}({número})({sigla})`), así que ese patrón tuvo que ampliarse para seguir reconociéndolo — y para no confundir un radicado sin sigla conocida que solo trae el número (`{radicado}({número})`, sin sigla real) con un caso genuino. Esto se corrigió como parte de esta misma implementación (no es un cambio aparte) porque afecta directamente a los 217 documentos que el backfill complementó.
+
 ## Pruebas
 
 `tests/families/test_samai.py`:
@@ -71,7 +77,7 @@ Nuevo script `core/backfill_ce_titles.py`, siguiendo el mismo patrón que `core/
 - Caso sin sigla de clase (radicado sin `(SIGLA)`) también se complementa correctamente.
 - Un Tribunal Administrativo nunca dispara `resolve_unverified_document` (title_unverified sigue en `False`).
 
-`tests/test_backfill_ce_titles.py` (nuevo, mismo patrón que `tests/test_backfill_samai_radicado.py`):
+`tests/test_backfill_ce_titles.py` (nuevo):
 - Documento con el patrón en su PDF se actualiza.
 - Documento sin el patrón no se toca.
 - Correr el backfill dos veces seguidas no duplica el número en el título.
