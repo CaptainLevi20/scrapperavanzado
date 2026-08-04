@@ -18,10 +18,11 @@ Radicación  25000-23-37-000-2021-00423-01 (30146)
 
 Se validó contra 16 documentos reales descargados: el patrón aparece tal cual (radicado + espacio + número entre paréntesis) en un **subconjunto pequeño** de los casos (1 de 16 en la muestra) — no es un dato que la fuente entregue siempre. Cuando aparece, debe añadirse al título final, entre el radicado y la sigla:
 
-(Nota post-implementación: la muestra de 16 subestimó la frecuencia real — al correr el backfill contra los 1,056 documentos existentes, el patrón apareció en 217 de ellos, un 20.5%.)
+(Nota post-implementación: la muestra de 16 subestimó tanto la frecuencia como la variedad real. Al correr el backfill contra los 1,056 documentos existentes aparecieron **414** (39.2%) — bastante más que la muestra inicial. Además, el número no siempre son solo dígitos: también aparece como "3104-2023" (número-año) y "74.604" (con punto de miles), y en un caso apareció "(principal)" — que no es un número de caso sino la indicación de "cuaderno principal" y se descarta. Detectado por el usuario revisando un documento real después del primer backfill; corregido en la misma rama antes de mergear — ver `_numero_extra_desde_texto` en `core/scrapers/families/samai.py`, que ahora acepta cualquier contenido corto con al menos un dígito en vez de exigir solo dígitos.)
 
 ```
 25000-23-37-000-2021-00423-01(30146)(NRD)
+66001-23-33-000-2017-00141-01(3104-2023)(NRD)
 ```
 
 ## Alcance
