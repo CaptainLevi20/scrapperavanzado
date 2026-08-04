@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from bs4 import BeautifulSoup
 
+import core.scrapers.families.samai as samai_module
 from core.scrapers.families.samai import (
     ScrapTribunales,
     SAMAI_CORPS,
@@ -315,3 +318,221 @@ def test_parse_row_uses_clase_column_to_build_the_polished_title():
     doc = scraper._parse_row(row, "1100103", "Consejo de Estado", "Sección Primera", "2026-06-15")
 
     assert doc.title == "25001233300020260001200(ACU)"
+
+
+# --- número extra entre paréntesis (primera página del PDF) -----------------
+#
+# Algunos documentos de Consejo de Estado traen, junto al radicado en su
+# primera página, un número entre paréntesis que no aparece en la tabla de
+# resultados de SAMAI (ej. "Radicación  25000-...-01 (30146)"). Cuando
+# aparece, se añade al título entre el radicado y la sigla de clase.
+
+from core.scrapers.families.samai import (
+    _TITULO_CE_RE,
+    _numero_extra_desde_texto,
+    _complementar_titulo_con_numero,
+)
+
+
+def test_titulo_ce_re_splits_radicado_and_acronimo():
+    match = _TITULO_CE_RE.match("25000-23-37-000-2021-00423-01(NRD)")
+    assert match.group(1) == "25000-23-37-000-2021-00423-01"
+    assert match.group(2) == "(NRD)"
+
+
+def test_titulo_ce_re_handles_title_without_acronimo():
+    match = _TITULO_CE_RE.match("11001-03-24-000-2026-99999-00")
+    assert match.group(1) == "11001-03-24-000-2026-99999-00"
+    assert match.group(2) is None
+
+
+def test_titulo_ce_re_does_not_match_tribunal_administrativo_titles():
+    assert _TITULO_CE_RE.match("T_CUND_25001233300020260001200") is None
+
+
+def test_numero_extra_desde_texto_finds_number_right_after_radicado():
+    texto = "Radicación  25000-23-37-000-2021-00423-01 (30146)\nDemandante..."
+    assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") == "30146"
+
+
+def test_numero_extra_desde_texto_returns_none_when_absent():
+    texto = "Radicación  25000-23-37-000-2021-00423-01\nDemandante..."
+    assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") is None
+
+
+def test_numero_extra_desde_texto_ignores_unrelated_parenthetical_numbers():
+    # El (30146) aparece en el texto pero NO justo después del radicado —
+    # no debe confundirse con el dato que buscamos.
+    texto = "Ver más en (30146) — Radicación 25000-23-37-000-2021-00423-01 sin número"
+    assert _numero_extra_desde_texto(texto, "25000-23-37-000-2021-00423-01") is None
+
+
+def test_numero_extra_desde_texto_finds_numero_ano_format():
+    # Confirmado con datos reales: no siempre es solo dígitos — a veces trae
+    # un año pegado con guion (ej. "66001-...-01 (3104-2023)").
+    texto = "Radicación:  66001-23-33-000-2017-00141-01 (3104-2023) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "66001-23-33-000-2017-00141-01") == "3104-2023"
+
+
+def test_numero_extra_desde_texto_finds_digits_with_dot_format():
+    # Confirmado con datos reales: algunos documentos usan un punto como
+    # separador de miles (ej. "(74.604)").
+    texto = "Radicación:  11001-03-15-000-2025-04868-00 (74.604) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "11001-03-15-000-2025-04868-00") == "74.604"
+
+
+def test_numero_extra_desde_texto_ignores_content_without_any_digit():
+    # Confirmado con datos reales: a veces lo que aparece entre paréntesis es
+    # "(principal)" — indica "cuaderno principal", no es un número de caso, y
+    # no debe agregarse al título.
+    texto = "Radicación:  11001-03-28-000-2026-00085-00 (principal) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "11001-03-28-000-2026-00085-00") is None
+
+
+def test_numero_extra_desde_texto_finds_number_when_pdf_uses_spaces_instead_of_dashes():
+    # Confirmado con datos reales: el radicado dentro del PDF no siempre usa
+    # guion como separador — a veces aparece con espacios entre segmentos
+    # ("11001 03 25 000 2025 00135 00"), mismos dígitos exactos, solo cambia
+    # el separador (no es un radicado distinto, a diferencia del caso de
+    # typos donde los dígitos sí difieren).
+    texto = "Radicación: 11001 03 25 000 2025 00135 00 (1017-2025) \nDemandante..."
+    assert _numero_extra_desde_texto(texto, "11001-03-25-000-2025-00135-00") == "1017-2025"
+
+
+def test_complementar_titulo_con_numero_inserts_between_radicado_and_acronimo():
+    assert _complementar_titulo_con_numero("25000-23-37-000-2021-00423-01(NRD)", "30146") == (
+        "25000-23-37-000-2021-00423-01(30146)(NRD)"
+    )
+
+
+def test_complementar_titulo_con_numero_appends_when_no_acronimo():
+    assert _complementar_titulo_con_numero("11001-03-24-000-2026-99999-00", "30146") == (
+        "11001-03-24-000-2026-99999-00(30146)"
+    )
+
+
+def test_complementar_titulo_con_numero_is_idempotent_with_acronimo():
+    # Calling it twice (e.g. if resolve_unverified_document ever ran on an
+    # already-complemented title) must not double-append the number.
+    ya_complementado = "25000-23-37-000-2021-00423-01(30146)(NRD)"
+    assert _complementar_titulo_con_numero(ya_complementado, "30146") == ya_complementado
+
+
+def test_complementar_titulo_con_numero_is_idempotent_without_acronimo():
+    ya_complementado = "11001-03-24-000-2026-99999-00(30146)"
+    assert _complementar_titulo_con_numero(ya_complementado, "30146") == ya_complementado
+
+
+def test_complementar_titulo_con_numero_is_idempotent_for_numero_ano_format():
+    # El guard de "ya complementado" debe reconocer también los formatos
+    # número-año y dígitos-con-punto, no solo dígitos puros.
+    ya_complementado = "66001-23-33-000-2017-00141-01(3104-2023)(NRD)"
+    assert _complementar_titulo_con_numero(ya_complementado, "3104-2023") == ya_complementado
+
+
+def test_complementar_titulo_con_numero_inserts_numero_ano_format_verbatim():
+    assert _complementar_titulo_con_numero("66001-23-33-000-2017-00141-01(NRD)", "3104-2023") == (
+        "66001-23-33-000-2017-00141-01(3104-2023)(NRD)"
+    )
+
+
+# --- title_unverified flag y resolve_unverified_document ----------------------
+
+
+def test_parse_row_flags_title_unverified_only_for_consejo_de_estado():
+    row = BeautifulSoup(_ROW_HTML, "html.parser").find("tr")
+
+    ce_scraper = ScrapTribunales("1100103", "Consejo de Estado")
+    ce_doc = ce_scraper._parse_row(row, "1100103", "Consejo de Estado", "Sección Primera", "2026-06-15")
+    assert ce_doc.title_unverified is True
+
+    tribunal_scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    tribunal_doc = tribunal_scraper._parse_row(
+        row, "2500023", "Tribunal Administrativo de Cundinamarca", "Sección Primera", "2026-06-15"
+    )
+    assert tribunal_doc.title_unverified is False
+
+
+def test_resolve_unverified_document_appends_extra_number_when_found_on_first_page(monkeypatch):
+    monkeypatch.setattr(
+        samai_module,
+        "_extraer_texto_primera_pagina",
+        lambda *_a, **_k: "Radicación  25000-23-37-000-2021-00423-01 (30146)",
+    )
+
+    class _Doc:
+        title = "25000-23-37-000-2021-00423-01(NRD)"
+
+    doc = _Doc()
+    scraper = ScrapTribunales("1100103", "Consejo de Estado")
+    scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")
+
+    assert doc.title == "25000-23-37-000-2021-00423-01(30146)(NRD)"
+
+
+def test_resolve_unverified_document_appends_number_when_title_has_no_acronimo(monkeypatch):
+    monkeypatch.setattr(
+        samai_module,
+        "_extraer_texto_primera_pagina",
+        lambda *_a, **_k: "Radicación  11001-03-24-000-2026-99999-00 (30146)",
+    )
+
+    class _Doc:
+        title = "11001-03-24-000-2026-99999-00"
+
+    doc = _Doc()
+    scraper = ScrapTribunales("1100103", "Consejo de Estado")
+    scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")
+
+    assert doc.title == "11001-03-24-000-2026-99999-00(30146)"
+
+
+def test_resolve_unverified_document_leaves_title_unchanged_when_number_not_found(monkeypatch):
+    monkeypatch.setattr(
+        samai_module,
+        "_extraer_texto_primera_pagina",
+        lambda *_a, **_k: "Radicación  25000-23-37-000-2021-00423-01",
+    )
+
+    class _Doc:
+        title = "25000-23-37-000-2021-00423-01(NRD)"
+
+    doc = _Doc()
+    scraper = ScrapTribunales("1100103", "Consejo de Estado")
+    scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")
+
+    assert doc.title == "25000-23-37-000-2021-00423-01(NRD)"
+
+
+def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatch, caplog):
+    def _raise(*_a, **_k):
+        raise RuntimeError("archivo corrupto")
+
+    monkeypatch.setattr(samai_module, "_extraer_texto_primera_pagina", _raise)
+
+    class _Doc:
+        title = "25000-23-37-000-2021-00423-01(NRD)"
+
+    doc = _Doc()
+    scraper = ScrapTribunales("1100103", "Consejo de Estado")
+    with caplog.at_level("WARNING", logger="core.scrapers.families.samai"):
+        scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")  # no debe lanzar
+
+    assert doc.title == "25000-23-37-000-2021-00423-01(NRD)"
+
+
+def test_resolve_unverified_document_ignores_tribunal_administrativo_title_format(monkeypatch):
+    monkeypatch.setattr(
+        samai_module,
+        "_extraer_texto_primera_pagina",
+        lambda *_a, **_k: "cualquier texto con (30146) en la página",
+    )
+
+    class _Doc:
+        title = "T_CUND_25001233300020260001200"
+
+    doc = _Doc()
+    scraper = ScrapTribunales("2500023", "Tribunal Administrativo de Cundinamarca")
+    scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")
+
+    assert doc.title == "T_CUND_25001233300020260001200"

@@ -1,3 +1,4 @@
+import logging
 import re
 import time
 import unicodedata
@@ -15,6 +16,8 @@ from core.scrapers.registry import register_family
 from core.utils import storage_path
 
 _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
+
+logger = logging.getLogger(__name__)
 
 # El código de SAMAI_CORPS para Consejo de Estado — el único corp cuyo título
 # sigue llevando el acrónimo de la clase entre paréntesis (ver _normalizar_titulo).
@@ -246,6 +249,74 @@ def _all_inputs(soup) -> dict:
     return out
 
 
+# Un título de Consejo de Estado es siempre "{radicado}" o
+# "{radicado}({SIGLA})" (ver _normalizar_titulo) — nunca el formato
+# "T_{CÓDIGO}_..." de un Tribunal Administrativo, así que este patrón sirve
+# tanto para separar el radicado como para confirmar que el título es
+# realmente de Consejo de Estado antes de tocarlo.
+_TITULO_CE_RE = re.compile(r"^([\d-]+)(\([A-Z0-9]+\))?$")
+
+# Un título ya complementado trae el número justo después del radicado —
+# "{radicado}({número})..." (ver _complementar_titulo_con_numero). El grupo
+# del número siempre empieza con un dígito (a diferencia de la sigla de
+# clase, que _CLASE_ACRONIMOS garantiza que siempre empieza con una letra
+# mayúscula), así que basta con mirar el primer carácter para distinguir "ya
+# tiene el número" de "todavía no, esto es la sigla" — sin asumir que el
+# número es solo dígitos (ver _numero_extra_desde_texto: también aparece como
+# "3104-2023" o "74.604" en datos reales). Misma forma que valida
+# _YA_COMPLEMENTADO_RE en core/backfill_ce_titles.py, pero definida aquí
+# también para que _complementar_titulo_con_numero sea segura de llamar más
+# de una vez por sí misma — el guard del backfill es, con esto, solo una
+# optimización para no volver a descargar un PDF ya procesado, no lo único que
+# evita duplicar el número.
+_YA_COMPLEMENTADO_RE = re.compile(r"^[\d-]+\(\d[^)]*\)")
+
+
+def _extraer_texto_primera_pagina(local_path) -> str:
+    # A diferencia de CSJ (core/scrapers/families/corte_suprema.py), SAMAI
+    # solo entrega PDF a través de su hop jwt_indirect — no hace falta
+    # distinguir por content_type ni soportar .docx.
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(local_path))
+    if not reader.pages:
+        return ""
+    return reader.pages[0].extract_text() or ""
+
+
+def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
+    # El número entre paréntesis no siempre son solo dígitos — datos reales
+    # confirmaron también "3104-2023" (número-año) y "74.604" (con punto de
+    # miles). Se acepta el contenido tal cual venga, mientras tenga al menos
+    # un dígito. Cuando no hay ningún dígito (ej. "(principal)", que indica
+    # cuaderno principal, no un número de caso) se descarta — no es el dato
+    # que buscamos.
+    #
+    # El radicado dentro del PDF tampoco siempre usa guion como separador
+    # entre segmentos — a veces aparece con espacios ("11001 03 25 000 2025
+    # 00135 00"), mismos dígitos exactos, solo cambia el separador (a
+    # diferencia de un typo real, donde los dígitos sí difieren y no se debe
+    # adivinar). Se busca segmento por segmento, aceptando guion o espacio
+    # entre cada uno.
+    segmentos = radicado.split("-")
+    patron_radicado = r"[\s-]".join(re.escape(s) for s in segmentos)
+    match = re.search(patron_radicado + r"\s*\(([^)]{1,30})\)", texto or "")
+    if not match:
+        return None
+    contenido = match.group(1).strip()
+    return contenido if any(c.isdigit() for c in contenido) else None
+
+
+def _complementar_titulo_con_numero(titulo: str, numero: str) -> str:
+    if _YA_COMPLEMENTADO_RE.match(titulo):
+        return titulo
+    match = _TITULO_CE_RE.match(titulo)
+    if not match:
+        return titulo
+    radicado, sufijo_acronimo = match.group(1), match.group(2) or ""
+    return f"{radicado}({numero}){sufijo_acronimo}"
+
+
 @register_family("samai")
 class ScrapTribunales(BaseScrapper):
     source = "Tribunales Administrativos"
@@ -267,6 +338,31 @@ class ScrapTribunales(BaseScrapper):
         self._corp_code = corp_code
         self._corp_name = corp_name
         self.source = corp_name
+
+    def resolve_unverified_document(self, doc, local_path, content_type) -> None:
+        # Se dispara solo para Consejo de Estado (ver title_unverified en
+        # _parse_row) — este chequeo extra es defensivo: si algún día algo
+        # más marca title_unverified=True, un título de Tribunal
+        # Administrativo simplemente no matchea _TITULO_CE_RE y se ignora.
+        match = _TITULO_CE_RE.match(doc.title)
+        if not match:
+            return
+        radicado = match.group(1)
+
+        try:
+            texto = _extraer_texto_primera_pagina(local_path)
+        except Exception as e:
+            logger.warning(
+                "No se pudo leer la primera página de %s para complementar el título: %s",
+                local_path.name, e,
+            )
+            return
+
+        numero = _numero_extra_desde_texto(texto, radicado)
+        if not numero:
+            return
+
+        doc.title = _complementar_titulo_con_numero(doc.title, numero)
 
     def scrap(self, fini, ffin, q="", limit=1000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         fini_dt = datetime.strptime(fini, "%Y-%m-%d")
@@ -494,6 +590,11 @@ class ScrapTribunales(BaseScrapper):
             f_public=estado_fecha_str,
             f_providencia=fecha_prov,
             save_path=path,
+            # Solo Consejo de Estado: algunos de sus documentos traen, en la
+            # primera página del PDF, un número entre paréntesis junto al
+            # radicado que no aparece en esta tabla — resolve_unverified_document
+            # lo busca una vez descargado el archivo y complementa el título.
+            title_unverified=(corp_code == _CONSEJO_DE_ESTADO_CORP_CODE),
         )
 
     @staticmethod
