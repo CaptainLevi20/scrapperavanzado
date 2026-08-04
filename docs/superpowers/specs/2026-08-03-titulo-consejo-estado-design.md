@@ -18,7 +18,13 @@ Radicación  25000-23-37-000-2021-00423-01 (30146)
 
 Se validó contra 16 documentos reales descargados: el patrón aparece tal cual (radicado + espacio + número entre paréntesis) en un **subconjunto pequeño** de los casos (1 de 16 en la muestra) — no es un dato que la fuente entregue siempre. Cuando aparece, debe añadirse al título final, entre el radicado y la sigla:
 
-(Nota post-implementación: la muestra de 16 subestimó tanto la frecuencia como la variedad real. Al correr el backfill contra los 1,056 documentos existentes aparecieron **414** (39.2%) — bastante más que la muestra inicial. Además, el número no siempre son solo dígitos: también aparece como "3104-2023" (número-año) y "74.604" (con punto de miles), y en un caso apareció "(principal)" — que no es un número de caso sino la indicación de "cuaderno principal" y se descarta. Detectado por el usuario revisando un documento real después del primer backfill; corregido en la misma rama antes de mergear — ver `_numero_extra_desde_texto` en `core/scrapers/families/samai.py`, que ahora acepta cualquier contenido corto con al menos un dígito en vez de exigir solo dígitos.)
+(Nota post-implementación: la muestra de 16 subestimó tanto la frecuencia como la variedad real. Al correr el backfill contra los 1,056 documentos existentes aparecieron **428** (40.5%) — bastante más que la muestra inicial. Detectado por el usuario revisando documentos reales después del primer backfill, en dos rondas de corrección:
+1. El número no siempre son solo dígitos: también aparece como "3104-2023" (número-año) y "74.604" (con punto de miles), y en un caso apareció "(principal)" — que no es un número de caso sino la indicación de "cuaderno principal" y se descarta.
+2. El radicado dentro del PDF no siempre usa guion como separador — a veces aparece con espacios ("11001 03 25 000 2025 00135 00"), mismos dígitos exactos que el de la tabla SAMAI.
+
+Ambas corregidas en la misma rama antes de mergear — ver `_numero_extra_desde_texto` en `core/scrapers/families/samai.py`.
+
+Aparte, se encontraron 7 documentos (~1%) donde el radicado dentro del PDF tiene dígitos genuinamente distintos a los de la tabla SAMAI (no solo el separador) — posible typo del propio sitio, o en 2 de los 7 podría tratarse de una actuación real distinta. Por decisión explícita del usuario, estos se dejan sin el número extra: el riesgo de pegar mal un dato no vale la pena para un 1% de los casos.)
 
 ```
 25000-23-37-000-2021-00423-01(30146)(NRD)
