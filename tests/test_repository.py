@@ -1366,6 +1366,53 @@ def test_generate_case_link_suggestions_does_not_duplicate_an_existing_pair(db_s
     assert len(repository.list_pending_case_link_suggestions(db_session)) == 1
 
 
+def test_generate_case_link_suggestions_deduplicates_across_runs_regardless_of_which_source_is_processed_first(
+    db_session,
+):
+    """The comparator in _create_case_link_suggestion_if_missing must canonicalize
+    the pair order consistently even when the two sides are driven by TWO SEPARATE
+    generate_case_link_suggestions_for_run calls (e.g. source X's radicados get
+    compared in one run, then source Y's radicados get compared in a later run) —
+    not just when the exact same call is repeated. Without a symmetric comparator,
+    the second run would create a mirrored duplicate (B~A) alongside the first
+    run's (A~B)."""
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+
+    run1 = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run1_source = repository.create_run_source(db_session, run_id=run1.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run1_source.id,
+        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id,
+        title="t2", radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    # Run 1 only registers `tribunal` as a run_source, so it drives the
+    # comparator as (tribunal, ...) vs (consejo, ...).
+    created_first = repository.generate_case_link_suggestions_for_run(db_session, run1.id)
+
+    # Run 2 only registers `consejo` as a run_source, so it drives the SAME
+    # pair from the opposite direction: (consejo, ...) vs (tribunal, ...).
+    run2 = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    repository.create_run_source(db_session, run_id=run2.id, source_id=consejo.id)
+    created_second = repository.generate_case_link_suggestions_for_run(db_session, run2.id)
+
+    assert created_first == 1
+    assert created_second == 0
+    suggestions = repository.list_pending_case_link_suggestions(db_session)
+    assert len(suggestions) == 1
+    expected_a, expected_b = sorted([
+        (tribunal.id, "25000234200020200000801"),
+        (consejo.id, "25000234200020200000802"),
+    ])
+    [suggestion] = suggestions
+    assert (suggestion.source_id_a, suggestion.radicado_a) == expected_a
+    assert (suggestion.source_id_b, suggestion.radicado_b) == expected_b
+
+
 def test_generate_case_link_suggestions_ignores_non_samai_families(db_session):
     repository.create_source_family_if_missing(db_session, key="rama_judicial", display_name="Rama Judicial")
     juzgado = repository.create_source(db_session, family_key="rama_judicial", name="Juzgado X", family_params={})
