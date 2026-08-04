@@ -87,6 +87,10 @@ class DocumentOut(BaseModel):
     reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
     case_document_count: Optional[int] = None
+    case_link_status: Optional[Literal["pending", "confirmed"]] = None
+    case_link_id: Optional[int] = None
+    case_link_suggestion_id: Optional[int] = None
+    case_link_other_source_name: Optional[str] = None
 
 
 class DocumentReviewUpdate(BaseModel):
@@ -200,3 +204,50 @@ class AuthResponse(BaseModel):
 class MeResponse(BaseModel):
     username: str
     is_admin: bool
+
+
+class CaseGroupOut(BaseModel):
+    source_id: int
+    source_name: str
+    radicado: str
+    document_count: int
+    f_public_min: Optional[date] = None
+    f_public_max: Optional[date] = None
+
+
+class CaseLinkSuggestionOut(BaseModel):
+    id: int
+    matched_digits: int
+    status: str
+    created_at: datetime
+    case_a: CaseGroupOut
+    case_b: CaseGroupOut
+
+
+class CaseLinkStageDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    title: str
+    f_public: Optional[date] = None
+    f_providencia: Optional[date] = None
+
+
+class CaseLinkStageOut(BaseModel):
+    source_id: int
+    source_name: str
+    radicado: str
+    f_public_min: Optional[date] = None
+    f_public_max: Optional[date] = None
+    documents: list[CaseLinkStageDocumentOut]
+
+
+class CaseLinkOut(BaseModel):
+    id: int
+    stages: list[CaseLinkStageOut]
+
+
+class ManualCaseLinkCreate(BaseModel):
+    source_id_a: int
+    radicado_a: str = Field(min_length=1)
+    source_id_b: int
+    radicado_b: str = Field(min_length=1)
