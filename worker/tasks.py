@@ -427,6 +427,17 @@ def _finalize_run(run_id: int):
             status = "failed"
         else:
             status = "completed"
+
+        # Corre después de que los documentos del run ya están guardados —
+        # un fallo aquí (ej. un problema de datos inesperado) no debe
+        # impedir que el run se marque como terminado; solo se pierde esta
+        # ronda de sugerencias, que el próximo run o el backfill manual
+        # puede volver a generar.
+        try:
+            repository.generate_case_link_suggestions_for_run(db, run_id)
+        except Exception:
+            logger.exception("Falló la generación de sugerencias de casos relacionados para el run %s", run_id)
+
         repository.set_run_status(db, run_id, status, finished_at=datetime.now(timezone.utc))
     finally:
         db.close()

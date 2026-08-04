@@ -1776,3 +1776,43 @@ def test_build_bulk_download_zip_skips_the_disk_space_check_when_a_document_size
         assert refreshed.document_count == 2
     finally:
         assertion_session.close()
+
+
+def test_finalize_run_triggers_case_link_suggestion_generation(db_session, test_engine, monkeypatch):
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Tribunal X", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    calls = []
+    monkeypatch.setattr(
+        "worker.tasks.repository.generate_case_link_suggestions_for_run",
+        lambda db, run_id: calls.append(run_id) or 0,
+    )
+
+    tasks_module._finalize_run(run.id)
+
+    assert calls == [run.id]
+
+
+def test_finalize_run_still_completes_when_suggestion_generation_fails(db_session, test_engine, monkeypatch):
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Tribunal X", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    def _boom(db, run_id):
+        raise RuntimeError("fallo simulado")
+
+    monkeypatch.setattr("worker.tasks.repository.generate_case_link_suggestions_for_run", _boom)
+
+    tasks_module._finalize_run(run.id)
+
+    assertion_session = task_session_factory()
+    assert repository.get_run(assertion_session, run.id).status == "completed"
