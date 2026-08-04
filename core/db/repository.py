@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, CaseLink, CaseLinkStage, CaseLinkSuggestion, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
-from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, matching_prefix_length
+from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
 
@@ -15,12 +15,14 @@ _LIKE_ESCAPE_CHAR = "\\"
 # filas distintas pueden compartir el mismo título legítimamente — cada una de estas
 # entradas es "family_key -> patrones que confirman que el título sí tiene esa forma"
 # (nunca un título de respaldo, como el nombre de un magistrado, que puede repetirse
-# sin ser el mismo caso). "samai" tiene dos patrones porque, dentro de esa misma
-# familia, Consejo de Estado y los Tribunales Administrativos usan formatos de título
-# distintos (ver core/scrapers/families/samai.py::_normalizar_titulo).
+# sin ser el mismo caso). "samai" tiene tres patrones: Consejo de Estado (dashes),
+# Tribunales Administrativos (T_CODE_ format), y documentos antiguos sin normalizar
+# (raw 23-digit radicado) capturados antes de que el scraper empezara a guardar
+# el campo radicado (ver core/scrapers/families/samai.py::_normalizar_titulo y
+# core/backfill_samai_radicado.py).
 _CASE_GROUPING_FAMILY_PATTERNS = {
     "rama_judicial": [RADICADO_TITLE_PATTERN],
-    "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN],
+    "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN],
 }
 
 

@@ -235,6 +235,15 @@ def test_is_samai_case_title_matches_a_complemented_title_with_dotted_digits():
     assert is_samai_case_title("11001-03-15-000-2025-04868-00(74.604)(RER)") is True
 
 
+def test_is_samai_case_title_matches_a_raw_undashed_title():
+    # Documents captured before scraper started normalizing titles use the raw format
+    # with 23-digit radicado and acronym, but no dashes (e.g., old SAMAI documents
+    # processed by core/backfill_samai_radicado.py). Must be recognized as valid
+    # case titles for case linking and badge counting.
+    assert is_samai_case_title("25000234200020200000801(NRD)") is True
+    assert is_samai_case_title("11001031234000202100001(RER)") is True
+
+
 from core.utils import matching_prefix_length, MIN_MATCH_DIGITS
 
 
