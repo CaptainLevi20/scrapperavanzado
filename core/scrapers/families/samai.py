@@ -287,10 +287,11 @@ def _extraer_texto_primera_pagina(local_path) -> str:
 def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
     # El número entre paréntesis no siempre son solo dígitos — datos reales
     # confirmaron también "3104-2023" (número-año) y "74.604" (con punto de
-    # miles). Se acepta el contenido tal cual venga, mientras tenga al menos
-    # un dígito. Cuando no hay ningún dígito (ej. "(principal)", que indica
-    # cuaderno principal, no un número de caso) se descarta — no es el dato
-    # que buscamos.
+    # miles, que se descarta más abajo — nunca es un decimal en este dominio,
+    # así que quitarlo siempre es seguro). Se acepta el contenido tal cual
+    # venga, mientras tenga al menos un dígito. Cuando no hay ningún dígito
+    # (ej. "(principal)", que indica cuaderno principal, no un número de
+    # caso) se descarta — no es el dato que buscamos.
     #
     # El radicado dentro del PDF tampoco siempre usa guion como separador
     # entre segmentos — a veces aparece con espacios ("11001 03 25 000 2025
@@ -303,7 +304,7 @@ def _numero_extra_desde_texto(texto: str, radicado: str) -> Optional[str]:
     match = re.search(patron_radicado + r"\s*\(([^)]{1,30})\)", texto or "")
     if not match:
         return None
-    contenido = match.group(1).strip()
+    contenido = match.group(1).strip().replace(".", "")
     return contenido if any(c.isdigit() for c in contenido) else None
 
 
