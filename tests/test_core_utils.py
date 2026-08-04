@@ -233,3 +233,29 @@ def test_is_samai_case_title_matches_a_complemented_title_with_numero_ano_format
 def test_is_samai_case_title_matches_a_complemented_title_with_dotted_digits():
     # Confirmado con datos reales: también aparece con punto de miles, ej. "(74.604)".
     assert is_samai_case_title("11001-03-15-000-2025-04868-00(74.604)(RER)") is True
+
+
+from core.utils import matching_prefix_length, MIN_MATCH_DIGITS
+
+
+def test_matching_prefix_length_counts_shared_leading_digits():
+    assert matching_prefix_length("25000234200020200000802", "25000234200020200000801") == 22
+
+
+def test_matching_prefix_length_stops_at_first_difference():
+    assert matching_prefix_length("11001032800020260027100", "11001032900020260027100") == 8
+
+
+def test_matching_prefix_length_returns_zero_for_completely_different_strings():
+    assert matching_prefix_length("11001032800020260027100", "99999999999999999999999") == 0
+
+
+def test_matching_prefix_length_handles_different_lengths():
+    assert matching_prefix_length("110010328000", "1100103280") == 10
+
+
+def test_min_match_digits_is_16():
+    # Documenta el umbral de partida usado por el generador de sugerencias
+    # (core/db/repository.py) — ajustable si con casos reales confirmados se
+    # ve que sugiere de más o de menos (ver spec, sección "Cómo se generan").
+    assert MIN_MATCH_DIGITS == 16

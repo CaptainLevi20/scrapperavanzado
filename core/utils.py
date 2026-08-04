@@ -146,3 +146,21 @@ def is_safe_storage_key(key: str) -> bool:
         return False
     parts = PurePosixPath(key).parts
     return bool(parts) and ".." not in parts and not any(part in ("", ".") for part in parts)
+
+
+# Umbral de partida para sugerir que dos radicados de fuentes distintas son el
+# mismo proceso en otra instancia — no hay certeza de si el radicado cambia
+# una parte (posiblemente el segmento final) entre instancias, así que en vez
+# de una regla exacta se compara solo el prefijo inicial. Una persona siempre
+# confirma antes de que cuente como el mismo expediente (ver
+# docs/superpowers/specs/2026-07-29-vinculacion-casos-samai-design.md).
+MIN_MATCH_DIGITS = 16
+
+
+def matching_prefix_length(a: str, b: str) -> int:
+    length = 0
+    for char_a, char_b in zip(a, b):
+        if char_a != char_b:
+            break
+        length += 1
+    return length
