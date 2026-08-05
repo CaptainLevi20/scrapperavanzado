@@ -784,6 +784,42 @@ def list_case_link_stages(db: Session, case_link_id: int) -> list[CaseLinkStage]
     return list(db.scalars(stmt).all())
 
 
+def _record_separation(db: Session, source_id: int, radicado: str) -> None:
+    exists = db.scalars(
+        select(CaseLinkSeparation.id).where(
+            CaseLinkSeparation.source_id == source_id, CaseLinkSeparation.radicado == radicado
+        )
+    ).first()
+    if exists is None:
+        db.add(CaseLinkSeparation(source_id=source_id, radicado=radicado))
+
+
+def separate_case_link_stage(db: Session, case_link_id: int, stage_id: int) -> Optional[dict]:
+    """Quita una etapa (instancia) de un expediente: registra la separación para
+    que el armado no la vuelva a unir, borra la etapa, y si el expediente queda
+    con menos de dos fuentes distintas lo disuelve. Los documentos no se tocan.
+    Devuelve None si la etapa no pertenece a ese expediente."""
+    stage = db.get(CaseLinkStage, stage_id)
+    if stage is None or stage.case_link_id != case_link_id:
+        return None
+
+    _record_separation(db, stage.source_id, stage.radicado)
+    db.delete(stage)
+    db.commit()
+
+    remaining = list_case_link_stages(db, case_link_id)
+    if len({s.source_id for s in remaining}) < 2:
+        for s in remaining:
+            db.delete(s)
+        case_link = db.get(CaseLink, case_link_id)
+        if case_link is not None:
+            db.delete(case_link)
+        db.commit()
+        return {"dissolved": True, "case_link_id": None}
+
+    return {"dissolved": False, "case_link_id": case_link_id}
+
+
 def list_documents_by_source_and_radicado(db: Session, source_id: int, radicado: str) -> list[Document]:
     stmt = (
         select(Document)
