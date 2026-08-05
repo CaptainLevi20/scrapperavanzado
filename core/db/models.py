@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
@@ -184,6 +185,17 @@ class CaseLinkStage(Base):
     case_link_id = Column(Integer, ForeignKey("case_links.id"), nullable=False)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
     radicado = Column(String, nullable=False)
+
+
+class CaseLinkSeparation(Base):
+    __tablename__ = "case_link_separations"
+
+    id = Column(Integer, primary_key=True)
+    source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
+    radicado = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (UniqueConstraint("source_id", "radicado", name="uq_case_link_separations_source_radicado"),)
 
 
 class CaseLinkSuggestion(Base):

@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "documents",
     "users",
     "sessions",
+    "case_link_separations",
 }
 
 
