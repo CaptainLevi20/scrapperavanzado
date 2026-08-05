@@ -1375,7 +1375,11 @@ def test_generate_case_link_suggestions_deduplicates_across_runs_regardless_of_w
     compared in one run, then source Y's radicados get compared in a later run) —
     not just when the exact same call is repeated. Without a symmetric comparator,
     the second run would create a mirrored duplicate (B~A) alongside the first
-    run's (A~B)."""
+    run's (A~B). doc-b is (re)attached to run2's run_source below to simulate it
+    genuinely being touched by run2 (e.g. re-scraped) — otherwise, with
+    new_groups correctly scoped to run_source_id (see the scoping test below),
+    run2 would have nothing new to compare and this test wouldn't actually
+    exercise the dedup path."""
     tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
     consejo = _make_samai_source(db_session, "Consejo de Estado")
 
@@ -1385,7 +1389,7 @@ def test_generate_case_link_suggestions_deduplicates_across_runs_regardless_of_w
         db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run1_source.id,
         title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
     )
-    repository.insert_document(
+    doc_b = repository.insert_document(
         db_session, doc_id="doc-b", source_id=consejo.id,
         title="t2", radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
     )
@@ -1397,7 +1401,9 @@ def test_generate_case_link_suggestions_deduplicates_across_runs_regardless_of_w
     # Run 2 only registers `consejo` as a run_source, so it drives the SAME
     # pair from the opposite direction: (consejo, ...) vs (tribunal, ...).
     run2 = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    repository.create_run_source(db_session, run_id=run2.id, source_id=consejo.id)
+    run2_source = repository.create_run_source(db_session, run_id=run2.id, source_id=consejo.id)
+    doc_b.run_source_id = run2_source.id
+    db_session.commit()
     created_second = repository.generate_case_link_suggestions_for_run(db_session, run2.id)
 
     assert created_first == 1
@@ -1411,6 +1417,44 @@ def test_generate_case_link_suggestions_deduplicates_across_runs_regardless_of_w
     [suggestion] = suggestions
     assert (suggestion.source_id_a, suggestion.radicado_a) == expected_a
     assert (suggestion.source_id_b, suggestion.radicado_b) == expected_b
+
+
+def test_generate_case_link_suggestions_for_run_only_scans_documents_touched_by_this_run(db_session, monkeypatch):
+    """generate_case_link_suggestions_for_run's docstring claims it only looks at
+    documents THIS run inserted/touched, not the source's whole archive. Guard
+    against a regression back to filtering by source_id membership (which would
+    rescan every radicado the source has ever had) by asserting the new_groups
+    passed down to generate_case_link_suggestions is scoped to this run's
+    run_source_id — a document from an earlier run on the SAME source must be
+    excluded even though it shares the source."""
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+
+    earlier_run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    earlier_run_source = repository.create_run_source(db_session, run_id=earlier_run.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=tribunal.id, run_source_id=earlier_run_source.id,
+        title="t-old", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="old.pdf",
+    )
+
+    later_run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    later_run_source = repository.create_run_source(db_session, run_id=later_run.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=tribunal.id, run_source_id=later_run_source.id,
+        title="t-new", radicado="25000234200020200000899", storage_bucket="iurisync-test", storage_key="new.pdf",
+    )
+
+    captured = {}
+    original = repository.generate_case_link_suggestions
+
+    def spy(db, new_groups):
+        captured["new_groups"] = new_groups
+        return original(db, new_groups)
+
+    monkeypatch.setattr(repository, "generate_case_link_suggestions", spy)
+
+    repository.generate_case_link_suggestions_for_run(db_session, later_run.id)
+
+    assert captured["new_groups"] == [(tribunal.id, "25000234200020200000899")]
 
 
 def test_generate_case_link_suggestions_ignores_non_samai_families(db_session):

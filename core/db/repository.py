@@ -610,20 +610,22 @@ def generate_case_link_suggestions(db: Session, new_groups: list[tuple[int, str]
 
 def generate_case_link_suggestions_for_run(db: Session, run_id: int) -> int:
     """Se corre después de que un run terminó de guardar sus documentos (ver
-    worker/tasks.py::_finalize_run). Solo mira las fuentes samai que
-    participaron en ESTE run — el resto del archivo ya fue comparado en runs
-    anteriores o en el backfill (core/backfill_samai_radicado.py)."""
+    worker/tasks.py::_finalize_run). Solo mira los documentos que este run
+    concreto insertó/tocó (vía Document.run_source_id -> RunSource.run_id),
+    para las fuentes samai que participaron en él — el resto del archivo ya
+    fue comparado en runs anteriores o en el backfill
+    (core/backfill_samai_radicado.py) y no hace falta volver a escanearlo."""
     run_sources = list_run_sources(db, run_id)
-    samai_source_ids = {
-        rs.source_id for rs in run_sources
+    samai_run_source_ids = {
+        rs.id for rs in run_sources
         if (source := db.get(Source, rs.source_id)) is not None and source.family_key == "samai"
     }
-    if not samai_source_ids:
+    if not samai_run_source_ids:
         return 0
 
     stmt = (
         select(Document.source_id, Document.radicado)
-        .where(Document.source_id.in_(samai_source_ids), Document.radicado.is_not(None))
+        .where(Document.run_source_id.in_(samai_run_source_ids), Document.radicado.is_not(None))
         .distinct()
     )
     new_groups = list(db.execute(stmt).all())
