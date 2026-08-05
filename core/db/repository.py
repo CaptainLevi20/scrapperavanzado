@@ -6,7 +6,7 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, up
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, CaseLink, CaseLinkStage, CaseLinkSuggestion, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, CaseLinkSuggestion, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
@@ -630,6 +630,64 @@ def generate_case_link_suggestions_for_run(db: Session, run_id: int) -> int:
     )
     new_groups = list(db.execute(stmt).all())
     return generate_case_link_suggestions(db, new_groups)
+
+
+def _separated_instances(db: Session) -> set[tuple[int, str]]:
+    rows = db.execute(select(CaseLinkSeparation.source_id, CaseLinkSeparation.radicado)).all()
+    return {(source_id, radicado) for source_id, radicado in rows}
+
+
+def assemble_case_links(db: Session, new_groups: list[tuple[int, str]]) -> int:
+    """Por cada (source_id, radicado) en new_groups, compara contra TODOS los
+    grupos samai existentes de una fuente distinta; por cada coincidencia de al
+    menos MIN_MATCH_DIGITS dígitos iniciales (y que ninguna de las dos instancias
+    esté separada a mano), une las dos instancias en un expediente vía
+    _link_case_group. Devuelve cuántos cruces cambiaron el agrupamiento (etapa
+    nueva o fusión); las uniones ya existentes no se cuentan. No crea sugerencias
+    pendientes: arma el expediente directamente."""
+    all_groups = _samai_case_groups(db)
+    separated = _separated_instances(db)
+    linked = 0
+    for source_id, radicado in new_groups:
+        if (source_id, radicado) in separated:
+            continue
+        for other_source_id, other_radicado in all_groups:
+            if other_source_id == source_id:
+                continue
+            if (other_source_id, other_radicado) in separated:
+                continue
+            if matching_prefix_length(radicado, other_radicado) < MIN_MATCH_DIGITS:
+                continue
+            stage_a = _get_case_link_stage(db, source_id, radicado)
+            stage_b = _get_case_link_stage(db, other_source_id, other_radicado)
+            already_together = (
+                stage_a is not None and stage_b is not None and stage_a.case_link_id == stage_b.case_link_id
+            )
+            _link_case_group(db, source_id, radicado, other_source_id, other_radicado)
+            if not already_together:
+                linked += 1
+    return linked
+
+
+def assemble_case_links_for_run(db: Session, run_id: int) -> int:
+    """Se corre después de que un run terminó de guardar sus documentos (ver
+    worker/tasks.py::_finalize_run). Solo mira los documentos que este run
+    concreto insertó/tocó (vía run_source_id), para las fuentes samai que
+    participaron en él."""
+    run_sources = list_run_sources(db, run_id)
+    samai_run_source_ids = {
+        rs.id for rs in run_sources
+        if (source := db.get(Source, rs.source_id)) is not None and source.family_key == "samai"
+    }
+    if not samai_run_source_ids:
+        return 0
+    stmt = (
+        select(Document.source_id, Document.radicado)
+        .where(Document.run_source_id.in_(samai_run_source_ids), Document.radicado.is_not(None))
+        .distinct()
+    )
+    new_groups = list(db.execute(stmt).all())
+    return assemble_case_links(db, new_groups)
 
 
 def list_pending_case_link_suggestions(db: Session) -> list[CaseLinkSuggestion]:

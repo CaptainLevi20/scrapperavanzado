@@ -1298,6 +1298,75 @@ def _make_samai_source(db_session, name):
     return repository.create_source(db_session, family_key="samai", name=name, family_params={})
 
 
+def test_assemble_case_links_creates_expediente_directly_across_sources(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t1", radicado="05001233300020180047100", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id,
+        title="t2", radicado="05001233300020180047101", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+
+    linked = repository.assemble_case_links_for_run(db_session, run.id)
+
+    assert linked == 1
+    [case_link] = db_session.query(repository.CaseLink).all()
+    stages = {(s.source_id, s.radicado) for s in repository.list_case_link_stages(db_session, case_link.id)}
+    assert stages == {
+        (tribunal.id, "05001233300020180047100"),
+        (consejo.id, "05001233300020180047101"),
+    }
+
+
+def test_assemble_case_links_is_idempotent(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t1", radicado="05001233300020180047100", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id,
+        title="t2", radicado="05001233300020180047101", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository.assemble_case_links_for_run(db_session, run.id)
+
+    linked_again = repository.assemble_case_links_for_run(db_session, run.id)
+
+    assert linked_again == 0
+    assert db_session.query(repository.CaseLink).count() == 1
+
+
+def test_assemble_case_links_skips_separated_instances(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t1", radicado="05001233300020180047100", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id,
+        title="t2", radicado="05001233300020180047101", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    # La instancia del Consejo se marca como separada -> no debe volver a unirse.
+    db_session.add(repository.CaseLinkSeparation(source_id=consejo.id, radicado="05001233300020180047101"))
+    db_session.commit()
+
+    linked = repository.assemble_case_links_for_run(db_session, run.id)
+
+    assert linked == 0
+    assert db_session.query(repository.CaseLink).count() == 0
+
+
 def test_generate_case_link_suggestions_for_run_creates_a_pending_suggestion_across_sources(db_session):
     tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
     consejo = _make_samai_source(db_session, "Consejo de Estado")
