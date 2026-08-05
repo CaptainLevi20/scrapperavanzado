@@ -1325,6 +1325,49 @@ def test_generate_case_link_suggestions_for_run_creates_a_pending_suggestion_acr
     assert (suggestion.source_id_b, suggestion.radicado_b) == (consejo.id, "25000234200020200000802")
 
 
+def test_generate_case_link_suggestions_requires_the_first_21_digits_to_be_identical(db_session):
+    # Regla real (confirmada con datos de producción): los primeros 21 dígitos
+    # identifican el proceso y no cambian nunca; los dos últimos (22-23) son la
+    # instancia y son los únicos que varían cuando el caso sube de un Tribunal
+    # al Consejo de Estado. Dos documentos son el mismo caso solo si sus
+    # primeros 21 dígitos son idénticos — compartir menos (aunque coincidan
+    # ciudad, año y parte del consecutivo) ya son procesos distintos.
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
+
+    # Tribunal: caso 00471, instancia 00.
+    repository.insert_document(
+        db_session, doc_id="doc-trib", source_id=tribunal.id, run_source_id=run_source.id,
+        title="t", radicado="05001233300020180047100",
+        storage_bucket="iurisync-test", storage_key="trib.pdf",
+    )
+    # Consejo: MISMO caso 00471, otra instancia (01) — solo cambia el dígito 23.
+    repository.insert_document(
+        db_session, doc_id="doc-same", source_id=consejo.id,
+        title="t", radicado="05001233300020180047101",
+        storage_bucket="iurisync-test", storage_key="same.pdf",
+    )
+    # Consejo: caso DISTINTO 00472 — difiere en el dígito 21, comparte solo 20.
+    repository.insert_document(
+        db_session, doc_id="doc-diff", source_id=consejo.id,
+        title="t", radicado="05001233300020180047200",
+        storage_bucket="iurisync-test", storage_key="diff.pdf",
+    )
+
+    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
+
+    assert created == 1
+    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
+    assert suggestion.matched_digits == 22
+    assert {suggestion.radicado_a, suggestion.radicado_b} == {
+        "05001233300020180047100",
+        "05001233300020180047101",
+    }
+
+
 def test_generate_case_link_suggestions_ignores_documents_in_the_same_source(db_session):
     tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
     run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)

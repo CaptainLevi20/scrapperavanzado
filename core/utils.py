@@ -155,13 +155,18 @@ def is_safe_storage_key(key: str) -> bool:
     return bool(parts) and ".." not in parts and not any(part in ("", ".") for part in parts)
 
 
-# Umbral de partida para sugerir que dos radicados de fuentes distintas son el
-# mismo proceso en otra instancia — no hay certeza de si el radicado cambia
-# una parte (posiblemente el segmento final) entre instancias, así que en vez
-# de una regla exacta se compara solo el prefijo inicial. Una persona siempre
-# confirma antes de que cuente como el mismo expediente (ver
+# Un radicado colombiano tiene 23 dígitos: los primeros 21 identifican el
+# proceso (ciudad + códigos + año + número consecutivo) y se mantienen idénticos
+# durante toda su vida; los dos últimos (posiciones 22-23) son la instancia y
+# son los únicos que cambian cuando el caso sube de un Tribunal Administrativo
+# al Consejo de Estado. Por eso, para sugerir que dos radicados de fuentes
+# distintas son el mismo proceso, se exige que coincidan al menos los primeros
+# 21 dígitos. Regla confirmada con datos reales de producción (el umbral inicial
+# de 16 generaba miles de falsos positivos entre casos que solo compartían
+# ciudad, año y parte del consecutivo). Una persona siempre confirma antes de
+# que cuente como el mismo expediente (ver
 # docs/superpowers/specs/2026-07-29-vinculacion-casos-samai-design.md).
-MIN_MATCH_DIGITS = 16
+MIN_MATCH_DIGITS = 21
 
 
 def matching_prefix_length(a: str, b: str) -> int:

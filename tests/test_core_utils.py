@@ -263,8 +263,12 @@ def test_matching_prefix_length_handles_different_lengths():
     assert matching_prefix_length("110010328000", "1100103280") == 10
 
 
-def test_min_match_digits_is_16():
-    # Documenta el umbral de partida usado por el generador de sugerencias
-    # (core/db/repository.py) — ajustable si con casos reales confirmados se
-    # ve que sugiere de más o de menos (ver spec, sección "Cómo se generan").
-    assert MIN_MATCH_DIGITS == 16
+def test_min_match_digits_is_21():
+    # Regla confirmada con datos reales de producción: los primeros 21 dígitos
+    # del radicado identifican el proceso y se mantienen idénticos durante toda
+    # su vida; los dos últimos (posiciones 22-23) son la instancia y son los
+    # únicos que cambian cuando el caso sube de un Tribunal al Consejo de Estado.
+    # Por eso el generador de sugerencias (core/db/repository.py) exige que
+    # coincidan al menos los primeros 21 dígitos (ver spec, sección "Cómo se
+    # generan").
+    assert MIN_MATCH_DIGITS == 21
