@@ -67,9 +67,9 @@ def backfill(db: Session) -> dict:
         .distinct()
     )
     all_groups = list(db.execute(stmt).all())
-    suggestions_created = repository.generate_case_link_suggestions(db, all_groups)
+    case_links_assembled = repository.assemble_case_links(db, all_groups)
 
-    return {"documents_updated": documents_updated, "suggestions_created": suggestions_created}
+    return {"documents_updated": documents_updated, "case_links_assembled": case_links_assembled}
 
 
 def main():
@@ -77,7 +77,7 @@ def main():
     try:
         result = backfill(db)
         print(f"Documentos actualizados: {result['documents_updated']}")
-        print(f"Sugerencias nuevas: {result['suggestions_created']}")
+        print(f"Cruces vinculados: {result['case_links_assembled']}")
     finally:
         db.close()
 

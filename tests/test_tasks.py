@@ -1789,7 +1789,7 @@ def test_finalize_run_triggers_case_link_suggestion_generation(db_session, test_
 
     calls = []
     monkeypatch.setattr(
-        "worker.tasks.repository.generate_case_link_suggestions_for_run",
+        "worker.tasks.repository.assemble_case_links_for_run",
         lambda db, run_id: calls.append(run_id) or 0,
     )
 
@@ -1810,7 +1810,7 @@ def test_finalize_run_still_completes_when_suggestion_generation_fails(db_sessio
     def _boom(db, run_id):
         raise RuntimeError("fallo simulado")
 
-    monkeypatch.setattr("worker.tasks.repository.generate_case_link_suggestions_for_run", _boom)
+    monkeypatch.setattr("worker.tasks.repository.assemble_case_links_for_run", _boom)
 
     tasks_module._finalize_run(run.id)
 

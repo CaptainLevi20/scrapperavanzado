@@ -434,9 +434,9 @@ def _finalize_run(run_id: int):
         # ronda de sugerencias, que el próximo run o el backfill manual
         # puede volver a generar.
         try:
-            repository.generate_case_link_suggestions_for_run(db, run_id)
+            repository.assemble_case_links_for_run(db, run_id)
         except Exception:
-            logger.exception("Falló la generación de sugerencias de casos relacionados para el run %s", run_id)
+            logger.exception("Falló el armado de expedientes para el run %s", run_id)
 
         repository.set_run_status(db, run_id, status, finished_at=datetime.now(timezone.utc))
     finally:
