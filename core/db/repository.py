@@ -837,6 +837,37 @@ def case_group_summary(db: Session, source_id: int, radicado: str) -> dict:
     return {"document_count": count, "f_public_min": f_min, "f_public_max": f_max}
 
 
+def list_case_links_with_summary(db: Session) -> list[dict]:
+    result: list[dict] = []
+    case_links = db.scalars(select(CaseLink).order_by(CaseLink.created_at.desc())).all()
+    for case_link in case_links:
+        stages = list_case_link_stages(db, case_link.id)
+        if not stages:
+            continue
+        source_ids = {s.source_id for s in stages}
+        names = dict(db.execute(select(Source.id, Source.name).where(Source.id.in_(source_ids))).all())
+        total_docs = 0
+        f_mins: list = []
+        f_maxs: list = []
+        for stage in stages:
+            summary = case_group_summary(db, stage.source_id, stage.radicado)
+            total_docs += summary["document_count"]
+            if summary["f_public_min"] is not None:
+                f_mins.append(summary["f_public_min"])
+            if summary["f_public_max"] is not None:
+                f_maxs.append(summary["f_public_max"])
+        result.append({
+            "id": case_link.id,
+            "source_names": sorted({names.get(sid, "Fuente eliminada") for sid in source_ids}),
+            "radicados": sorted({s.radicado for s in stages}),
+            "stage_count": len(stages),
+            "document_count": total_docs,
+            "f_public_min": min(f_mins) if f_mins else None,
+            "f_public_max": max(f_maxs) if f_maxs else None,
+        })
+    return result
+
+
 def find_confirmed_case_link_for_document(db: Session, document_id: int) -> Optional[CaseLink]:
     document = db.get(Document, document_id)
     if document is None or document.radicado is None:

@@ -1791,3 +1791,31 @@ def test_separate_case_link_stage_returns_none_when_stage_not_in_expediente(db_s
     case_link = _assembled_case_link(db_session, tribunal, consejo)
 
     assert repository.separate_case_link_stage(db_session, case_link.id, 999999) is None
+
+
+def test_list_case_links_with_summary_reports_sources_counts_and_dates(db_session):
+    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    consejo = _make_samai_source(db_session, "Consejo de Estado")
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, title="t1", radicado="05001233300020180047100",
+        f_public="2023-01-01", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-a2", source_id=tribunal.id, title="t1b", radicado="05001233300020180047100",
+        f_public="2023-02-01", storage_bucket="iurisync-test", storage_key="a2.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id, title="t2", radicado="05001233300020180047101",
+        f_public="2024-05-01", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository._link_case_group(
+        db_session, tribunal.id, "05001233300020180047100", consejo.id, "05001233300020180047101"
+    )
+
+    [summary] = repository.list_case_links_with_summary(db_session)
+
+    assert summary["source_names"] == ["Consejo de Estado", "Tribunal Administrativo de Antioquia"]
+    assert summary["stage_count"] == 2
+    assert summary["document_count"] == 3
+    assert str(summary["f_public_min"]) == "2023-01-01"
+    assert str(summary["f_public_max"]) == "2024-05-01"
