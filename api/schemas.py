@@ -231,6 +231,7 @@ class CaseLinkStageDocumentOut(BaseModel):
 
 
 class CaseLinkStageOut(BaseModel):
+    stage_id: int
     source_id: int
     source_name: str
     radicado: str
@@ -242,6 +243,16 @@ class CaseLinkStageOut(BaseModel):
 class CaseLinkOut(BaseModel):
     id: int
     stages: list[CaseLinkStageOut]
+
+
+class CaseLinkListItemOut(BaseModel):
+    id: int
+    source_names: list[str]
+    radicados: list[str]
+    stage_count: int
+    document_count: int
+    f_public_min: Optional[date] = None
+    f_public_max: Optional[date] = None
 
 
 class ManualCaseLinkCreate(BaseModel):
