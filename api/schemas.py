@@ -87,9 +87,7 @@ class DocumentOut(BaseModel):
     reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
     case_document_count: Optional[int] = None
-    case_link_status: Optional[Literal["pending", "confirmed"]] = None
     case_link_id: Optional[int] = None
-    case_link_suggestion_id: Optional[int] = None
     case_link_other_source_name: Optional[str] = None
 
 

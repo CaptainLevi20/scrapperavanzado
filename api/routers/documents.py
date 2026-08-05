@@ -115,9 +115,7 @@ def get_documents(
     for d in items:
         info = case_link_status.get(d.id)
         if info:
-            d.case_link_status = info["status"]
             d.case_link_id = info["case_link_id"]
-            d.case_link_suggestion_id = info["suggestion_id"]
             d.case_link_other_source_name = info["other_source_name"]
 
     return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -200,9 +198,7 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
 
     info = repository.get_case_link_status_for_documents(db, [document.id]).get(document.id)
     if info:
-        document.case_link_status = info["status"]
         document.case_link_id = info["case_link_id"]
-        document.case_link_suggestion_id = info["suggestion_id"]
         document.case_link_other_source_name = info["other_source_name"]
 
     return document

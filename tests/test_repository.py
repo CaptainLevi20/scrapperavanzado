@@ -1694,41 +1694,31 @@ def test_find_confirmed_case_link_for_document_returns_none_when_not_linked(db_s
     assert repository.find_confirmed_case_link_for_document(db_session, document.id) is None
 
 
-def test_get_case_link_status_for_documents_reports_pending_and_confirmed(db_session):
+def test_get_case_link_status_for_documents_reports_confirmed_expedientes(db_session):
     tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
     consejo = _make_samai_source(db_session, "Consejo de Estado")
-    otra = _make_samai_source(db_session, "Otra Fuente")
-
-    pending_doc = repository.insert_document(
-        db_session, doc_id="doc-p", source_id=tribunal.id, title="tp",
-        radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="p.pdf",
+    doc_trib = repository.insert_document(
+        db_session, doc_id="doc-t", source_id=tribunal.id, title="tt",
+        radicado="05001233300020180047100", storage_bucket="iurisync-test", storage_key="t.pdf",
     )
-    repository._create_case_link_suggestion_if_missing(
-        db_session, tribunal.id, "25000234200020200000801", consejo.id, "25000234200020200000802", 22
+    doc_consejo = repository.insert_document(
+        db_session, doc_id="doc-c", source_id=consejo.id, title="tc",
+        radicado="05001233300020180047101", storage_bucket="iurisync-test", storage_key="c.pdf",
     )
-
-    confirmed_doc = repository.insert_document(
-        db_session, doc_id="doc-c", source_id=otra.id, title="tc",
-        radicado="99999999999999999999901", storage_bucket="iurisync-test", storage_key="c.pdf",
-    )
-    repository.create_manual_case_link(
-        db_session, otra.id, "99999999999999999999901", consejo.id, "99999999999999999999902"
-    )
-
-    unrelated_doc = repository.insert_document(
+    unrelated = repository.insert_document(
         db_session, doc_id="doc-u", source_id=tribunal.id, title="tu",
         radicado="11111111111111111111111", storage_bucket="iurisync-test", storage_key="u.pdf",
     )
-
-    status = repository.get_case_link_status_for_documents(
-        db_session, [pending_doc.id, confirmed_doc.id, unrelated_doc.id]
+    repository._link_case_group(
+        db_session, tribunal.id, "05001233300020180047100", consejo.id, "05001233300020180047101"
     )
 
-    assert status[pending_doc.id]["status"] == "pending"
-    assert status[pending_doc.id]["other_source_name"] == "Consejo de Estado"
-    assert status[confirmed_doc.id]["status"] == "confirmed"
-    assert status[confirmed_doc.id]["other_source_name"] == "Consejo de Estado"
-    assert unrelated_doc.id not in status
+    status = repository.get_case_link_status_for_documents(db_session, [doc_trib.id, doc_consejo.id, unrelated.id])
+
+    assert status[doc_trib.id]["other_source_name"] == "Consejo de Estado"
+    assert status[doc_consejo.id]["other_source_name"] == "Tribunal Administrativo de Antioquia"
+    assert isinstance(status[doc_trib.id]["case_link_id"], int)
+    assert unrelated.id not in status
 
 
 def _assembled_case_link(db_session, tribunal, consejo):

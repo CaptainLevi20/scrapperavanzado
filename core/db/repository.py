@@ -899,11 +899,9 @@ def find_pending_case_link_suggestion_for_document(db: Session, document_id: int
 
 
 def get_case_link_status_for_documents(db: Session, document_ids: list[int]) -> dict[int, dict]:
-    """Versión en lote de find_confirmed_case_link_for_document +
-    find_pending_case_link_suggestion_for_document — usada por el listado de
-    documentos (api/routers/documents.py) para no hacer 2 consultas por cada
-    fila de la página (mismo patrón que count_documents_by_title_within_family
-    ya usa para 'actuaciones')."""
+    """Para cada documento que pertenece a un expediente (su (source, radicado)
+    es una etapa de un case_link), devuelve el id del expediente y el nombre de
+    las OTRAS fuentes que participan. Usado por el listado de documentos."""
     if not document_ids:
         return {}
     docs = db.execute(
@@ -914,77 +912,35 @@ def get_case_link_status_for_documents(db: Session, document_ids: list[int]) -> 
     if not docs:
         return {}
     pairs = {(d.source_id, d.radicado) for d in docs}
-
-    confirmed_by_pair: dict[tuple[int, str], dict] = {}
     stages = list(
         db.scalars(
             select(CaseLinkStage).where(tuple_(CaseLinkStage.source_id, CaseLinkStage.radicado).in_(pairs))
         ).all()
     )
-    if stages:
-        case_link_ids = {s.case_link_id for s in stages}
-        all_stages = list(
-            db.scalars(select(CaseLinkStage).where(CaseLinkStage.case_link_id.in_(case_link_ids))).all()
-        )
-        stages_by_link: dict[int, list[CaseLinkStage]] = {}
-        for stage in all_stages:
-            stages_by_link.setdefault(stage.case_link_id, []).append(stage)
-        source_names = dict(
-            db.execute(
-                select(Source.id, Source.name).where(Source.id.in_({s.source_id for s in all_stages}))
-            ).all()
-        )
-        for stage in stages:
-            others = [
-                s for s in stages_by_link[stage.case_link_id]
-                if (s.source_id, s.radicado) != (stage.source_id, stage.radicado)
-            ]
-            other_label = ", ".join(sorted({source_names.get(o.source_id, "otra fuente") for o in others})) or None
-            confirmed_by_pair[(stage.source_id, stage.radicado)] = {
-                "status": "confirmed",
-                "case_link_id": stage.case_link_id,
-                "suggestion_id": None,
-                "other_source_name": other_label,
-            }
-
-    remaining_pairs = pairs - set(confirmed_by_pair)
-    pending_by_pair: dict[tuple[int, str], dict] = {}
-    if remaining_pairs:
-        suggestions = list(
-            db.scalars(
-                select(CaseLinkSuggestion).where(
-                    CaseLinkSuggestion.status == "pending",
-                    or_(
-                        tuple_(CaseLinkSuggestion.source_id_a, CaseLinkSuggestion.radicado_a).in_(remaining_pairs),
-                        tuple_(CaseLinkSuggestion.source_id_b, CaseLinkSuggestion.radicado_b).in_(remaining_pairs),
-                    ),
-                )
-            ).all()
-        )
-        if suggestions:
-            other_source_ids = {s.source_id_a for s in suggestions} | {s.source_id_b for s in suggestions}
-            source_names = dict(
-                db.execute(select(Source.id, Source.name).where(Source.id.in_(other_source_ids))).all()
-            )
-            for s in suggestions:
-                pair_a, pair_b = (s.source_id_a, s.radicado_a), (s.source_id_b, s.radicado_b)
-                if pair_a in remaining_pairs:
-                    pending_by_pair[pair_a] = {
-                        "status": "pending", "case_link_id": None, "suggestion_id": s.id,
-                        "other_source_name": source_names.get(s.source_id_b),
-                    }
-                if pair_b in remaining_pairs:
-                    pending_by_pair[pair_b] = {
-                        "status": "pending", "case_link_id": None, "suggestion_id": s.id,
-                        "other_source_name": source_names.get(s.source_id_a),
-                    }
-
-    result: dict[int, dict] = {}
-    for d in docs:
-        info = confirmed_by_pair.get((d.source_id, d.radicado)) or pending_by_pair.get((d.source_id, d.radicado))
-        if info:
-            result[d.id] = info
-    return result
+    if not stages:
+        return {}
+    case_link_ids = {s.case_link_id for s in stages}
+    all_stages = list(
+        db.scalars(select(CaseLinkStage).where(CaseLinkStage.case_link_id.in_(case_link_ids))).all()
+    )
+    stages_by_link: dict[int, list[CaseLinkStage]] = {}
+    for stage in all_stages:
+        stages_by_link.setdefault(stage.case_link_id, []).append(stage)
+    source_names = dict(
+        db.execute(select(Source.id, Source.name).where(Source.id.in_({s.source_id for s in all_stages}))).all()
+    )
+    by_pair: dict[tuple[int, str], dict] = {}
+    for stage in stages:
+        others = [
+            s for s in stages_by_link[stage.case_link_id]
+            if (s.source_id, s.radicado) != (stage.source_id, stage.radicado)
+        ]
+        other_label = ", ".join(sorted({source_names.get(o.source_id, "otra fuente") for o in others})) or None
+        by_pair[(stage.source_id, stage.radicado)] = {
+            "case_link_id": stage.case_link_id,
+            "other_source_name": other_label,
+        }
+    return {d.id: by_pair[(d.source_id, d.radicado)] for d in docs if (d.source_id, d.radicado) in by_pair}
 
 
 def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
