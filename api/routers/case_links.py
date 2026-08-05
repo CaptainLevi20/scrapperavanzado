@@ -80,6 +80,16 @@ def dismiss_case_link_suggestion(suggestion_id: int, db: Session = Depends(get_d
 
 @router.post("/case-links", response_model=CaseLinkOut)
 def create_manual_case_link(payload: ManualCaseLinkCreate, db: Session = Depends(get_db)):
+    if (payload.source_id_a, payload.radicado_a) == (payload.source_id_b, payload.radicado_b):
+        raise HTTPException(status_code=400, detail="No se puede vincular un caso consigo mismo")
+
+    source_a = repository.get_source(db, payload.source_id_a)
+    source_b = repository.get_source(db, payload.source_id_b)
+    if source_a is None or source_a.family_key != "samai" or source_b is None or source_b.family_key != "samai":
+        raise HTTPException(
+            status_code=400, detail="Las dos fuentes deben existir y pertenecer a la familia samai"
+        )
+
     case_link = repository.create_manual_case_link(
         db, payload.source_id_a, payload.radicado_a, payload.source_id_b, payload.radicado_b
     )

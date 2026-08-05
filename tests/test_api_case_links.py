@@ -102,3 +102,50 @@ def test_create_manual_case_link(api_client, db_session, auth_header):
 
     assert response.status_code == 200
     assert len(response.json()["stages"]) == 2
+
+
+def test_create_manual_case_link_rejects_non_samai_source(api_client, db_session, auth_header):
+    tribunal = _samai_source(db_session, "Tribunal Administrativo de Antioquia")
+    repository.create_source_family_if_missing(db_session, key="rama_judicial", display_name="Rama Judicial")
+    juzgado = repository.create_source(db_session, family_key="rama_judicial", name="Juzgado X", family_params={})
+
+    response = api_client.post(
+        "/case-links",
+        headers=auth_header,
+        json={
+            "source_id_a": tribunal.id, "radicado_a": "11111111111111111111101",
+            "source_id_b": juzgado.id, "radicado_b": "11111111111111111111102",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_manual_case_link_rejects_nonexistent_source(api_client, db_session, auth_header):
+    tribunal = _samai_source(db_session, "Tribunal Administrativo de Antioquia")
+
+    response = api_client.post(
+        "/case-links",
+        headers=auth_header,
+        json={
+            "source_id_a": tribunal.id, "radicado_a": "11111111111111111111101",
+            "source_id_b": 999999, "radicado_b": "11111111111111111111102",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_manual_case_link_rejects_linking_a_pair_to_itself(api_client, db_session, auth_header):
+    tribunal = _samai_source(db_session, "Tribunal Administrativo de Antioquia")
+
+    response = api_client.post(
+        "/case-links",
+        headers=auth_header,
+        json={
+            "source_id_a": tribunal.id, "radicado_a": "11111111111111111111101",
+            "source_id_b": tribunal.id, "radicado_b": "11111111111111111111101",
+        },
+    )
+
+    assert response.status_code == 400
