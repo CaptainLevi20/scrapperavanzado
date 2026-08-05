@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { GitMerge } from "lucide-react";
 import {
   confirmCaseLinkSuggestion,
@@ -7,10 +8,12 @@ import {
   dismissCaseLinkSuggestion,
   fetchCaseLinkSuggestions,
 } from "../api/caseLinks";
+import { fetchSources } from "../api/sources";
 import type { CaseGroup } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Button } from "../components/ui/button";
+import { NativeSelect } from "../components/ui/native-select";
 import { formatDate } from "../lib/formatters";
 
 function CaseSide({ group }: { group: CaseGroup }) {
@@ -27,6 +30,7 @@ function CaseSide({ group }: { group: CaseGroup }) {
 
 export function CaseLinksPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [actionError, setActionError] = useState<string | null>(null);
 
   const suggestionsQuery = useQuery({
@@ -36,7 +40,10 @@ export function CaseLinksPage() {
 
   const confirmMutation = useMutation({
     mutationFn: (suggestionId: number) => confirmCaseLinkSuggestion(suggestionId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["case-link-suggestions"] }),
+    onSuccess: (caseLink) => {
+      queryClient.invalidateQueries({ queryKey: ["case-link-suggestions"] });
+      navigate(`/casos-por-confirmar/expedientes/${caseLink.id}`);
+    },
     onError: () => setActionError("No se pudo confirmar la sugerencia. Intenta de nuevo."),
   });
 
@@ -110,6 +117,12 @@ function ManualLinkForm({ onError }: { onError: (message: string | null) => void
   const [sourceIdB, setSourceIdB] = useState("");
   const [radicadoB, setRadicadoB] = useState("");
 
+  const sourcesQuery = useQuery({
+    queryKey: ["sources"],
+    queryFn: () => fetchSources(),
+  });
+  const samaiSources = sourcesQuery.data?.filter((source) => source.family_key === "samai") ?? [];
+
   const manualLinkMutation = useMutation({
     mutationFn: createManualCaseLink,
     onSuccess: () => {
@@ -137,24 +150,36 @@ function ManualLinkForm({ onError }: { onError: (message: string | null) => void
     <form onSubmit={handleSubmit} className="rounded-lg border border-dashed border-border p-4">
       <p className="mb-3 text-sm font-medium text-foreground">Vincular manualmente</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <input
-          className="rounded-md border border-input px-2 py-1 text-sm"
-          placeholder="ID fuente A"
+        <NativeSelect
+          aria-label="Fuente A"
           value={sourceIdA}
           onChange={(e) => setSourceIdA(e.target.value)}
-        />
+        >
+          <option value="">Fuente A</option>
+          {samaiSources.map((source) => (
+            <option key={source.id} value={String(source.id)}>
+              {source.name}
+            </option>
+          ))}
+        </NativeSelect>
         <input
           className="rounded-md border border-input px-2 py-1 text-sm"
           placeholder="Radicado A"
           value={radicadoA}
           onChange={(e) => setRadicadoA(e.target.value)}
         />
-        <input
-          className="rounded-md border border-input px-2 py-1 text-sm"
-          placeholder="ID fuente B"
+        <NativeSelect
+          aria-label="Fuente B"
           value={sourceIdB}
           onChange={(e) => setSourceIdB(e.target.value)}
-        />
+        >
+          <option value="">Fuente B</option>
+          {samaiSources.map((source) => (
+            <option key={source.id} value={String(source.id)}>
+              {source.name}
+            </option>
+          ))}
+        </NativeSelect>
         <input
           className="rounded-md border border-input px-2 py-1 text-sm"
           placeholder="Radicado B"
