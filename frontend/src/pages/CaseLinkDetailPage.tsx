@@ -9,7 +9,12 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { formatDate } from "../lib/formatters";
 
 function stageSortKey(stage: CaseLinkStage): string {
-  return stage.f_public_min ?? "9999-99-99";
+  // Orden real del proceso: por radicado ascendente. Los primeros 21 dígitos
+  // son idénticos en todas las etapas; varían los dos últimos (la instancia),
+  // así que esto pone la instancia de origen (tribunal, ...00) primero y las
+  // apelaciones (Consejo de Estado, ...01/02) después. No se ordena por fecha
+  // de publicación, que a veces llega en orden inverso al del proceso.
+  return stage.radicado;
 }
 
 export function CaseLinkDetailPage() {

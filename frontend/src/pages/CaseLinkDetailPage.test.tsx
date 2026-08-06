@@ -50,6 +50,35 @@ describe("CaseLinkDetailPage", () => {
     expect(screen.getByText("08001-23-33-000-2026-00146-01(NE)")).toBeInTheDocument();
   });
 
+  it("orders stages by instance (origin first), even when publication dates are inverted", async () => {
+    // Caso real (San Andrés): la instancia de origen del tribunal (...00) se
+    // publicó DESPUÉS (24 jul) que la apelación del Consejo de Estado (...03,
+    // 14 jul). Aun así el tribunal debe salir primero — se ordena por
+    // instancia (radicado), no por fecha de publicación. Las etapas llegan en
+    // orden invertido para probar que el componente las reordena.
+    vi.mocked(caseLinksApi.fetchCaseLink).mockResolvedValue({
+      id: 9,
+      stages: [
+        {
+          stage_id: 90, source_id: 2, source_name: "Consejo de Estado",
+          radicado: "88001233300020260000303", f_public_min: "2026-07-14", f_public_max: "2026-07-14",
+          documents: [{ id: 30, title: "88001-23-33-000-2026-00003-03(NE)", f_public: "2026-07-14", f_providencia: "2026-07-13" }],
+        },
+        {
+          stage_id: 91, source_id: 1, source_name: "Tribunal Administrativo de San Andrés",
+          radicado: "88001233300020260000300", f_public_min: "2026-07-24", f_public_max: "2026-07-24",
+          documents: [{ id: 31, title: "T_SAND_88001_23_33_000_2026_00003_00", f_public: "2026-07-24", f_providencia: "2026-07-23" }],
+        },
+      ],
+    });
+    renderPage();
+    const headings = await screen.findAllByRole("heading", { level: 2 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Tribunal Administrativo de San Andrés",
+      "Consejo de Estado",
+    ]);
+  });
+
   it("opens a document when its button is clicked", async () => {
     vi.mocked(documentsApi.fetchDocumentBlob).mockResolvedValue(new Blob(["x"]));
     vi.mocked(documentsApi.downloadBlob).mockImplementation(() => {});
