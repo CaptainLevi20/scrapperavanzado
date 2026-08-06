@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Archive, FileStack, Gauge, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Radar, Wand2 } from "lucide-react";
+import { Archive, FileStack, Gauge, GitMerge, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Radar, Wand2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
@@ -9,6 +9,7 @@ const LINKS = [
   { to: "/sources", label: "Fuentes", end: false, icon: Radar },
   { to: "/runs", label: "Runs", end: false, icon: PlayCircle },
   { to: "/documents", label: "Documentos", end: false, icon: FileStack },
+  { to: "/expedientes", label: "Expedientes", end: false, icon: GitMerge },
   { to: "/bulk-downloads", label: "Descargas masivas", end: false, icon: Archive },
   { to: "/formateador", label: "Formateador", end: false, icon: Wand2 },
 ];

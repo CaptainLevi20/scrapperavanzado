@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
@@ -111,6 +112,10 @@ class Document(Base):
     seccion = Column(String, nullable=True)
     especialidad = Column(String, nullable=True)
     magistrado = Column(String, nullable=True)
+    # Radicado normalizado (solo dígitos) — solo poblado por familias que lo
+    # capturan en crudo (hoy: samai). Nunca se muestra en la interfaz; existe
+    # para detectar el mismo proceso en otra fuente (ver CaseLink más abajo).
+    radicado = Column(String, nullable=True)
     detalle = Column(Text, nullable=True)
     f_public = Column(Date, nullable=True)
     f_providencia = Column(Date, nullable=True)
@@ -164,3 +169,30 @@ class UserSession(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class CaseLink(Base):
+    __tablename__ = "case_links"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class CaseLinkStage(Base):
+    __tablename__ = "case_link_stages"
+
+    id = Column(Integer, primary_key=True)
+    case_link_id = Column(Integer, ForeignKey("case_links.id"), nullable=False)
+    source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
+    radicado = Column(String, nullable=False)
+
+
+class CaseLinkSeparation(Base):
+    __tablename__ = "case_link_separations"
+
+    id = Column(Integer, primary_key=True)
+    source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
+    radicado = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (UniqueConstraint("source_id", "radicado", name="uq_case_link_separations_source_radicado"),)

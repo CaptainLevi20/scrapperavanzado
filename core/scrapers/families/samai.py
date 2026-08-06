@@ -32,12 +32,25 @@ _LEY_RE = re.compile(r"LEY\s+[0-9./-]+\s*", re.IGNORECASE)
 _ACCION_RE = re.compile(r"^ACCION(ES)?\s+(DE\s+)?", re.IGNORECASE)
 _ART_RE = re.compile(r"ART(?:ICULO|[IÍ]CULO|\.)?\s*\d+\s*(?:DECISION\s+\d+\s*)?", re.IGNORECASE)
 
+# "(ESCRITURAL)"/"(ORAL)"/"S. ORAL" indican el trámite (escrito vs. oral) de
+# la actuación, no la clase de proceso — confirmado con el usuario tras ver
+# el mismo patrón repetirse en varias clases distintas durante la revisión
+# del 2026-08-04 (Populares, Controversias Contractuales, Nulidad y
+# restablecimiento del derecho, Reparación directa). Se quitan aquí, igual
+# que "LEY 1437 ...", para que cualquier clase futura con esta marca se
+# resuelva sin necesidad de agregarla de nuevo al catálogo. NO se generaliza
+# "(R)" de la misma forma — a diferencia de escritural/oral, no hay
+# confirmación de que sea siempre ruido (ver "TUTELA 2 INSTANCIA (R)": T2,
+# una sigla propia, distinta de "TUTELA": T).
+_ESCRITURAL_ORAL_RE = re.compile(r"\(ESCRITURAL\)|\(ORAL\)|S\.?\s*ORAL\b|\bORAL\b", re.IGNORECASE)
+
 
 def _normalizar_clase(raw: str) -> str:
     t = _LEY_RE.sub("", raw or "")
     t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c)).upper()
     t = _ACCION_RE.sub("", t)
     t = _ART_RE.sub("", t)
+    t = _ESCRITURAL_ORAL_RE.sub("", t)
     return re.sub(r"\s+", " ", t).strip(" -.")
 
 
@@ -113,6 +126,69 @@ _CLASE_ACRONIMOS = {
     # mismo que "Nulidad Electoral" — son clases aparte, con su propia sigla.
     "ELECTORALES": "E",
     "OBSERVACIONES": "O",
+    # Vistas por primera vez examinando el run del 2026-08-04 contra los 27
+    # Tribunales Administrativos completos (8,797 documentos) — el usuario
+    # revisó cada una una por una y confirmó qué se fusiona con una clase ya
+    # existente y qué necesita sigla propia.
+    "EJECUTIVOS": "EJE",
+    "PROCESO EJECUTIVO": "EJE",
+    "EJECUTIVA": "EJE",
+    "PROPIEDAD INDUSTRIAL": "PI-IND",
+    "NUL. Y REST. CON SUSPENSION PROVISIONAL": "NRSP",
+    # "LEY 1437 ..." ya se quita antes de matchear (_LEY_RE), y el punto final
+    # de "COLEC." lo quita el .strip(" -.") de _normalizar_clase — de ahí que
+    # la clave no termine en punto.
+    "PROTECCION DERECHOS E INTERESES COLEC": "PDIC",
+    "PROTECCION DE DERECHOS E INTERESES COLECTIVOS": "PDIC",
+    "VALIDEZ DE ACTOS ADMINISTRATIVOS": "VAA",
+    "POPULARES (R)": "AP",
+    "INSISTENCIA DE RESERVA": "IR",
+    "OBJECIONES": "OBJ",
+    "OBJECIONES A PROYECTOS DE ACUERDO": "OBJ",
+    "OBJECION": "OBJ",
+    "OBJECION A PROYECTOS": "OBJ",
+    "NULIDAD SIN SUSPENSION PROVISIONAL": "NSSP",
+    "CONSTITUCIONALES": "AC",
+    # El texto combina "Reparación de los perjuicios causados a un grupo" y
+    # "(Acción de grupo)" en un mismo valor — confirmado con el usuario que
+    # para este texto exacto manda el nombre principal (RPAG), aunque "Acción
+    # de grupo" (AG, arriba) sea una clase distinta cuando aparece sola.
+    "REPARACION DE LOS PERJUICIOS CAUSADOS A UN GRUPO (ACCION DE GRUPO)": "RPAG",
+    "IMPEDIMENTO O RECUSACION": "IMP",
+    "INCIDENTE DE IMPEDIMENTO": "IMP",
+    "RECUSACION": "IMP",
+    # "S. ORAL" ya se quita antes de matchear (_ESCRITURAL_ORAL_RE) — la
+    # clave es la forma resultante después de quitarlo.
+    "OBSERVACIONES CONSTITUCIONALES Y LEGALES": "OCL",
+    "EXPROPIACION POR VIA ADMINISTRATIVA": "EVA",
+    "EXPROPIACION": "EVA",
+    "APELACION": "A",
+    "CONTROVERSIA CONTRACTUAL": "CTR",
+    "CONTRACTUAL CON SUSPENSION PROVISIONAL": "ACSP",
+    "TUTELA 2 INSTANCIA (R)": "T2",
+    "TUTELA (R)": "T",
+    "IMPUGNACION TUTELA": "IT",
+    "EXEQUIBILIDAD": "EXE",
+    "DEFINICION DE COMPETENCIAS": "ADC",
+    "DEFINICION DE COMPETENCIA": "ADC",
+    "CONTROL INMEDIATO DE LEGALIDAD": "CIL",
+    "ELECTORAL CON SUSPENSION PROVISIONAL": "ESP",
+    "INCIDENTE DE REGULACION DE PERJUICIOS": "IRP",
+    "JUICIOS VARIOS": "JV",
+    "REVISION DE ACUERDOS Y DECRETOS": "RAD",
+    "REVISION DE LEGALIDAD": "RL",
+    "REVISION JURIDICA": "RJ",
+    "CONCILIACION PREJUDICIAL": "CON",
+    "CONCILIACION EXTRAJUDICIAL": "CEX",
+    "OBSERVACION": "O",
+    "ASUNTOS AGRARIOS": "AGR",
+    "APELACION SENTENCIA EJECUTIVO": "ASE",
+    "RESTITUCION DE INMUEBLE": "RI",
+    "IMPUGNACION ACCION CUMPLIMIENTO": "IAC",
+    "DISCIPLINARIOS": "DIS",
+    # "Acción simple de nulidad" — "SIMPLE" queda como parte del resto porque
+    # _ACCION_RE solo quita "ACCION"/"ACCIONES" + "DE " opcional, no "SIMPLE".
+    "SIMPLE DE NULIDAD": "N",
 }
 
 
@@ -183,6 +259,35 @@ _ACRONIMO_A_NOMBRE = {
     "ID": "Incidente de desacato",
     "E": "Electorales",
     "O": "Observaciones",
+    # Nuevas siglas del catálogo ampliado el 2026-08-04 (ver _CLASE_ACRONIMOS).
+    "PI-IND": "Propiedad industrial",
+    "VAA": "Validez de actos administrativos",
+    "IR": "Insistencia de reserva",
+    "OBJ": "Objeciones",
+    "NSSP": "Nulidad sin suspensión provisional",
+    "AC": "Acciones constitucionales",
+    "IMP": "Impedimento o recusación",
+    "OCL": "Observaciones constitucionales y legales",
+    "EVA": "Expropiación por vía administrativa",
+    "A": "Apelación",
+    "T2": "Tutela 2da instancia",
+    "IT": "Impugnación tutela",
+    "EXE": "Exequibilidad",
+    "ADC": "Acción de definición de competencias",
+    "CIL": "Control inmediato de legalidad",
+    "ESP": "Electoral con suspensión provisional",
+    "IRP": "Incidente de regulación de perjuicios",
+    "JV": "Juicios varios",
+    "RAD": "Revisión de acuerdos y decretos",
+    "RL": "Revisión de legalidad",
+    "RJ": "Revisión jurídica",
+    "ACSP": "Acción contractual con suspensión provisional",
+    "CEX": "Conciliación extrajudicial",
+    "AGR": "Asuntos agrarios",
+    "ASE": "Apelación de sentencia ejecutivo",
+    "RI": "Restitución de inmueble",
+    "IAC": "Impugnación acción de cumplimiento",
+    "DIS": "Disciplinarios",
 }
 
 
@@ -227,6 +332,27 @@ _INVALID_PATH = re.compile(r'[\\/*?:"<>|]')
 
 def _safe(text, maxlen=60):
     return _INVALID_PATH.sub("-", text)[:maxlen]
+
+
+# SAMAI no es consistente con la primera palabra de la actuación, usada como
+# "tipo" de documento — "Auto", "AUTO", "aUTO" aparecen todas para el mismo
+# tipo, y sin normalizar un filtro por tipo en la interfaz se salta
+# silenciosamente las variantes que no coinciden exactamente.
+#
+# "Autos" (plural) se fusiona explícitamente con "Auto" — confirmado con el
+# usuario que es la misma tipología. No se generaliza a "quitar toda 's'
+# final": el plural en español no sigue esa regla para otras palabras (ej.
+# "Notificaciones" no es "Notificacion" + s) y eso fusionaría tipos que en
+# realidad son distintos. Si aparecen más casos así, se agregan aquí uno por
+# uno, igual que _CLASE_ACRONIMOS.
+_TIPO_ALIAS = {
+    "Autos": "Auto",
+}
+
+
+def _normalizar_tipo(palabra: str) -> str:
+    capitalizada = palabra.capitalize()
+    return _TIPO_ALIAS.get(capitalizada, capitalizada)
 
 
 def _parse_estado_date(val: str):
@@ -382,15 +508,46 @@ class ScrapTribunales(BaseScrapper):
         s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         return s
 
-    @staticmethod
-    def _fetch(fn, *args, **kwargs):
+    # SAMAI (un sitio ASP.NET viejo de un juzgado, no una API estable) falla de
+    # forma transitoria de más de una manera — no solo demoras. Antes solo se
+    # reintentaba requests.exceptions.Timeout; un corte de conexión a medio
+    # request (ConnectionError/ChunkedEncodingError) o un 502/503/504 de su
+    # propio servidor se propagaban de inmediato y esa fecha/sección se perdía
+    # sin segundo intento (visible como RunError, pero sin recuperación
+    # automática). Un 4xx (ej. 404) NO se reintenta — es una respuesta real del
+    # servidor, no un corte transitorio, y reintentarla no cambiaría el resultado.
+    _RETRYABLE_HTTP_STATUS = {500, 502, 503, 504}
+
+    @classmethod
+    def _is_retryable(cls, exc: Exception) -> bool:
+        if isinstance(
+            exc,
+            (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+            ),
+        ):
+            return True
+        if isinstance(exc, requests.exceptions.HTTPError):
+            status = exc.response.status_code if exc.response is not None else None
+            return status in cls._RETRYABLE_HTTP_STATUS
+        return False
+
+    @classmethod
+    def _fetch(cls, fn, *args, **kwargs):
         for attempt in range(2):
             try:
                 res = fn(*args, **kwargs)
                 res.raise_for_status()
                 return res
-            except requests.exceptions.Timeout:
-                if attempt == 0:
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.HTTPError,
+            ) as e:
+                if attempt == 0 and cls._is_retryable(e):
                     time.sleep(5)
                     continue
                 raise
@@ -547,6 +704,7 @@ class ScrapTribunales(BaseScrapper):
             return None
 
         radicado = tds[1].get_text(strip=True)
+        radicado_digits = re.sub(r"\D", "", radicado)
         clase = tds[5].get_text(strip=True)
         actuacion = tds[7].get_text(strip=True)
         fecha_prov_raw = tds[6].get_text(strip=True)
@@ -557,7 +715,7 @@ class ScrapTribunales(BaseScrapper):
             return None
 
         palabras = actuacion.split()
-        tipo = _safe(palabras[0]) if palabras else ""
+        tipo = _safe(_normalizar_tipo(palabras[0])) if palabras else ""
         seccion = _safe(sec_name, maxlen=100)
         titulo = _normalizar_titulo(radicado, clase, corp_code)
         safe_radicado = _safe(radicado)
@@ -591,6 +749,7 @@ class ScrapTribunales(BaseScrapper):
             f_public=estado_fecha_str,
             f_providencia=fecha_prov,
             save_path=path,
+            radicado=radicado_digits or None,
             # Solo Consejo de Estado: algunos de sus documentos traen, en la
             # primera página del PDF, un número entre paréntesis junto al
             # radicado que no aparece en esta tabla — resolve_unverified_document

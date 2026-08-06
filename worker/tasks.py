@@ -331,6 +331,7 @@ def scrape_source_task(run_source_id: int):
                                             seccion=doc.seccion,
                                             especialidad=doc.especialidad,
                                             magistrado=doc.magistrado,
+                                            radicado=doc.radicado,
                                             detalle=doc.detalle,
                                             f_public=_parse_date(doc.f_public),
                                             f_providencia=_parse_date(doc.f_providencia),
@@ -426,6 +427,18 @@ def _finalize_run(run_id: int):
             status = "failed"
         else:
             status = "completed"
+
+        # Corre después de que los documentos del run ya están guardados —
+        # un fallo aquí (ej. un problema de datos inesperado) no debe
+        # impedir que el run se marque como terminado; solo se pierde esta
+        # ronda de armado de expedientes, que el próximo run o el backfill
+        # manual puede volver a ejecutar sobre los mismos grupos (o grupos
+        # que se solapen).
+        try:
+            repository.assemble_case_links_for_run(db, run_id)
+        except Exception:
+            logger.exception("Falló el armado de expedientes para el run %s", run_id)
+
         repository.set_run_status(db, run_id, status, finished_at=datetime.now(timezone.utc))
     finally:
         db.close()

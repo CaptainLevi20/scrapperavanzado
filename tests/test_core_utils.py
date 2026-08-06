@@ -233,3 +233,42 @@ def test_is_samai_case_title_matches_a_complemented_title_with_numero_ano_format
 def test_is_samai_case_title_matches_a_complemented_title_with_dotted_digits():
     # Confirmado con datos reales: también aparece con punto de miles, ej. "(74.604)".
     assert is_samai_case_title("11001-03-15-000-2025-04868-00(74.604)(RER)") is True
+
+
+def test_is_samai_case_title_matches_a_raw_undashed_title():
+    # Documents captured before scraper started normalizing titles use the raw format
+    # with 23-digit radicado and acronym, but no dashes (e.g., old SAMAI documents
+    # processed by core/backfill_samai_radicado.py). Must be recognized as valid
+    # case titles for case linking and badge counting.
+    assert is_samai_case_title("25000234200020200000801(NRD)") is True
+    assert is_samai_case_title("11001031234000202100001(RER)") is True
+
+
+from core.utils import matching_prefix_length, MIN_MATCH_DIGITS
+
+
+def test_matching_prefix_length_counts_shared_leading_digits():
+    assert matching_prefix_length("25000234200020200000802", "25000234200020200000801") == 22
+
+
+def test_matching_prefix_length_stops_at_first_difference():
+    assert matching_prefix_length("11001032800020260027100", "11001032900020260027100") == 8
+
+
+def test_matching_prefix_length_returns_zero_for_completely_different_strings():
+    assert matching_prefix_length("11001032800020260027100", "99999999999999999999999") == 0
+
+
+def test_matching_prefix_length_handles_different_lengths():
+    assert matching_prefix_length("110010328000", "1100103280") == 10
+
+
+def test_min_match_digits_is_21():
+    # Regla confirmada con datos reales de producción: los primeros 21 dígitos
+    # del radicado identifican el proceso y se mantienen idénticos durante toda
+    # su vida; los dos últimos (posiciones 22-23) son la instancia y son los
+    # únicos que cambian cuando el caso sube de un Tribunal al Consejo de Estado.
+    # Por eso el armado de expedientes (assemble_case_links en
+    # core/db/repository.py) exige que coincidan al menos los primeros 21
+    # dígitos (ver spec, sección "Cómo se generan").
+    assert MIN_MATCH_DIGITS == 21

@@ -111,6 +111,13 @@ def get_documents(
         count = counts.get(d.title)
         d.case_document_count = count if count and count > 1 else None
 
+    case_link_status = repository.get_case_link_status_for_documents(db, [d.id for d in items])
+    for d in items:
+        info = case_link_status.get(d.id)
+        if info:
+            d.case_link_id = info["case_link_id"]
+            d.case_link_other_source_name = info["other_source_name"]
+
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -188,6 +195,12 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     document = repository.get_document(db, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    info = repository.get_case_link_status_for_documents(db, [document.id]).get(document.id)
+    if info:
+        document.case_link_id = info["case_link_id"]
+        document.case_link_other_source_name = info["other_source_name"]
+
     return document
 
 

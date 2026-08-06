@@ -225,6 +225,34 @@ def test_get_documents_reports_case_document_count_for_a_tribunal_administrativo
     assert body["items"][0]["case_document_count"] == 2
 
 
+def test_get_documents_reports_case_document_count_for_raw_undashed_samai_titles(api_client, auth_header, db_session):
+    """Raw undashed titles (e.g. from documents captured before scraper normalization,
+    processed by core/backfill_samai_radicado.py) must be recognized as valid case
+    titles and grouped by exact title match for the badge count."""
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    tribunal = repository.create_source(
+        db_session, family_key="samai", name="Tribunal Administrativo de Antioquia", family_params={}
+    )
+    # Raw undashed title: identical exact title means documents should be grouped together
+    shared_raw_title = "25000234200020200000801(NRD)"
+    for doc_id in ("doc-1", "doc-2"):
+        repository.insert_document(
+            db_session, doc_id=doc_id, source_id=tribunal.id, title=shared_raw_title,
+            storage_bucket="iurisync-test", storage_key=f"{doc_id}.pdf",
+        )
+
+    response = api_client.get("/documents", params={"family_key": "samai"}, headers=auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    # Listing collapses by exact title; two docs with the exact same raw undashed title
+    # should collapse to one item in the listing with case_document_count=2.
+    assert len(body["items"]) == 1
+    assert body["items"][0]["case_document_count"] == 2
+
+
 def test_get_documents_does_not_group_repeated_fallback_titles(api_client, auth_header, db_session):
     """A magistrado-name fallback title repeated across unrelated documents must
     never be reported as a case."""
@@ -1265,6 +1293,31 @@ def test_get_document_stats_rejects_month_out_of_range(api_client, auth_header, 
 
     response = api_client.get("/documents/stats", params={"month": 0}, headers=auth_header)
     assert response.status_code == 422
+
+
+def test_get_documents_includes_case_link_note(api_client, db_session, auth_header):
+    from core.db import repository
+
+    repository.create_source_family_if_missing(db_session, key="samai", display_name="SAMAI")
+    tribunal = repository.create_source(db_session, family_key="samai", name="Tribunal Administrativo de Antioquia", family_params={})
+    consejo = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    repository.insert_document(
+        db_session, doc_id="doc-a", source_id=tribunal.id, title="t1",
+        radicado="05001233300020180047100", storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-b", source_id=consejo.id, title="t2",
+        radicado="05001233300020180047101", storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    repository._link_case_group(
+        db_session, tribunal.id, "05001233300020180047100", consejo.id, "05001233300020180047101"
+    )
+
+    response = api_client.get("/documents", headers=auth_header)
+
+    by_source = {d["source_id"]: d for d in response.json()["items"]}
+    assert by_source[tribunal.id]["case_link_id"] is not None
+    assert by_source[tribunal.id]["case_link_other_source_name"] == "Consejo de Estado"
 
 
 def test_get_documents_filters_by_seccion_especialidad_magistrado(api_client, auth_header, db_session):

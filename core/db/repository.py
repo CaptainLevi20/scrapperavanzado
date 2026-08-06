@@ -2,12 +2,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import and_, cast, delete, exists, func, or_, select, update
+from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
-from core.utils import RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
 
@@ -15,12 +15,14 @@ _LIKE_ESCAPE_CHAR = "\\"
 # filas distintas pueden compartir el mismo título legítimamente — cada una de estas
 # entradas es "family_key -> patrones que confirman que el título sí tiene esa forma"
 # (nunca un título de respaldo, como el nombre de un magistrado, que puede repetirse
-# sin ser el mismo caso). "samai" tiene dos patrones porque, dentro de esa misma
-# familia, Consejo de Estado y los Tribunales Administrativos usan formatos de título
-# distintos (ver core/scrapers/families/samai.py::_normalizar_titulo).
+# sin ser el mismo caso). "samai" tiene tres patrones: Consejo de Estado (dashes),
+# Tribunales Administrativos (T_CODE_ format), y documentos antiguos sin normalizar
+# (raw 23-digit radicado) capturados antes de que el scraper empezara a guardar
+# el campo radicado (ver core/scrapers/families/samai.py::_normalizar_titulo y
+# core/backfill_samai_radicado.py).
 _CASE_GROUPING_FAMILY_PATTERNS = {
     "rama_judicial": [RADICADO_TITLE_PATTERN],
-    "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN],
+    "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN],
 }
 
 
@@ -547,6 +549,265 @@ def count_documents_by_title_within_family(db: Session, titles: list[str], famil
     return dict(db.execute(stmt).all())
 
 
+def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
+    stmt = (
+        select(Document.source_id, Document.radicado)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == "samai", Document.radicado.is_not(None))
+        .distinct()
+    )
+    return list(db.execute(stmt).all())
+
+
+def _separated_instances(db: Session) -> set[tuple[int, str]]:
+    rows = db.execute(select(CaseLinkSeparation.source_id, CaseLinkSeparation.radicado)).all()
+    return {(source_id, radicado) for source_id, radicado in rows}
+
+
+def assemble_case_links(db: Session, new_groups: list[tuple[int, str]]) -> int:
+    """Por cada (source_id, radicado) en new_groups, compara contra TODOS los
+    grupos samai existentes de una fuente distinta; por cada coincidencia de al
+    menos MIN_MATCH_DIGITS dígitos iniciales (y que ninguna de las dos instancias
+    esté separada a mano), une las dos instancias en un expediente vía
+    _link_case_group. Devuelve cuántos cruces cambiaron el agrupamiento (etapa
+    nueva o fusión); las uniones ya existentes no se cuentan. No crea sugerencias
+    pendientes: arma el expediente directamente."""
+    all_groups = _samai_case_groups(db)
+    separated = _separated_instances(db)
+    linked = 0
+    for source_id, radicado in new_groups:
+        if (source_id, radicado) in separated:
+            continue
+        for other_source_id, other_radicado in all_groups:
+            if other_source_id == source_id:
+                continue
+            if (other_source_id, other_radicado) in separated:
+                continue
+            if matching_prefix_length(radicado, other_radicado) < MIN_MATCH_DIGITS:
+                continue
+            stage_a = _get_case_link_stage(db, source_id, radicado)
+            stage_b = _get_case_link_stage(db, other_source_id, other_radicado)
+            already_together = (
+                stage_a is not None and stage_b is not None and stage_a.case_link_id == stage_b.case_link_id
+            )
+            _link_case_group(db, source_id, radicado, other_source_id, other_radicado)
+            if not already_together:
+                linked += 1
+    return linked
+
+
+def assemble_case_links_for_run(db: Session, run_id: int) -> int:
+    """Se corre después de que un run terminó de guardar sus documentos (ver
+    worker/tasks.py::_finalize_run). Solo mira los documentos que este run
+    concreto insertó/tocó (vía run_source_id), para las fuentes samai que
+    participaron en él."""
+    run_sources = list_run_sources(db, run_id)
+    samai_run_source_ids = {
+        rs.id for rs in run_sources
+        if (source := db.get(Source, rs.source_id)) is not None and source.family_key == "samai"
+    }
+    if not samai_run_source_ids:
+        return 0
+    stmt = (
+        select(Document.source_id, Document.radicado)
+        .where(Document.run_source_id.in_(samai_run_source_ids), Document.radicado.is_not(None))
+        .distinct()
+    )
+    new_groups = list(db.execute(stmt).all())
+    return assemble_case_links(db, new_groups)
+
+
+def _get_case_link_stage(db: Session, source_id: int, radicado: str) -> Optional[CaseLinkStage]:
+    stmt = select(CaseLinkStage).where(CaseLinkStage.source_id == source_id, CaseLinkStage.radicado == radicado)
+    return db.scalars(stmt).first()
+
+
+def _link_case_group(db: Session, source_id_a: int, radicado_a: str, source_id_b: int, radicado_b: str) -> CaseLink:
+    stage_a = _get_case_link_stage(db, source_id_a, radicado_a)
+    stage_b = _get_case_link_stage(db, source_id_b, radicado_b)
+
+    if stage_a is not None and stage_b is not None:
+        if stage_a.case_link_id != stage_b.case_link_id:
+            # Los dos lados ya pertenecían a expedientes distintos (ej. se
+            # confirmaron por separado antes de saber que eran el mismo
+            # proceso) — se funden en uno solo en vez de dejar dos.
+            other_stages = db.scalars(
+                select(CaseLinkStage).where(CaseLinkStage.case_link_id == stage_b.case_link_id)
+            ).all()
+            for stage in other_stages:
+                stage.case_link_id = stage_a.case_link_id
+            db.commit()
+        return db.get(CaseLink, stage_a.case_link_id)
+
+    if stage_a is not None:
+        db.add(CaseLinkStage(case_link_id=stage_a.case_link_id, source_id=source_id_b, radicado=radicado_b))
+        db.commit()
+        return db.get(CaseLink, stage_a.case_link_id)
+
+    if stage_b is not None:
+        db.add(CaseLinkStage(case_link_id=stage_b.case_link_id, source_id=source_id_a, radicado=radicado_a))
+        db.commit()
+        return db.get(CaseLink, stage_b.case_link_id)
+
+    case_link = CaseLink()
+    db.add(case_link)
+    db.flush()
+    db.add(CaseLinkStage(case_link_id=case_link.id, source_id=source_id_a, radicado=radicado_a))
+    db.add(CaseLinkStage(case_link_id=case_link.id, source_id=source_id_b, radicado=radicado_b))
+    db.commit()
+    db.refresh(case_link)
+    return case_link
+
+
+def get_case_link(db: Session, case_link_id: int) -> Optional[CaseLink]:
+    return db.get(CaseLink, case_link_id)
+
+
+def list_case_link_stages(db: Session, case_link_id: int) -> list[CaseLinkStage]:
+    stmt = select(CaseLinkStage).where(CaseLinkStage.case_link_id == case_link_id)
+    return list(db.scalars(stmt).all())
+
+
+def _record_separation(db: Session, source_id: int, radicado: str) -> None:
+    exists = db.scalars(
+        select(CaseLinkSeparation.id).where(
+            CaseLinkSeparation.source_id == source_id, CaseLinkSeparation.radicado == radicado
+        )
+    ).first()
+    if exists is None:
+        db.add(CaseLinkSeparation(source_id=source_id, radicado=radicado))
+
+
+def separate_case_link_stage(db: Session, case_link_id: int, stage_id: int) -> Optional[dict]:
+    """Quita una etapa (instancia) de un expediente: registra la separación para
+    que el armado no la vuelva a unir, borra la etapa, y si el expediente queda
+    con menos de dos fuentes distintas lo disuelve. Los documentos no se tocan.
+    Devuelve None si la etapa no pertenece a ese expediente."""
+    stage = db.get(CaseLinkStage, stage_id)
+    if stage is None or stage.case_link_id != case_link_id:
+        return None
+
+    _record_separation(db, stage.source_id, stage.radicado)
+    db.delete(stage)
+    db.commit()
+
+    remaining = list_case_link_stages(db, case_link_id)
+    if len({s.source_id for s in remaining}) < 2:
+        for s in remaining:
+            db.delete(s)
+        case_link = db.get(CaseLink, case_link_id)
+        if case_link is not None:
+            db.delete(case_link)
+        db.commit()
+        return {"dissolved": True, "case_link_id": None}
+
+    return {"dissolved": False, "case_link_id": case_link_id}
+
+
+def list_documents_by_source_and_radicado(db: Session, source_id: int, radicado: str) -> list[Document]:
+    stmt = (
+        select(Document)
+        .where(Document.source_id == source_id, Document.radicado == radicado)
+        .order_by(Document.f_public.asc().nulls_last(), Document.id.asc())
+    )
+    return list(db.scalars(stmt).all())
+
+
+def case_group_summary(db: Session, source_id: int, radicado: str) -> dict:
+    stmt = select(
+        func.count(Document.id), func.min(Document.f_public), func.max(Document.f_public)
+    ).where(Document.source_id == source_id, Document.radicado == radicado)
+    count, f_min, f_max = db.execute(stmt).one()
+    return {"document_count": count, "f_public_min": f_min, "f_public_max": f_max}
+
+
+def list_case_links_with_summary(db: Session) -> list[dict]:
+    result: list[dict] = []
+    case_links = db.scalars(select(CaseLink).order_by(CaseLink.created_at.desc())).all()
+    for case_link in case_links:
+        stages = list_case_link_stages(db, case_link.id)
+        if not stages:
+            continue
+        source_ids = {s.source_id for s in stages}
+        names = dict(db.execute(select(Source.id, Source.name).where(Source.id.in_(source_ids))).all())
+        # Resumen por etapa, para poder ordenar por fecha de publicación.
+        stage_summaries = [
+            (stage, case_group_summary(db, stage.source_id, stage.radicado)) for stage in stages
+        ]
+        total_docs = sum(s["document_count"] for _, s in stage_summaries)
+        f_mins = [s["f_public_min"] for _, s in stage_summaries if s["f_public_min"] is not None]
+        f_maxs = [s["f_public_max"] for _, s in stage_summaries if s["f_public_max"] is not None]
+        # source_names en el orden real del proceso: por fecha de publicación
+        # ascendente (la entidad cuya providencia se publicó primero va primero),
+        # consistente con la línea de tiempo del expediente. Se deduplica
+        # conservando ese orden (una fuente puede tener más de una instancia).
+        ordered_names: list[str] = []
+        seen: set[str] = set()
+        for stage, _summary in sorted(
+            stage_summaries,
+            key=lambda item: item[1]["f_public_min"].isoformat() if item[1]["f_public_min"] else "9999-12-31",
+        ):
+            label = names.get(stage.source_id, "Fuente eliminada")
+            if label not in seen:
+                seen.add(label)
+                ordered_names.append(label)
+        result.append({
+            "id": case_link.id,
+            "source_names": ordered_names,
+            "radicados": sorted({s.radicado for s in stages}),
+            "stage_count": len(stages),
+            "document_count": total_docs,
+            "f_public_min": min(f_mins) if f_mins else None,
+            "f_public_max": max(f_maxs) if f_maxs else None,
+        })
+    return result
+
+
+def get_case_link_status_for_documents(db: Session, document_ids: list[int]) -> dict[int, dict]:
+    """Para cada documento que pertenece a un expediente (su (source, radicado)
+    es una etapa de un case_link), devuelve el id del expediente y el nombre de
+    las OTRAS fuentes que participan. Usado por el listado de documentos."""
+    if not document_ids:
+        return {}
+    docs = db.execute(
+        select(Document.id, Document.source_id, Document.radicado).where(
+            Document.id.in_(document_ids), Document.radicado.is_not(None)
+        )
+    ).all()
+    if not docs:
+        return {}
+    pairs = {(d.source_id, d.radicado) for d in docs}
+    stages = list(
+        db.scalars(
+            select(CaseLinkStage).where(tuple_(CaseLinkStage.source_id, CaseLinkStage.radicado).in_(pairs))
+        ).all()
+    )
+    if not stages:
+        return {}
+    case_link_ids = {s.case_link_id for s in stages}
+    all_stages = list(
+        db.scalars(select(CaseLinkStage).where(CaseLinkStage.case_link_id.in_(case_link_ids))).all()
+    )
+    stages_by_link: dict[int, list[CaseLinkStage]] = {}
+    for stage in all_stages:
+        stages_by_link.setdefault(stage.case_link_id, []).append(stage)
+    source_names = dict(
+        db.execute(select(Source.id, Source.name).where(Source.id.in_({s.source_id for s in all_stages}))).all()
+    )
+    by_pair: dict[tuple[int, str], dict] = {}
+    for stage in stages:
+        others = [
+            s for s in stages_by_link[stage.case_link_id]
+            if (s.source_id, s.radicado) != (stage.source_id, stage.radicado)
+        ]
+        other_label = ", ".join(sorted({source_names.get(o.source_id, "otra fuente") for o in others})) or None
+        by_pair[(stage.source_id, stage.radicado)] = {
+            "case_link_id": stage.case_link_id,
+            "other_source_name": other_label,
+        }
+    return {d.id: by_pair[(d.source_id, d.radicado)] for d in docs if (d.source_id, d.radicado) in by_pair}
+
+
 def count_documents_by_family(db: Session) -> list[tuple[str, int]]:
     stmt = (
         select(Source.family_key, func.count(Document.id))
@@ -628,6 +889,26 @@ def update_document_title(db: Session, document_id: int, title: str) -> Optional
     if document is None:
         return None
     document.title = title
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def update_document_tipo(db: Session, document_id: int, tipo: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.tipo = tipo
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+def update_document_especialidad(db: Session, document_id: int, especialidad: str) -> Optional[Document]:
+    document = db.get(Document, document_id)
+    if document is None:
+        return None
+    document.especialidad = especialidad
     db.commit()
     db.refresh(document)
     return document

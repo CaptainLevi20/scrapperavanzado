@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
@@ -33,6 +33,20 @@ const CASE_BADGE_CLASS =
 
 function CaseBadge({ count }: { count: number }) {
   return <span className={CASE_BADGE_CLASS}>{count} actuaciones</span>;
+}
+
+function CaseLinkNote({ document }: { document: Document }) {
+  if (document.case_link_id) {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        También aparece en: {document.case_link_other_source_name} —{" "}
+        <Link to={`/expedientes/${document.case_link_id}`} className="underline-offset-2 hover:underline">
+          Ver línea de tiempo
+        </Link>
+      </p>
+    );
+  }
+  return null;
 }
 
 function formatDateFilterLabel(from: string, to: string): string {
@@ -525,6 +539,7 @@ export function DocumentsPage() {
                       <CaseBadge count={document.case_document_count} />
                     </div>
                   )}
+                  <CaseLinkNote document={document} />
                 </td>
                 <td className={`${TD} whitespace-nowrap`}>{sourceNameById.get(document.source_id) ?? "—"}</td>
                 <td className={`${TD} whitespace-nowrap`}>{document.tipo ?? "—"}</td>

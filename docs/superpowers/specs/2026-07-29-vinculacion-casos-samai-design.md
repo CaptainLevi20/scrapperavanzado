@@ -16,10 +16,14 @@ mismo caso, `core/db/repository.py::list_documents` con
 **cruzar tribunales**: cuando el mismo proceso reaparece en otra fuente,
 posiblemente con el radicado escrito de forma ligeramente distinta.
 
-No hay certeza sobre si el radicado se mantiene idéntico entre instancias o
-si cambia una parte (posiblemente el segmento final). Por eso el diseño no
-apuesta a una regla exacta: genera sugerencias por similitud y siempre deja
-la confirmación final a una persona.
+Regla confirmada (con datos reales de producción): un radicado tiene 23
+dígitos, de los cuales los **primeros 21 identifican el proceso** (ciudad +
+códigos + año + número consecutivo) y **se mantienen idénticos durante toda su
+vida**; los dos últimos (posiciones 22-23) son la **instancia** y son los únicos
+que cambian cuando el caso sube de un Tribunal Administrativo al Consejo de
+Estado. Por eso se sugiere que dos radicados de fuentes distintas son el mismo
+proceso cuando coinciden al menos los primeros 21 dígitos. La confirmación final
+siempre queda en manos de una persona.
 
 ## Alcance (v1)
 
@@ -77,7 +81,7 @@ La bandeja de sugerencias pendientes de revisar.
 | source_id_b     | FK -> sources                                   |
 | radicado_b      | String                                          |
 | status          | `pending` \| `confirmed` \| `dismissed`         |
-| matched_digits  | Integer — largo del prefijo inicial que realmente coincide entre los dos radicados (puede ser mayor a 16 si coinciden más), para mostrarle contexto a quien revisa |
+| matched_digits  | Integer — largo del prefijo inicial que realmente coincide entre los dos radicados (al menos 21; llega a 22 cuando la instancia solo cambia en el último dígito), para mostrarle contexto a quien revisa |
 | created_at      | timestamp                                       |
 | resolved_at     | timestamp, nullable                             |
 
@@ -94,15 +98,17 @@ Después de que termina un run de una fuente `samai` (hook junto a
 `finalize_run` en `worker/tasks.py`), por cada combinación fuente+radicado
 nueva en ese run:
 
-1. Se comparan los primeros ~16 dígitos de su radicado contra los de todas
+1. Se comparan los primeros 21 dígitos de su radicado contra los de todas
    las demás combinaciones fuente+radicado ya existentes en la familia
    `samai`, excluyendo la misma fuente.
-2. Cada coincidencia que no tenga ya una fila en `case_link_suggestions`
-   genera una sugerencia `pending`.
+2. Cada coincidencia (los primeros 21 dígitos idénticos) que no tenga ya una
+   fila en `case_link_suggestions` genera una sugerencia `pending`.
 
-El número exacto de dígitos a comparar (16) es un punto de partida, no una
-regla probada — se puede ajustar más adelante con casos reales ya
-confirmados por el equipo, sin cambiar el resto del diseño.
+El umbral de 21 dígitos (`MIN_MATCH_DIGITS` en `core/utils.py`) corresponde a la
+parte del radicado que identifica el proceso y no cambia entre instancias. Se
+validó contra el histórico real de producción: bajarlo (el valor inicial de 16)
+mezcla casos distintos que solo comparten ciudad, año y parte del consecutivo,
+generando miles de falsos positivos.
 
 Esta búsqueda corre **después** de que el run ya guardó sus documentos. Si
 falla, el error se registra pero el run queda igual de completo — nunca se

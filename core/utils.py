@@ -40,13 +40,20 @@ def is_radicado_title(title: str) -> bool:
 # conocida y CON el número extra produce un título "{radicado}({número})" (ver
 # _normalizar_titulo + Finding 2 del review) que de otro modo sería indistinguible
 # de un caso real.
+# Normalized format (with dashes): 25000-23-42-002-0202-00008-01(NRD)
 SAMAI_CASE_TITLE_PATTERN = re.compile(
     r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
 )
 
+# Raw format (without dashes, for documents captured before scraper started formatting):
+# 25000234200020200000801(NRD)
+SAMAI_CASE_TITLE_RAW_PATTERN = re.compile(
+    r"^\d{23}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
+)
+
 
 def is_samai_case_title(title: str) -> bool:
-    return bool(SAMAI_CASE_TITLE_PATTERN.match(title))
+    return bool(SAMAI_CASE_TITLE_PATTERN.match(title)) or bool(SAMAI_CASE_TITLE_RAW_PATTERN.match(title))
 
 
 def make_doc_id(key: str, f_public: str) -> str:
@@ -146,3 +153,26 @@ def is_safe_storage_key(key: str) -> bool:
         return False
     parts = PurePosixPath(key).parts
     return bool(parts) and ".." not in parts and not any(part in ("", ".") for part in parts)
+
+
+# Un radicado colombiano tiene 23 dígitos: los primeros 21 identifican el
+# proceso (ciudad + códigos + año + número consecutivo) y se mantienen idénticos
+# durante toda su vida; los dos últimos (posiciones 22-23) son la instancia y
+# son los únicos que cambian cuando el caso sube de un Tribunal Administrativo
+# al Consejo de Estado. Por eso, para sugerir que dos radicados de fuentes
+# distintas son el mismo proceso, se exige que coincidan al menos los primeros
+# 21 dígitos. Regla confirmada con datos reales de producción (el umbral inicial
+# de 16 generaba miles de falsos positivos entre casos que solo compartían
+# ciudad, año y parte del consecutivo). Una persona siempre confirma antes de
+# que cuente como el mismo expediente (ver
+# docs/superpowers/specs/2026-07-29-vinculacion-casos-samai-design.md).
+MIN_MATCH_DIGITS = 21
+
+
+def matching_prefix_length(a: str, b: str) -> int:
+    length = 0
+    for char_a, char_b in zip(a, b):
+        if char_a != char_b:
+            break
+        length += 1
+    return length

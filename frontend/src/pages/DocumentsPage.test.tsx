@@ -829,4 +829,40 @@ describe("DocumentsPage", () => {
     const searchInput = screen.getByPlaceholderText("Buscar por título");
     expect(searchInput).toHaveValue(DOCUMENT.title);
   });
+
+  it("shows a case-link note with a link to the timeline", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({
+          items: [{ ...DOCUMENT, case_link_id: 5, case_link_other_source_name: "Consejo de Estado" }],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        })
+      )
+    );
+
+    renderPage();
+
+    expect(await screen.findByText(/también aparece en: consejo de estado/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /ver línea de tiempo/i })).toHaveAttribute(
+      "href",
+      "/expedientes/5"
+    );
+  });
+
+  it("shows no case-link note when the document has no case_link_id", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 })
+      )
+    );
+
+    renderPage();
+
+    await screen.findByText("Sentencia C-001-26");
+    expect(screen.queryByText(/también aparece en:/i)).not.toBeInTheDocument();
+  });
 });

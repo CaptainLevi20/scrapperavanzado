@@ -87,6 +87,8 @@ class DocumentOut(BaseModel):
     reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
     case_document_count: Optional[int] = None
+    case_link_id: Optional[int] = None
+    case_link_other_source_name: Optional[str] = None
 
 
 class DocumentReviewUpdate(BaseModel):
@@ -200,3 +202,41 @@ class AuthResponse(BaseModel):
 class MeResponse(BaseModel):
     username: str
     is_admin: bool
+
+
+class CaseLinkStageDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    title: str
+    f_public: Optional[date] = None
+    f_providencia: Optional[date] = None
+
+
+class CaseLinkStageOut(BaseModel):
+    stage_id: int
+    source_id: int
+    source_name: str
+    radicado: str
+    f_public_min: Optional[date] = None
+    f_public_max: Optional[date] = None
+    documents: list[CaseLinkStageDocumentOut]
+
+
+class CaseLinkOut(BaseModel):
+    id: int
+    stages: list[CaseLinkStageOut]
+
+
+class CaseLinkListItemOut(BaseModel):
+    id: int
+    source_names: list[str]
+    radicados: list[str]
+    stage_count: int
+    document_count: int
+    f_public_min: Optional[date] = None
+    f_public_max: Optional[date] = None
+
+
+class CaseLinkStageRemovalOut(BaseModel):
+    dissolved: bool
+    case_link_id: Optional[int] = None
