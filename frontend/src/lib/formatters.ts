@@ -37,6 +37,17 @@ export function formatDate(value: string | null): string {
   return parseDateOnlyAsLocal(value).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
 }
 
+// Formatea el radicado del PROCESO (los primeros 21 dígitos, que son idénticos
+// en todas las instancias de un expediente) con la separación que usan los
+// tribunales: ciudad-corp-esp-despacho-año-consecutivo. Se ignoran los dos
+// últimos dígitos (la instancia), que varían entre etapas. Si la entrada no
+// tiene al menos 21 dígitos, se devuelve tal cual.
+export function formatRadicado(radicado: string): string {
+  const digits = radicado.replace(/\D/g, "");
+  if (digits.length < 21) return radicado;
+  return `${digits.slice(0, 5)}-${digits.slice(5, 7)}-${digits.slice(7, 9)}-${digits.slice(9, 12)}-${digits.slice(12, 16)}-${digits.slice(16, 21)}`;
+}
+
 export function formatDateTime(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("es-CO");

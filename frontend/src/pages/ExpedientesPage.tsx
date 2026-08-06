@@ -4,7 +4,7 @@ import { GitMerge } from "lucide-react";
 import { fetchCaseLinks } from "../api/caseLinks";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { formatDate } from "../lib/formatters";
+import { formatDate, formatRadicado } from "../lib/formatters";
 
 export function ExpedientesPage() {
   const expedientesQuery = useQuery({
@@ -36,7 +36,10 @@ export function ExpedientesPage() {
         {expedientesQuery.data?.map((expediente) => (
           <div key={expediente.id} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
             <div>
-              <p className="font-medium text-foreground">{expediente.source_names.join(" · ")}</p>
+              <p className="font-medium text-foreground">
+                {expediente.radicados[0] ? formatRadicado(expediente.radicados[0]) : "Sin radicado"}
+              </p>
+              <p className="text-xs text-muted-foreground">{expediente.source_names.join(" · ")}</p>
               <p className="text-xs text-muted-foreground">
                 {expediente.stage_count} instancia{expediente.stage_count === 1 ? "" : "s"} ·{" "}
                 {expediente.document_count} documento{expediente.document_count === 1 ? "" : "s"}

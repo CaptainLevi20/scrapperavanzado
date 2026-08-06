@@ -33,9 +33,11 @@ describe("ExpedientesPage", () => {
     vi.mocked(caseLinksApi.fetchCaseLinks).mockResolvedValue([ITEM]);
   });
 
-  it("lists expedientes with their sources and counts", async () => {
+  it("shows the process radicado as the heading, with sources and counts", async () => {
     renderPage();
-    expect(await screen.findByText("Tribunal Administrativo del Atlántico", { exact: false })).toBeInTheDocument();
+    // Radicado del proceso (primeros 21 dígitos formateados, sin la instancia).
+    expect(await screen.findByText("08001-23-33-000-2026-00146")).toBeInTheDocument();
+    expect(screen.getByText("Tribunal Administrativo del Atlántico", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("Consejo de Estado", { exact: false })).toBeInTheDocument();
     expect(screen.getByText(/3 documentos/)).toBeInTheDocument();
   });
