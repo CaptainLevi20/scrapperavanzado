@@ -1522,9 +1522,9 @@ def test_list_case_links_with_summary_reports_sources_counts_and_dates(db_sessio
 
     [summary] = repository.list_case_links_with_summary(db_session)
 
-    # En orden del proceso (radicado ascendente): el tribunal de origen
-    # (instancia ...00) primero, la apelación del Consejo de Estado (...01)
-    # después — no en orden alfabético.
+    # En orden de fecha de publicación ascendente: el tribunal (publicó primero,
+    # 2023-01-01) antes que el Consejo de Estado (2024-05-01) — no alfabético.
+    # Mismo orden que usa la línea de tiempo del expediente.
     assert summary["source_names"] == ["Tribunal Administrativo de Antioquia", "Consejo de Estado"]
     assert summary["stage_count"] == 2
     assert summary["document_count"] == 3

@@ -730,22 +730,23 @@ def list_case_links_with_summary(db: Session) -> list[dict]:
             continue
         source_ids = {s.source_id for s in stages}
         names = dict(db.execute(select(Source.id, Source.name).where(Source.id.in_(source_ids))).all())
-        total_docs = 0
-        f_mins: list = []
-        f_maxs: list = []
-        # Recorridas por radicado ascendente = orden real del proceso: la
-        # instancia de origen (tribunal, ...00) primero y las de apelación
-        # (Consejo de Estado, ...01/02) después. source_names se deduplica
+        # Resumen por etapa, para poder ordenar por fecha de publicación.
+        stage_summaries = [
+            (stage, case_group_summary(db, stage.source_id, stage.radicado)) for stage in stages
+        ]
+        total_docs = sum(s["document_count"] for _, s in stage_summaries)
+        f_mins = [s["f_public_min"] for _, s in stage_summaries if s["f_public_min"] is not None]
+        f_maxs = [s["f_public_max"] for _, s in stage_summaries if s["f_public_max"] is not None]
+        # source_names en el orden real del proceso: por fecha de publicación
+        # ascendente (la entidad cuya providencia se publicó primero va primero),
+        # consistente con la línea de tiempo del expediente. Se deduplica
         # conservando ese orden (una fuente puede tener más de una instancia).
         ordered_names: list[str] = []
         seen: set[str] = set()
-        for stage in sorted(stages, key=lambda s: s.radicado):
-            summary = case_group_summary(db, stage.source_id, stage.radicado)
-            total_docs += summary["document_count"]
-            if summary["f_public_min"] is not None:
-                f_mins.append(summary["f_public_min"])
-            if summary["f_public_max"] is not None:
-                f_maxs.append(summary["f_public_max"])
+        for stage, _summary in sorted(
+            stage_summaries,
+            key=lambda item: item[1]["f_public_min"].isoformat() if item[1]["f_public_min"] else "9999-12-31",
+        ):
             label = names.get(stage.source_id, "Fuente eliminada")
             if label not in seen:
                 seen.add(label)
