@@ -1,13 +1,13 @@
 """Corrida única: pobla Document.radicado para los documentos de SAMAI que ya
-existen (capturados antes de que el scraper guardara el campo) y genera las
-sugerencias de casos relacionados sobre todo ese histórico de una vez — ver
+existen (capturados antes de que el scraper guardara el campo) y arma los
+expedientes de casos relacionados sobre todo ese histórico de una vez — ver
 docs/superpowers/specs/2026-07-29-vinculacion-casos-samai-design.md, sección
 "Datos existentes (backfill)".
 
 Uso: .venv/Scripts/python -m core.backfill_samai_radicado
 Se puede correr más de una vez sin problema: los documentos que ya tienen
-radicado se dejan tal cual, y generate_case_link_suggestions no duplica
-sugerencias ya existentes.
+radicado se dejan tal cual, y assemble_case_links no duplica expedientes ya
+armados.
 """
 import re
 from typing import Optional

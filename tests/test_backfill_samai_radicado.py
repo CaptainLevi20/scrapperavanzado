@@ -2,7 +2,7 @@ from core.backfill_samai_radicado import _radicado_from_title, backfill
 from core.db import repository
 
 
-def test_backfill_populates_radicado_and_generates_suggestions(db_session):
+def test_backfill_populates_radicado_and_assembles_case_links(db_session):
     repository.create_source_family_if_missing(db_session, key="samai", display_name="SAMAI")
     tribunal = repository.create_source(db_session, family_key="samai", name="Tribunal Administrativo de Antioquia", family_params={})
     consejo = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
@@ -31,9 +31,8 @@ def test_backfill_populates_radicado_and_generates_suggestions(db_session):
     assert doc_c.radicado is None
     assert result["documents_updated"] == 2
     assert result["case_links_assembled"] == 1
-    # assemble_case_links (a diferencia de la vieja generate_case_link_suggestions)
-    # ya no crea sugerencias pendientes: arma el expediente directamente.
-    assert repository.list_pending_case_link_suggestions(db_session) == []
+    # assemble_case_links arma el expediente directamente, sin pasar por
+    # sugerencias pendientes.
     [case_link] = repository.list_case_links_with_summary(db_session)
     assert case_link["radicados"] == ["25000234200020200000801", "25000234200020200000802"]
 

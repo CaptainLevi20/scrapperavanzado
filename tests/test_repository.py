@@ -1367,289 +1367,17 @@ def test_assemble_case_links_skips_separated_instances(db_session):
     assert db_session.query(repository.CaseLink).count() == 0
 
 
-def test_generate_case_link_suggestions_for_run_creates_a_pending_suggestion_across_sources(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-
-    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
-
-    repository.insert_document(
-        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
-        title="25000234200020200000801(NRD)", radicado="25000234200020200000801",
-        storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-    repository.insert_document(
-        db_session, doc_id="doc-b", source_id=consejo.id,
-        title="25000234200020200000802(NRD)", radicado="25000234200020200000802",
-        storage_bucket="iurisync-test", storage_key="b.pdf",
-    )
-
-    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
-
-    assert created == 1
-    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
-    assert suggestion.matched_digits == 22
-    assert (suggestion.source_id_a, suggestion.radicado_a) == (tribunal.id, "25000234200020200000801")
-    assert (suggestion.source_id_b, suggestion.radicado_b) == (consejo.id, "25000234200020200000802")
-
-
-def test_generate_case_link_suggestions_requires_the_first_21_digits_to_be_identical(db_session):
-    # Regla real (confirmada con datos de producción): los primeros 21 dígitos
-    # identifican el proceso y no cambian nunca; los dos últimos (22-23) son la
-    # instancia y son los únicos que varían cuando el caso sube de un Tribunal
-    # al Consejo de Estado. Dos documentos son el mismo caso solo si sus
-    # primeros 21 dígitos son idénticos — compartir menos (aunque coincidan
-    # ciudad, año y parte del consecutivo) ya son procesos distintos.
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-
-    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
-
-    # Tribunal: caso 00471, instancia 00.
-    repository.insert_document(
-        db_session, doc_id="doc-trib", source_id=tribunal.id, run_source_id=run_source.id,
-        title="t", radicado="05001233300020180047100",
-        storage_bucket="iurisync-test", storage_key="trib.pdf",
-    )
-    # Consejo: MISMO caso 00471, otra instancia (01) — solo cambia el dígito 23.
-    repository.insert_document(
-        db_session, doc_id="doc-same", source_id=consejo.id,
-        title="t", radicado="05001233300020180047101",
-        storage_bucket="iurisync-test", storage_key="same.pdf",
-    )
-    # Consejo: caso DISTINTO 00472 — difiere en el dígito 21, comparte solo 20.
-    repository.insert_document(
-        db_session, doc_id="doc-diff", source_id=consejo.id,
-        title="t", radicado="05001233300020180047200",
-        storage_bucket="iurisync-test", storage_key="diff.pdf",
-    )
-
-    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
-
-    assert created == 1
-    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
-    assert suggestion.matched_digits == 22
-    assert {suggestion.radicado_a, suggestion.radicado_b} == {
-        "05001233300020180047100",
-        "05001233300020180047101",
-    }
-
-
-def test_generate_case_link_suggestions_ignores_documents_in_the_same_source(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
-
-    repository.insert_document(
-        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
-        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-    repository.insert_document(
-        db_session, doc_id="doc-b", source_id=tribunal.id, run_source_id=run_source.id,
-        title="t2", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="b.pdf",
-    )
-
-    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
-
-    assert created == 0
-    assert repository.list_pending_case_link_suggestions(db_session) == []
-
-
-def test_generate_case_link_suggestions_does_not_duplicate_an_existing_pair(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=tribunal.id)
-    repository.insert_document(
-        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run_source.id,
-        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-    repository.insert_document(
-        db_session, doc_id="doc-b", source_id=consejo.id,
-        title="t2", radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
-    )
-    repository.generate_case_link_suggestions_for_run(db_session, run.id)
-
-    created_again = repository.generate_case_link_suggestions_for_run(db_session, run.id)
-
-    assert created_again == 0
-    assert len(repository.list_pending_case_link_suggestions(db_session)) == 1
-
-
-def test_generate_case_link_suggestions_deduplicates_across_runs_regardless_of_which_source_is_processed_first(
-    db_session,
-):
-    """The comparator in _create_case_link_suggestion_if_missing must canonicalize
-    the pair order consistently even when the two sides are driven by TWO SEPARATE
-    generate_case_link_suggestions_for_run calls (e.g. source X's radicados get
-    compared in one run, then source Y's radicados get compared in a later run) —
-    not just when the exact same call is repeated. Without a symmetric comparator,
-    the second run would create a mirrored duplicate (B~A) alongside the first
-    run's (A~B). doc-b is (re)attached to run2's run_source below to simulate it
-    genuinely being touched by run2 (e.g. re-scraped) — otherwise, with
-    new_groups correctly scoped to run_source_id (see the scoping test below),
-    run2 would have nothing new to compare and this test wouldn't actually
-    exercise the dedup path."""
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-
-    run1 = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run1_source = repository.create_run_source(db_session, run_id=run1.id, source_id=tribunal.id)
-    repository.insert_document(
-        db_session, doc_id="doc-a", source_id=tribunal.id, run_source_id=run1_source.id,
-        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-    doc_b = repository.insert_document(
-        db_session, doc_id="doc-b", source_id=consejo.id,
-        title="t2", radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
-    )
-
-    # Run 1 only registers `tribunal` as a run_source, so it drives the
-    # comparator as (tribunal, ...) vs (consejo, ...).
-    created_first = repository.generate_case_link_suggestions_for_run(db_session, run1.id)
-
-    # Run 2 only registers `consejo` as a run_source, so it drives the SAME
-    # pair from the opposite direction: (consejo, ...) vs (tribunal, ...).
-    run2 = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run2_source = repository.create_run_source(db_session, run_id=run2.id, source_id=consejo.id)
-    doc_b.run_source_id = run2_source.id
-    db_session.commit()
-    created_second = repository.generate_case_link_suggestions_for_run(db_session, run2.id)
-
-    assert created_first == 1
-    assert created_second == 0
-    suggestions = repository.list_pending_case_link_suggestions(db_session)
-    assert len(suggestions) == 1
-    expected_a, expected_b = sorted([
-        (tribunal.id, "25000234200020200000801"),
-        (consejo.id, "25000234200020200000802"),
-    ])
-    [suggestion] = suggestions
-    assert (suggestion.source_id_a, suggestion.radicado_a) == expected_a
-    assert (suggestion.source_id_b, suggestion.radicado_b) == expected_b
-
-
-def test_generate_case_link_suggestions_for_run_only_scans_documents_touched_by_this_run(db_session, monkeypatch):
-    """generate_case_link_suggestions_for_run's docstring claims it only looks at
-    documents THIS run inserted/touched, not the source's whole archive. Guard
-    against a regression back to filtering by source_id membership (which would
-    rescan every radicado the source has ever had) by asserting the new_groups
-    passed down to generate_case_link_suggestions is scoped to this run's
-    run_source_id — a document from an earlier run on the SAME source must be
-    excluded even though it shares the source."""
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-
-    earlier_run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    earlier_run_source = repository.create_run_source(db_session, run_id=earlier_run.id, source_id=tribunal.id)
-    repository.insert_document(
-        db_session, doc_id="doc-old", source_id=tribunal.id, run_source_id=earlier_run_source.id,
-        title="t-old", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="old.pdf",
-    )
-
-    later_run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    later_run_source = repository.create_run_source(db_session, run_id=later_run.id, source_id=tribunal.id)
-    repository.insert_document(
-        db_session, doc_id="doc-new", source_id=tribunal.id, run_source_id=later_run_source.id,
-        title="t-new", radicado="25000234200020200000899", storage_bucket="iurisync-test", storage_key="new.pdf",
-    )
-
-    captured = {}
-    original = repository.generate_case_link_suggestions
-
-    def spy(db, new_groups):
-        captured["new_groups"] = new_groups
-        return original(db, new_groups)
-
-    monkeypatch.setattr(repository, "generate_case_link_suggestions", spy)
-
-    repository.generate_case_link_suggestions_for_run(db_session, later_run.id)
-
-    assert captured["new_groups"] == [(tribunal.id, "25000234200020200000899")]
-
-
-def test_generate_case_link_suggestions_ignores_non_samai_families(db_session):
-    repository.create_source_family_if_missing(db_session, key="rama_judicial", display_name="Rama Judicial")
-    juzgado = repository.create_source(db_session, family_key="rama_judicial", name="Juzgado X", family_params={})
-    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
-    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=juzgado.id)
-    repository.insert_document(
-        db_session, doc_id="doc-a", source_id=juzgado.id, run_source_id=run_source.id,
-        title="t1", radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-
-    created = repository.generate_case_link_suggestions_for_run(db_session, run.id)
-
-    assert created == 0
-
-
-def test_confirm_case_link_suggestion_creates_a_case_link_with_both_stages(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-    repository.insert_document(
-        db_session, doc_id="doc-a", source_id=tribunal.id, title="t1",
-        radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-    repository.insert_document(
-        db_session, doc_id="doc-b", source_id=consejo.id, title="t2",
-        radicado="25000234200020200000802", storage_bucket="iurisync-test", storage_key="b.pdf",
-    )
-    repository._create_case_link_suggestion_if_missing(
-        db_session, tribunal.id, "25000234200020200000801", consejo.id, "25000234200020200000802", 22
-    )
-    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
-
-    case_link = repository.confirm_case_link_suggestion(db_session, suggestion.id)
-
-    assert case_link is not None
-    stages = {(s.source_id, s.radicado) for s in db_session.query(repository.CaseLinkStage).all()}
-    assert stages == {
-        (tribunal.id, "25000234200020200000801"),
-        (consejo.id, "25000234200020200000802"),
-    }
-    resolved = repository.get_case_link_suggestion(db_session, suggestion.id)
-    assert resolved.status == "confirmed"
-    assert resolved.resolved_at is not None
-
-
-def test_dismiss_case_link_suggestion_marks_it_dismissed_without_creating_a_case_link(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-    repository._create_case_link_suggestion_if_missing(
-        db_session, tribunal.id, "25000234200020200000801", consejo.id, "25000234200020200000802", 22
-    )
-    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
-
-    result = repository.dismiss_case_link_suggestion(db_session, suggestion.id)
-
-    assert result.status == "dismissed"
-    assert repository.list_pending_case_link_suggestions(db_session) == []
-
-
-def test_confirm_case_link_suggestion_returns_none_when_already_resolved(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    consejo = _make_samai_source(db_session, "Consejo de Estado")
-    repository._create_case_link_suggestion_if_missing(
-        db_session, tribunal.id, "25000234200020200000801", consejo.id, "25000234200020200000802", 22
-    )
-    [suggestion] = repository.list_pending_case_link_suggestions(db_session)
-    repository.dismiss_case_link_suggestion(db_session, suggestion.id)
-
-    assert repository.confirm_case_link_suggestion(db_session, suggestion.id) is None
-
-
-def test_create_manual_case_link_extends_an_existing_case_link_instead_of_duplicating(db_session):
+def test__link_case_group_extends_an_existing_case_link_instead_of_duplicating(db_session):
     tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
     consejo = _make_samai_source(db_session, "Consejo de Estado")
     tercera = _make_samai_source(db_session, "Sección Tercera")
-    case_link = repository.create_manual_case_link(
+    case_link = repository._link_case_group(
         db_session, tribunal.id, "25000234200020200000801", consejo.id, "25000234200020200000802"
     )
 
     # Una tercera etapa del MISMO expediente (ej. una eventual revisión) se
     # suma al case_link ya existente, en vez de crear uno nuevo aparte.
-    extended = repository.create_manual_case_link(
+    extended = repository._link_case_group(
         db_session, consejo.id, "25000234200020200000802", tercera.id, "25000234200020200000899"
     )
 
@@ -1658,20 +1386,20 @@ def test_create_manual_case_link_extends_an_existing_case_link_instead_of_duplic
     assert {s.source_id for s in stages} == {tribunal.id, consejo.id, tercera.id}
 
 
-def test_create_manual_case_link_merges_two_case_links_when_both_sides_already_belong_to_one(db_session):
-    # Caso raro pero posible: A~B se confirmó por separado de C~D, y después
-    # alguien vincula B~C manualmente al descubrir que en realidad son el
-    # mismo expediente completo (A-B-C-D). Deben quedar en UN solo case_link,
-    # no en dos.
+def test__link_case_group_merges_two_case_links_when_both_sides_already_belong_to_one(db_session):
+    # Caso raro pero posible: A~B se unió por separado de C~D, y después el
+    # armado descubre B~C y se da cuenta de que en realidad son el mismo
+    # expediente completo (A-B-C-D). Deben quedar en UN solo case_link, no en
+    # dos.
     a = _make_samai_source(db_session, "Fuente A")
     b = _make_samai_source(db_session, "Fuente B")
     c = _make_samai_source(db_session, "Fuente C")
     d = _make_samai_source(db_session, "Fuente D")
-    link_ab = repository.create_manual_case_link(db_session, a.id, "11111111111111111111101", b.id, "11111111111111111111102")
-    link_cd = repository.create_manual_case_link(db_session, c.id, "11111111111111111111103", d.id, "11111111111111111111104")
+    link_ab = repository._link_case_group(db_session, a.id, "11111111111111111111101", b.id, "11111111111111111111102")
+    link_cd = repository._link_case_group(db_session, c.id, "11111111111111111111103", d.id, "11111111111111111111104")
     assert link_ab.id != link_cd.id
 
-    merged = repository.create_manual_case_link(
+    merged = repository._link_case_group(
         db_session, b.id, "11111111111111111111102", c.id, "11111111111111111111103"
     )
 

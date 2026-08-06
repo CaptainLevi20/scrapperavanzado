@@ -196,17 +196,3 @@ class CaseLinkSeparation(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("source_id", "radicado", name="uq_case_link_separations_source_radicado"),)
-
-
-class CaseLinkSuggestion(Base):
-    __tablename__ = "case_link_suggestions"
-
-    id = Column(Integer, primary_key=True)
-    source_id_a = Column(Integer, ForeignKey("sources.id"), nullable=False)
-    radicado_a = Column(String, nullable=False)
-    source_id_b = Column(Integer, ForeignKey("sources.id"), nullable=False)
-    radicado_b = Column(String, nullable=False)
-    status = Column(String, nullable=False, default="pending", server_default="pending")
-    matched_digits = Column(Integer, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
-    resolved_at = Column(DateTime(timezone=True), nullable=True)

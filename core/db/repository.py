@@ -6,7 +6,7 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, up
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, CaseLinkSuggestion, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
@@ -559,79 +559,6 @@ def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
     return list(db.execute(stmt).all())
 
 
-def _create_case_link_suggestion_if_missing(
-    db: Session, source_id_a: int, radicado_a: str, source_id_b: int, radicado_b: str, matched_digits: int
-) -> bool:
-    # Orden consistente por (source_id, radicado) para que el mismo cruce
-    # nunca genere dos filas espejo (A~B y B~A) — ver spec, sección
-    # "Cómo se generan las sugerencias".
-    if (source_id_b, radicado_b) < (source_id_a, radicado_a):
-        source_id_a, radicado_a, source_id_b, radicado_b = source_id_b, radicado_b, source_id_a, radicado_a
-
-    exists_stmt = select(CaseLinkSuggestion.id).where(
-        CaseLinkSuggestion.source_id_a == source_id_a,
-        CaseLinkSuggestion.radicado_a == radicado_a,
-        CaseLinkSuggestion.source_id_b == source_id_b,
-        CaseLinkSuggestion.radicado_b == radicado_b,
-    )
-    if db.scalars(exists_stmt).first() is not None:
-        return False
-
-    db.add(CaseLinkSuggestion(
-        source_id_a=source_id_a, radicado_a=radicado_a,
-        source_id_b=source_id_b, radicado_b=radicado_b,
-        matched_digits=matched_digits, status="pending",
-    ))
-    db.commit()
-    return True
-
-
-def generate_case_link_suggestions(db: Session, new_groups: list[tuple[int, str]]) -> int:
-    """Por cada (source_id, radicado) en new_groups, compara contra TODOS los
-    grupos samai existentes de una fuente distinta; crea una sugerencia
-    pendiente por cada coincidencia de al menos MIN_MATCH_DIGITS dígitos
-    iniciales que no exista ya. Devuelve cuántas sugerencias nuevas se
-    crearon."""
-    all_groups = _samai_case_groups(db)
-    created = 0
-    for source_id, radicado in new_groups:
-        for other_source_id, other_radicado in all_groups:
-            if other_source_id == source_id:
-                continue
-            matched = matching_prefix_length(radicado, other_radicado)
-            if matched < MIN_MATCH_DIGITS:
-                continue
-            if _create_case_link_suggestion_if_missing(
-                db, source_id, radicado, other_source_id, other_radicado, matched
-            ):
-                created += 1
-    return created
-
-
-def generate_case_link_suggestions_for_run(db: Session, run_id: int) -> int:
-    """Se corre después de que un run terminó de guardar sus documentos (ver
-    worker/tasks.py::_finalize_run). Solo mira los documentos que este run
-    concreto insertó/tocó (vía Document.run_source_id -> RunSource.run_id),
-    para las fuentes samai que participaron en él — el resto del archivo ya
-    fue comparado en runs anteriores o en el backfill
-    (core/backfill_samai_radicado.py) y no hace falta volver a escanearlo."""
-    run_sources = list_run_sources(db, run_id)
-    samai_run_source_ids = {
-        rs.id for rs in run_sources
-        if (source := db.get(Source, rs.source_id)) is not None and source.family_key == "samai"
-    }
-    if not samai_run_source_ids:
-        return 0
-
-    stmt = (
-        select(Document.source_id, Document.radicado)
-        .where(Document.run_source_id.in_(samai_run_source_ids), Document.radicado.is_not(None))
-        .distinct()
-    )
-    new_groups = list(db.execute(stmt).all())
-    return generate_case_link_suggestions(db, new_groups)
-
-
 def _separated_instances(db: Session) -> set[tuple[int, str]]:
     rows = db.execute(select(CaseLinkSeparation.source_id, CaseLinkSeparation.radicado)).all()
     return {(source_id, radicado) for source_id, radicado in rows}
@@ -690,19 +617,6 @@ def assemble_case_links_for_run(db: Session, run_id: int) -> int:
     return assemble_case_links(db, new_groups)
 
 
-def list_pending_case_link_suggestions(db: Session) -> list[CaseLinkSuggestion]:
-    stmt = (
-        select(CaseLinkSuggestion)
-        .where(CaseLinkSuggestion.status == "pending")
-        .order_by(CaseLinkSuggestion.created_at.desc())
-    )
-    return list(db.scalars(stmt).all())
-
-
-def get_case_link_suggestion(db: Session, suggestion_id: int) -> Optional[CaseLinkSuggestion]:
-    return db.get(CaseLinkSuggestion, suggestion_id)
-
-
 def _get_case_link_stage(db: Session, source_id: int, radicado: str) -> Optional[CaseLinkStage]:
     stmt = select(CaseLinkStage).where(CaseLinkStage.source_id == source_id, CaseLinkStage.radicado == radicado)
     return db.scalars(stmt).first()
@@ -743,36 +657,6 @@ def _link_case_group(db: Session, source_id_a: int, radicado_a: str, source_id_b
     db.commit()
     db.refresh(case_link)
     return case_link
-
-
-def confirm_case_link_suggestion(db: Session, suggestion_id: int) -> Optional[CaseLink]:
-    suggestion = db.get(CaseLinkSuggestion, suggestion_id)
-    if suggestion is None or suggestion.status != "pending":
-        return None
-    case_link = _link_case_group(
-        db, suggestion.source_id_a, suggestion.radicado_a, suggestion.source_id_b, suggestion.radicado_b
-    )
-    suggestion.status = "confirmed"
-    suggestion.resolved_at = datetime.now(timezone.utc)
-    db.commit()
-    return case_link
-
-
-def dismiss_case_link_suggestion(db: Session, suggestion_id: int) -> Optional[CaseLinkSuggestion]:
-    suggestion = db.get(CaseLinkSuggestion, suggestion_id)
-    if suggestion is None or suggestion.status != "pending":
-        return None
-    suggestion.status = "dismissed"
-    suggestion.resolved_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(suggestion)
-    return suggestion
-
-
-def create_manual_case_link(
-    db: Session, source_id_a: int, radicado_a: str, source_id_b: int, radicado_b: str
-) -> CaseLink:
-    return _link_case_group(db, source_id_a, radicado_a, source_id_b, radicado_b)
 
 
 def get_case_link(db: Session, case_link_id: int) -> Optional[CaseLink]:
@@ -876,26 +760,6 @@ def find_confirmed_case_link_for_document(db: Session, document_id: int) -> Opti
     if stage is None:
         return None
     return db.get(CaseLink, stage.case_link_id)
-
-
-def find_pending_case_link_suggestion_for_document(db: Session, document_id: int) -> Optional[CaseLinkSuggestion]:
-    document = db.get(Document, document_id)
-    if document is None or document.radicado is None:
-        return None
-    stmt = select(CaseLinkSuggestion).where(
-        CaseLinkSuggestion.status == "pending",
-        or_(
-            and_(
-                CaseLinkSuggestion.source_id_a == document.source_id,
-                CaseLinkSuggestion.radicado_a == document.radicado,
-            ),
-            and_(
-                CaseLinkSuggestion.source_id_b == document.source_id,
-                CaseLinkSuggestion.radicado_b == document.radicado,
-            ),
-        ),
-    )
-    return db.scalars(stmt).first()
 
 
 def get_case_link_status_for_documents(db: Session, document_ids: list[int]) -> dict[int, dict]:
