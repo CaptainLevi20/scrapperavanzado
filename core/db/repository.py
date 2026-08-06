@@ -733,16 +733,26 @@ def list_case_links_with_summary(db: Session) -> list[dict]:
         total_docs = 0
         f_mins: list = []
         f_maxs: list = []
-        for stage in stages:
+        # Recorridas por radicado ascendente = orden real del proceso: la
+        # instancia de origen (tribunal, ...00) primero y las de apelación
+        # (Consejo de Estado, ...01/02) después. source_names se deduplica
+        # conservando ese orden (una fuente puede tener más de una instancia).
+        ordered_names: list[str] = []
+        seen: set[str] = set()
+        for stage in sorted(stages, key=lambda s: s.radicado):
             summary = case_group_summary(db, stage.source_id, stage.radicado)
             total_docs += summary["document_count"]
             if summary["f_public_min"] is not None:
                 f_mins.append(summary["f_public_min"])
             if summary["f_public_max"] is not None:
                 f_maxs.append(summary["f_public_max"])
+            label = names.get(stage.source_id, "Fuente eliminada")
+            if label not in seen:
+                seen.add(label)
+                ordered_names.append(label)
         result.append({
             "id": case_link.id,
-            "source_names": sorted({names.get(sid, "Fuente eliminada") for sid in source_ids}),
+            "source_names": ordered_names,
             "radicados": sorted({s.radicado for s in stages}),
             "stage_count": len(stages),
             "document_count": total_docs,
