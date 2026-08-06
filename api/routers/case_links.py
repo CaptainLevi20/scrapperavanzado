@@ -7,6 +7,7 @@ from api.schemas import (
     CaseLinkOut,
     CaseLinkStageDocumentOut,
     CaseLinkStageOut,
+    CaseLinkStageRemovalOut,
 )
 from core.db import repository
 
@@ -46,7 +47,7 @@ def list_case_links(db: Session = Depends(get_db)):
     return [CaseLinkListItemOut(**item) for item in repository.list_case_links_with_summary(db)]
 
 
-@router.delete("/case-links/{case_link_id}/stages/{stage_id}")
+@router.delete("/case-links/{case_link_id}/stages/{stage_id}", response_model=CaseLinkStageRemovalOut)
 def remove_case_link_stage(case_link_id: int, stage_id: int, db: Session = Depends(get_db)):
     result = repository.separate_case_link_stage(db, case_link_id, stage_id)
     if result is None:

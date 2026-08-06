@@ -268,7 +268,7 @@ def test_min_match_digits_is_21():
     # del radicado identifican el proceso y se mantienen idénticos durante toda
     # su vida; los dos últimos (posiciones 22-23) son la instancia y son los
     # únicos que cambian cuando el caso sube de un Tribunal al Consejo de Estado.
-    # Por eso el generador de sugerencias (core/db/repository.py) exige que
-    # coincidan al menos los primeros 21 dígitos (ver spec, sección "Cómo se
-    # generan").
+    # Por eso el armado de expedientes (assemble_case_links en
+    # core/db/repository.py) exige que coincidan al menos los primeros 21
+    # dígitos (ver spec, sección "Cómo se generan").
     assert MIN_MATCH_DIGITS == 21

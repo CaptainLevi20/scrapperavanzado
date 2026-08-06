@@ -1778,7 +1778,7 @@ def test_build_bulk_download_zip_skips_the_disk_space_check_when_a_document_size
         assertion_session.close()
 
 
-def test_finalize_run_triggers_case_link_suggestion_generation(db_session, test_engine, monkeypatch):
+def test_finalize_run_triggers_case_link_assembly(db_session, test_engine, monkeypatch):
     repository.create_source_family(db_session, key="samai", display_name="SAMAI")
     source = repository.create_source(db_session, family_key="samai", name="Tribunal X", family_params={})
     run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
@@ -1798,7 +1798,7 @@ def test_finalize_run_triggers_case_link_suggestion_generation(db_session, test_
     assert calls == [run.id]
 
 
-def test_finalize_run_still_completes_when_suggestion_generation_fails(db_session, test_engine, monkeypatch):
+def test_finalize_run_still_completes_when_assembly_fails(db_session, test_engine, monkeypatch):
     repository.create_source_family(db_session, key="samai", display_name="SAMAI")
     source = repository.create_source(db_session, family_key="samai", name="Tribunal X", family_params={})
     run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)

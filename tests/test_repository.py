@@ -1412,16 +1412,6 @@ def test__link_case_group_merges_two_case_links_when_both_sides_already_belong_t
     assert repository.list_case_link_stages(db_session, orphan_id) == []
 
 
-def test_find_confirmed_case_link_for_document_returns_none_when_not_linked(db_session):
-    tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
-    document = repository.insert_document(
-        db_session, doc_id="doc-a", source_id=tribunal.id, title="t1",
-        radicado="25000234200020200000801", storage_bucket="iurisync-test", storage_key="a.pdf",
-    )
-
-    assert repository.find_confirmed_case_link_for_document(db_session, document.id) is None
-
-
 def test_get_case_link_status_for_documents_reports_confirmed_expedientes(db_session):
     tribunal = _make_samai_source(db_session, "Tribunal Administrativo de Antioquia")
     consejo = _make_samai_source(db_session, "Consejo de Estado")

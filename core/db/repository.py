@@ -752,16 +752,6 @@ def list_case_links_with_summary(db: Session) -> list[dict]:
     return result
 
 
-def find_confirmed_case_link_for_document(db: Session, document_id: int) -> Optional[CaseLink]:
-    document = db.get(Document, document_id)
-    if document is None or document.radicado is None:
-        return None
-    stage = _get_case_link_stage(db, document.source_id, document.radicado)
-    if stage is None:
-        return None
-    return db.get(CaseLink, stage.case_link_id)
-
-
 def get_case_link_status_for_documents(db: Session, document_ids: list[int]) -> dict[int, dict]:
     """Para cada documento que pertenece a un expediente (su (source, radicado)
     es una etapa de un case_link), devuelve el id del expediente y el nombre de

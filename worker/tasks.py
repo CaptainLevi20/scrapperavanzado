@@ -431,8 +431,9 @@ def _finalize_run(run_id: int):
         # Corre después de que los documentos del run ya están guardados —
         # un fallo aquí (ej. un problema de datos inesperado) no debe
         # impedir que el run se marque como terminado; solo se pierde esta
-        # ronda de sugerencias, que el próximo run o el backfill manual
-        # puede volver a generar.
+        # ronda de armado de expedientes, que el próximo run o el backfill
+        # manual puede volver a ejecutar sobre los mismos grupos (o grupos
+        # que se solapen).
         try:
             repository.assemble_case_links_for_run(db, run_id)
         except Exception:

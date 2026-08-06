@@ -235,3 +235,8 @@ class CaseLinkListItemOut(BaseModel):
     document_count: int
     f_public_min: Optional[date] = None
     f_public_max: Optional[date] = None
+
+
+class CaseLinkStageRemovalOut(BaseModel):
+    dissolved: bool
+    case_link_id: Optional[int] = None
