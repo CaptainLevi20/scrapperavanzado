@@ -36,22 +36,12 @@ function CaseBadge({ count }: { count: number }) {
 }
 
 function CaseLinkNote({ document }: { document: Document }) {
-  if (document.case_link_status === "confirmed" && document.case_link_id) {
+  if (document.case_link_id) {
     return (
       <p className="mt-1 text-xs text-muted-foreground">
         También aparece en: {document.case_link_other_source_name} —{" "}
         <Link to={`/expedientes/${document.case_link_id}`} className="underline-offset-2 hover:underline">
           Ver línea de tiempo
-        </Link>
-      </p>
-    );
-  }
-  if (document.case_link_status === "pending") {
-    return (
-      <p className="mt-1 text-xs text-muted-foreground">
-        Posible caso relacionado, pendiente de confirmar —{" "}
-        <Link to="/expedientes" className="underline-offset-2 hover:underline">
-          Ver bandeja
         </Link>
       </p>
     );
