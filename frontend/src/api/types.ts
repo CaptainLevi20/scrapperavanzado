@@ -74,9 +74,7 @@ export interface Document {
   reviewed_at: string | null;
   downloaded_at: string;
   case_document_count?: number | null;
-  case_link_status?: "pending" | "confirmed" | null;
   case_link_id?: number | null;
-  case_link_suggestion_id?: number | null;
   case_link_other_source_name?: string | null;
 }
 
@@ -87,24 +85,6 @@ export interface PaginatedDocuments {
   offset: number;
 }
 
-export interface CaseGroup {
-  source_id: number;
-  source_name: string;
-  radicado: string;
-  document_count: number;
-  f_public_min: string | null;
-  f_public_max: string | null;
-}
-
-export interface CaseLinkSuggestion {
-  id: number;
-  matched_digits: number;
-  status: string;
-  created_at: string;
-  case_a: CaseGroup;
-  case_b: CaseGroup;
-}
-
 export interface CaseLinkStageDocument {
   id: number;
   title: string;
@@ -113,6 +93,7 @@ export interface CaseLinkStageDocument {
 }
 
 export interface CaseLinkStage {
+  stage_id: number;
   source_id: number;
   source_name: string;
   radicado: string;
@@ -126,11 +107,14 @@ export interface CaseLink {
   stages: CaseLinkStage[];
 }
 
-export interface ManualCaseLinkInput {
-  source_id_a: number;
-  radicado_a: string;
-  source_id_b: number;
-  radicado_b: string;
+export interface CaseLinkListItem {
+  id: number;
+  source_names: string[];
+  radicados: string[];
+  stage_count: number;
+  document_count: number;
+  f_public_min: string | null;
+  f_public_max: string | null;
 }
 
 export interface TipoCount {
