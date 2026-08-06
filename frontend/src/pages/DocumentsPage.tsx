@@ -40,7 +40,7 @@ function CaseLinkNote({ document }: { document: Document }) {
     return (
       <p className="mt-1 text-xs text-muted-foreground">
         También aparece en: {document.case_link_other_source_name} —{" "}
-        <Link to={`/casos-por-confirmar/expedientes/${document.case_link_id}`} className="underline-offset-2 hover:underline">
+        <Link to={`/expedientes/${document.case_link_id}`} className="underline-offset-2 hover:underline">
           Ver línea de tiempo
         </Link>
       </p>
@@ -50,7 +50,7 @@ function CaseLinkNote({ document }: { document: Document }) {
     return (
       <p className="mt-1 text-xs text-muted-foreground">
         Posible caso relacionado, pendiente de confirmar —{" "}
-        <Link to="/casos-por-confirmar" className="underline-offset-2 hover:underline">
+        <Link to="/expedientes" className="underline-offset-2 hover:underline">
           Ver bandeja
         </Link>
       </p>

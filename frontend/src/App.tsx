@@ -12,7 +12,7 @@ import { RunDetailPage } from "./pages/RunDetailPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { BulkDownloadsPage } from "./pages/BulkDownloadsPage";
 import { FormatterPage } from "./pages/FormatterPage";
-import { CaseLinksPage } from "./pages/CaseLinksPage";
+import { ExpedientesPage } from "./pages/ExpedientesPage";
 import { CaseLinkDetailPage } from "./pages/CaseLinkDetailPage";
 
 const queryClient = new QueryClient();
@@ -33,8 +33,8 @@ export function App() {
                 <Route path="/runs/:runId" element={<RunDetailPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/bulk-downloads" element={<BulkDownloadsPage />} />
-                <Route path="/casos-por-confirmar" element={<CaseLinksPage />} />
-                <Route path="/casos-por-confirmar/expedientes/:caseLinkId" element={<CaseLinkDetailPage />} />
+                <Route path="/expedientes" element={<ExpedientesPage />} />
+                <Route path="/expedientes/:caseLinkId" element={<CaseLinkDetailPage />} />
                 <Route path="/formateador" element={<FormatterPage />} />
               </Route>
             </Route>

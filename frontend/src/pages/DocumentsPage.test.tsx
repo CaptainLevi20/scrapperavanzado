@@ -848,7 +848,7 @@ describe("DocumentsPage", () => {
     expect(await screen.findByText(/también aparece en: consejo de estado/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ver línea de tiempo/i })).toHaveAttribute(
       "href",
-      "/casos-por-confirmar/expedientes/5"
+      "/expedientes/5"
     );
   });
 

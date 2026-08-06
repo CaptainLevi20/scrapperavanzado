@@ -9,7 +9,7 @@ const LINKS = [
   { to: "/sources", label: "Fuentes", end: false, icon: Radar },
   { to: "/runs", label: "Runs", end: false, icon: PlayCircle },
   { to: "/documents", label: "Documentos", end: false, icon: FileStack },
-  { to: "/casos-por-confirmar", label: "Casos por confirmar", end: false, icon: GitMerge },
+  { to: "/expedientes", label: "Expedientes", end: false, icon: GitMerge },
   { to: "/bulk-downloads", label: "Descargas masivas", end: false, icon: Archive },
   { to: "/formateador", label: "Formateador", end: false, icon: Wand2 },
 ];
