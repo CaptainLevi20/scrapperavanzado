@@ -16,6 +16,7 @@ import {
 import type { Document, DocumentReviewStatus, DocumentVersion } from "../api/types";
 import { formatBytes, formatDate, formatDateTime } from "../lib/formatters";
 import { ErrorBanner } from "./ErrorBanner";
+import { PdfViewer } from "./PdfViewer";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
@@ -296,14 +297,16 @@ export function DocumentPreviewDialog({
                 <ErrorBanner message="No se pudo cargar la vista previa" onRetry={() => previewUrlQuery.refetch()} />
               </div>
             ) : previewUrlQuery.data ? (
-              // #toolbar=0 suppresses the browser's own built-in pdf viewer chrome
-              // (Chrome/Firefox both honor it) — we offer download via our own
-              // explicit buttons above instead, matching the RTF/PDF choice a
-              // native download button couldn't express.
-              <iframe
-                title={`Vista previa de ${currentDocument.title}`}
-                src={`${previewUrlQuery.data}#toolbar=0`}
-                className="size-full"
+              // Our own pdf.js viewer (not the native iframe) so we can show a
+              // live "Página X de N" indicator, which the opaque native viewer
+              // never exposes. Keyed by url so navigating to another document
+              // resets its page/scroll state. Download stays on our explicit
+              // RTF/PDF buttons above; PdfViewer falls back to the native iframe
+              // if pdf.js can't open a given file.
+              <PdfViewer
+                key={previewUrlQuery.data}
+                url={previewUrlQuery.data}
+                title={currentDocument.title}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Cargando…</div>
