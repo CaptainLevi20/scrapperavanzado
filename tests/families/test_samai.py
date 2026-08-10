@@ -250,7 +250,7 @@ def test_samai_doc_id_differs_for_distinct_actuaciones_sharing_a_radicado():
     assert doc_id_1 != doc_id_2
 
 
-# --- título: {radicado}({acrónimo de la clase de proceso}) --------------------
+# --- título de Consejo de Estado: {radicado} (sin acrónimo de clase) ---
 #
 # Catálogo y reglas de normalización dictados por el usuario a partir de datos
 # reales de Consejo de Estado (ver core/scrapers/families/samai.py).
@@ -259,56 +259,19 @@ def test_samai_doc_id_differs_for_distinct_actuaciones_sharing_a_radicado():
 _CONSEJO_ESTADO = "1100103"
 
 
-def test_normalizar_titulo_appends_acronym_for_known_clase():
-    assert _normalizar_titulo("11001-03-28-000-2026-00329-00", "ACCIONES DE CUMPLIMIENTO", _CONSEJO_ESTADO) == (
-        "11001-03-28-000-2026-00329-00(ACU)"
-    )
-
-
-def test_normalizar_titulo_strips_ley_prefix_before_matching():
-    # "LEY 1437 NULIDAD" y "Nulidad" son la misma clase — deben caer en el mismo
-    # acrónimo aunque una traiga el código de ley y la otra no.
-    assert _normalizar_titulo("11001-03-24-000-2015-00065-00", "LEY 1437 NULIDAD", _CONSEJO_ESTADO) == (
-        "11001-03-24-000-2015-00065-00(N)"
-    )
-    assert _normalizar_titulo("11001-03-24-000-2015-00065-00", "Nulidad", _CONSEJO_ESTADO) == (
-        "11001-03-24-000-2015-00065-00(N)"
-    )
-
-
-def test_normalizar_titulo_strips_accion_de_prefix_before_matching():
-    # "ACCION DE NULIDAD" debe caer en el mismo acrónimo que "Nulidad", no
-    # quedarse como una clase aparte solo por el prefijo "Acción de".
-    assert _normalizar_clase("ACCION DE NULIDAD") == _normalizar_clase("Nulidad")
-    assert _normalizar_titulo("05001-23-33-000-2026-00810-01", "ACCION DE NULIDAD", _CONSEJO_ESTADO) == (
-        "05001-23-33-000-2026-00810-01(N)"
-    )
-
-
-def test_normalizar_titulo_strips_articulo_decision_reference():
+def test_normalizar_titulo_returns_bare_radicado_for_consejo_de_estado():
+    # El título de Consejo de Estado ya NO lleva el acrónimo de la clase —
+    # sin importar la clase, es solo el radicado.
     assert _normalizar_titulo(
-        "11001-03-24-000-2020-00002-00", "NULIDAD RELATIVA ARTÍCULO 172 DECISION 486", _CONSEJO_ESTADO
-    ) == "11001-03-24-000-2020-00002-00(NR)"
-    assert _normalizar_titulo(
-        "11001-03-24-000-2020-00002-00", "NULIDAD ABSOLUTA ARTÍCULO 172 DECISION 486", _CONSEJO_ESTADO
-    ) == "11001-03-24-000-2020-00002-00(NA)"
+        "11001-03-28-000-2026-00329-00", "ACCIONES DE CUMPLIMIENTO", _CONSEJO_ESTADO
+    ) == "11001-03-28-000-2026-00329-00"
 
 
-def test_normalizar_titulo_is_accent_and_case_insensitive():
-    assert _normalizar_titulo("r1", "reparación directa", _CONSEJO_ESTADO) == "r1(RD)"
-    assert _normalizar_titulo("r1", "REPARACION DIRECTA", _CONSEJO_ESTADO) == "r1(RD)"
-
-
-def test_normalizar_titulo_merges_clases_the_user_confirmed_are_the_same():
-    # Confirmado con el usuario: aunque el texto es distinto, son la misma clase.
-    assert _normalizar_titulo("r1", "CONFLICTOS DE COMPETENCIA JUDICIAL", _CONSEJO_ESTADO) == "r1(CCO)"
-    assert _normalizar_titulo("r1", "Protección de los derechos e intereses colectivos", _CONSEJO_ESTADO) == "r1(PDIC)"
-    # "Acción de grupo" y "reparación de perjuicios causados a un grupo" son
-    # clases distintas (confirmado con el usuario) — no deben compartir sigla.
-    assert _normalizar_titulo("r1", "Acción de grupo", _CONSEJO_ESTADO) == "r1(AG)"
-    assert _normalizar_titulo(
-        "r1", "LEY 1437 REPARACION DE PERJUICIOS CAUSADOS A UN GRUPO", _CONSEJO_ESTADO
-    ) == "r1(RPAG)"
+def test_normalizar_titulo_ignores_the_clase_entirely_for_consejo_de_estado():
+    # Dos clases distintas producen exactamente el mismo título: el radicado.
+    con_clase_conocida = _normalizar_titulo("r1", "Reparación directa", _CONSEJO_ESTADO)
+    con_clase_desconocida = _normalizar_titulo("r1", "Una clase nunca vista", _CONSEJO_ESTADO)
+    assert con_clase_conocida == con_clase_desconocida == "r1"
 
 
 def test_normalizar_titulo_falls_back_to_bare_radicado_for_unknown_clase():
@@ -391,6 +354,32 @@ def test_especialidad_legible_resolves_unseen_clase_with_escritural_suffix():
     # Mayúscula/minúscula mixta (como la reportó el usuario) no cambia nada —
     # _normalizar_clase ya mayusculiza todo antes de buscar en el catálogo.
     assert _especialidad_legible("rEPARACION DIRECTA (ESCRITURAL)") == "Reparación directa"
+
+
+def test_especialidad_legible_strips_accion_de_prefix_before_matching():
+    # "ACCION DE NULIDAD" es la misma clase que "Nulidad".
+    assert _especialidad_legible("ACCION DE NULIDAD") == "Nulidad"
+
+
+def test_especialidad_legible_strips_articulo_decision_reference():
+    assert _especialidad_legible("NULIDAD RELATIVA ARTÍCULO 172 DECISION 486") == "Nulidad relativa"
+    assert _especialidad_legible("NULIDAD ABSOLUTA ARTÍCULO 172 DECISION 486") == "Nulidad absoluta"
+
+
+def test_especialidad_legible_is_accent_insensitive():
+    assert _especialidad_legible("reparación directa") == "Reparación directa"
+    assert _especialidad_legible("REPARACION DIRECTA") == "Reparación directa"
+
+
+def test_especialidad_legible_merges_clases_the_user_confirmed_are_the_same():
+    assert _especialidad_legible("CONFLICTOS DE COMPETENCIA JUDICIAL") == "Conflictos de competencia"
+    assert _especialidad_legible("Protección de los derechos e intereses colectivos") == (
+        "Protección de los derechos e intereses colectivos"
+    )
+    assert _especialidad_legible("Acción de grupo") == "Acción de grupo"
+    assert _especialidad_legible("LEY 1437 REPARACION DE PERJUICIOS CAUSADOS A UN GRUPO") == (
+        "Reparación de perjuicios causados a un grupo"
+    )
 
 
 def test_normalizar_titulo_and_especialidad_are_case_law_code_insensitive():
@@ -508,7 +497,7 @@ def test_parse_row_stores_readable_clase_de_proceso_in_especialidad():
     doc = scraper._parse_row(row, "1100103", "Consejo de Estado", "Sección Primera", "2026-06-15")
 
     assert doc.especialidad == "Nulidad y restablecimiento del derecho"
-    assert doc.title == "25001233300020260001200(NRD)"
+    assert doc.title == "25001233300020260001200"
 
 
 def test_parse_row_uses_clase_column_to_build_the_polished_title():
@@ -523,7 +512,7 @@ def test_parse_row_uses_clase_column_to_build_the_polished_title():
 
     doc = scraper._parse_row(row, "1100103", "Consejo de Estado", "Sección Primera", "2026-06-15")
 
-    assert doc.title == "25001233300020260001200(ACU)"
+    assert doc.title == "25001233300020260001200"
 
 
 # --- número extra entre paréntesis (primera página del PDF) -----------------
@@ -531,7 +520,8 @@ def test_parse_row_uses_clase_column_to_build_the_polished_title():
 # Algunos documentos de Consejo de Estado traen, junto al radicado en su
 # primera página, un número entre paréntesis que no aparece en la tabla de
 # resultados de SAMAI (ej. "Radicación  25000-...-01 (30146)"). Cuando
-# aparece, se añade al título entre el radicado y la sigla de clase.
+# aparece, se añade al título justo después del radicado (en títulos antiguos que
+# todavía traen la sigla de clase, el número queda entre el radicado y la sigla).
 
 from core.scrapers.families.samai import (
     _TITULO_CE_RE,

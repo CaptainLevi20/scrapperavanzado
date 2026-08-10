@@ -1206,6 +1206,29 @@ def test_list_documents_collapse_keeps_only_the_most_recent_actuacion_for_samai(
     assert [d.doc_id for d in items] == ["doc-new"]
 
 
+def test_list_documents_collapse_works_for_samai_titles_without_acronimo(db_session):
+    """Nuevo formato: los títulos de Consejo de Estado ya no llevan acrónimo,
+    y aun así las actuaciones de un mismo expediente deben colapsar a la más
+    reciente."""
+    from datetime import date
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    shared_title = "11001-03-28-000-2026-00271-00"
+    repository.insert_document(
+        db_session, doc_id="doc-old", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_public=date(2026, 7, 14),
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_public=date(2026, 7, 27),
+    )
+
+    items, total = repository.list_documents(db_session, family_key="samai", collapse_case_families=True)
+
+    assert total == 1
+    assert [d.doc_id for d in items] == ["doc-new"]
+
+
 def test_list_documents_collapse_keeps_only_the_most_recent_actuacion_for_tribunal_administrativo(db_session):
     """A Tribunal Administrativo source is also family "samai", but its titles
     look like rama_judicial's format instead of Consejo de Estado's (see
