@@ -10,9 +10,12 @@ import { fetchAllActiveSourcesWithDocuments } from "../api/sources";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { TableRowsSkeleton } from "../components/TableSkeleton";
+import { Skeleton } from "../components/ui/skeleton";
 import { NativeSelect } from "../components/ui/native-select";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
-import { formatDate, todayDateString } from "../lib/formatters";
+import { formatDate, formatNumber, todayDateString } from "../lib/formatters";
+import { useDebouncedValue } from "../lib/useDebouncedValue";
 
 const PAGE_SIZE = 50;
 
@@ -58,6 +61,10 @@ function formatDateFilterLabel(from: string, to: string): string {
 
 export function DocumentsPage() {
   const [title, setTitle] = useState("");
+  // The <input> below stays bound to `title` for instant feedback; the query
+  // reads this debounced copy so typing a term fires one request on pause, not
+  // one per keystroke (each of which is a full DB round-trip via the queryKey).
+  const debouncedTitle = useDebouncedValue(title, 300);
   const [tipo, setTipo] = useState("");
   const [seccion, setSeccion] = useState("");
   const [especialidad, setEspecialidad] = useState("");
@@ -168,10 +175,10 @@ export function DocumentsPage() {
   );
 
   const documentsQuery = useQuery({
-    queryKey: ["documents", title, tipo, seccion, especialidad, magistrado, sourceId, reviewStatus, fPublicFrom, fPublicTo, downloadedFrom, downloadedTo, page],
+    queryKey: ["documents", debouncedTitle, tipo, seccion, especialidad, magistrado, sourceId, reviewStatus, fPublicFrom, fPublicTo, downloadedFrom, downloadedTo, page],
     queryFn: () =>
       fetchDocuments({
-        title: title || undefined,
+        title: debouncedTitle || undefined,
         tipo: tipo || undefined,
         seccion: seccion || undefined,
         especialidad: especialidad || undefined,
@@ -499,7 +506,7 @@ export function DocumentsPage() {
 
       <div className={`${TABLE_SHELL} flex min-h-0 flex-1 flex-col`}>
         <div className={`${TABLE_SCROLL} flex-1 overflow-y-auto`}>
-          <table className={`${TABLE} h-full min-w-[1200px]`}>
+          <table className={`${TABLE} h-full min-w-[1200px]`} aria-busy={documentsQuery.isLoading}>
           <thead className="sticky top-0 z-10">
             <tr className={THEAD_ROW}>
               <th className={`${TH} min-w-[260px]`}>Título</th>
@@ -515,6 +522,13 @@ export function DocumentsPage() {
             </tr>
           </thead>
           <tbody>
+            {documentsQuery.isLoading && (
+              <TableRowsSkeleton
+                rows={8}
+                columns={10}
+                widths={["w-40", "w-24", "w-20", "w-20", "w-28", "w-24", "w-24", "w-24", "w-16", "w-24"]}
+              />
+            )}
             {!documentsQuery.isLoading && (documentsQuery.data?.items.length ?? 0) === 0 && (
               <tr>
                 <td colSpan={10} className="h-full p-0">
@@ -566,7 +580,19 @@ export function DocumentsPage() {
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Total: <span className="font-mono-num font-semibold text-foreground">{documentsQuery.data?.total ?? 0}</span>
+          {!documentsQuery.data ? (
+            <Skeleton className="h-4 w-44" />
+          ) : documentsQuery.data.total === 0 ? (
+            "Sin documentos"
+          ) : (
+            <>
+              Mostrando{" "}
+              <span className="font-mono-num font-semibold text-foreground">
+                {formatNumber(page * PAGE_SIZE + 1)}–{formatNumber(page * PAGE_SIZE + documentsQuery.data.items.length)}
+              </span>{" "}
+              de <span className="font-mono-num font-semibold text-foreground">{formatNumber(documentsQuery.data.total)}</span>
+            </>
+          )}
         </p>
         <div className="flex gap-2">
           <button

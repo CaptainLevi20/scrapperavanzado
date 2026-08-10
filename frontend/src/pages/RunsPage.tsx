@@ -9,6 +9,7 @@ import type { Source } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
+import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
@@ -193,7 +194,7 @@ export function RunsPage() {
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
-          <table className={TABLE}>
+          <table className={TABLE} aria-busy={runsQuery.isLoading}>
             <thead>
               <tr className={THEAD_ROW}>
                 <th className={TH}>ID</th>
@@ -205,7 +206,10 @@ export function RunsPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleRuns?.map((run) => (
+              {runsQuery.isLoading ? (
+                <TableRowsSkeleton rows={6} columns={6} widths={["w-10", "w-24", "w-20", "w-20", "w-20", "w-28"]} />
+              ) : (
+                visibleRuns?.map((run) => (
                 <tr key={run.id} className={TBODY_ROW}>
                   <td className={TD_MONO}>
                     <Link to={`/runs/${run.id}`} className="font-semibold text-sello-ink hover:underline">
@@ -220,7 +224,8 @@ export function RunsPage() {
                   <td className={TD_MONO}>{formatDate(run.ffin)}</td>
                   <td className={TD_MONO}>{formatDateTime(run.created_at)}</td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>

@@ -4,6 +4,7 @@ import { GitMerge } from "lucide-react";
 import { fetchCaseLinks } from "../api/caseLinks";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { Skeleton } from "../components/ui/skeleton";
 import { formatDate, formatRadicado } from "../lib/formatters";
 
 export function ExpedientesPage() {
@@ -32,7 +33,21 @@ export function ExpedientesPage() {
         <EmptyState message="No hay expedientes todavía." />
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-3" aria-busy={expedientesQuery.isLoading}>
+        {expedientesQuery.isLoading &&
+          Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4"
+            >
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-56" />
+                <Skeleton className="h-3 w-40" />
+                <Skeleton className="h-3 w-64" />
+              </div>
+              <Skeleton className="h-4 w-28" />
+            </div>
+          ))}
         {expedientesQuery.data?.map((expediente) => (
           <div key={expediente.id} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4">
             <div>
