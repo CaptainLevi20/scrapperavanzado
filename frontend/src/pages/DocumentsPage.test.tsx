@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -7,6 +7,13 @@ import { delay, http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { DocumentsPage } from "./DocumentsPage";
 import { todayDateString, formatDate } from "../lib/formatters";
+
+// The preview dialog renders PdfViewer, which pulls in pdf.js — unrunnable under
+// jsdom. These tests only exercise the table/filters/pagination and (for the
+// preview) the dialog header, never the PDF canvas, so stub the viewer out.
+vi.mock("../components/PdfViewer", () => ({
+  PdfViewer: ({ title }: { title: string }) => <div title={`Vista previa de ${title}`} />,
+}));
 
 const BASE_URL = "http://localhost:8000";
 

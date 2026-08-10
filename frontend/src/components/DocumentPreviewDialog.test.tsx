@@ -8,6 +8,17 @@ import { clearStoredToken } from "../api/client";
 import type { Document } from "../api/types";
 import { DocumentPreviewDialog } from "./DocumentPreviewDialog";
 
+// The real PdfViewer pulls in pdf.js, which can't run under jsdom (no canvas /
+// DOMMatrix). Its own rendering is covered by the pdfPage unit test plus live
+// verification; here we stand it in with a lightweight stub that preserves the
+// "Vista previa de <title>" accessor these tests use as a readiness signal, and
+// exposes the presigned url it was handed via data-url.
+vi.mock("./PdfViewer", () => ({
+  PdfViewer: ({ url, title }: { url: string; title: string }) => (
+    <div title={`Vista previa de ${title}`} data-testid="pdf-viewer" data-url={url} />
+  ),
+}));
+
 const BASE_URL = "http://localhost:8000";
 
 function makeDocument(overrides: Partial<Document> = {}): Document {
@@ -63,7 +74,7 @@ function mockPreviewUrl(id: number, url = `https://signed.example.com/doc${id}.p
 describe("DocumentPreviewDialog", () => {
   beforeEach(() => clearStoredToken());
 
-  it("renders an iframe for a PDF document", async () => {
+  it("renders the pdf viewer for a PDF document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc PDF" })];
     mockPreviewUrl(1);
 
@@ -258,7 +269,7 @@ describe("DocumentPreviewDialog", () => {
     await screen.findByTitle("Vista previa de Doc 1");
   });
 
-  it("renders an iframe for a previewable RTF document (via /preview, not /download)", async () => {
+  it("renders the pdf viewer for a previewable RTF document (via /preview, not /download)", async () => {
     const documents = [makeDocument({ id: 9, title: "Doc RTF", content_type: "application/rtf" })];
     mockPreviewUrl(9);
 
@@ -275,18 +286,17 @@ describe("DocumentPreviewDialog", () => {
     expect(await screen.findByText("Vista previa no disponible para este tipo de archivo.")).toBeInTheDocument();
   });
 
-  it("points the iframe at the presigned URL with the native pdf viewer toolbar suppressed", async () => {
-    // #toolbar=0 hides the browser's own built-in pdf viewer chrome (including its
-    // download button) — downloading is offered via our own explicit "Descargar RTF"
-    // / "Descargar PDF" buttons instead, which can express the RTF-vs-PDF choice a
-    // single native button couldn't.
+  it("hands the pdf viewer the presigned preview URL", async () => {
+    // The document (title/download) uses the RTF; the preview is the converted
+    // PDF at this presigned URL, which our pdf.js viewer loads directly (its
+    // range requests are CORS-allowed by the storage).
     const documents = [makeDocument({ id: 11, title: "SAI-AOI-RC-PMA-320-2026", content_type: "application/rtf" })];
     mockPreviewUrl(11, "https://signed.example.com/SAI-AOI-RC-PMA-320-2026.preview.pdf");
 
     renderDialog(documents, 0);
 
-    const iframe = await screen.findByTitle("Vista previa de SAI-AOI-RC-PMA-320-2026");
-    expect(iframe).toHaveAttribute("src", "https://signed.example.com/SAI-AOI-RC-PMA-320-2026.preview.pdf#toolbar=0");
+    const viewer = await screen.findByTestId("pdf-viewer");
+    expect(viewer).toHaveAttribute("data-url", "https://signed.example.com/SAI-AOI-RC-PMA-320-2026.preview.pdf");
   });
 
   it("shows both Descargar RTF and Descargar PDF for a native RTF document", async () => {
