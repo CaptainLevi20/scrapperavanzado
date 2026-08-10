@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # captura todo menos el acrónimo. Cubre el formato con guiones y el crudo de
 # 23 dígitos (documentos viejos). Un título de Tribunal Administrativo
 # (T_{CÓDIGO}_...) no matchea y se deja intacto.
+# Se asume un solo grupo de número antes del acrónimo (igual que SAMAI_CASE_TITLE_PATTERN);
+# un título con más de uno no se toca.
 _TITULO_CON_ACRONIMO_RE = re.compile(
     r"^(\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\(\d[^)]{0,29}\))?"
     r"|\d{23}(?:\(\d[^)]{0,29}\))?)"

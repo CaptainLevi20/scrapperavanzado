@@ -250,7 +250,7 @@ def test_samai_doc_id_differs_for_distinct_actuaciones_sharing_a_radicado():
     assert doc_id_1 != doc_id_2
 
 
-# --- título: {radicado}({acrónimo de la clase de proceso}) --------------------
+# --- título de Consejo de Estado: {radicado} (sin acrónimo de clase) ---
 #
 # Catálogo y reglas de normalización dictados por el usuario a partir de datos
 # reales de Consejo de Estado (ver core/scrapers/families/samai.py).
@@ -520,7 +520,8 @@ def test_parse_row_uses_clase_column_to_build_the_polished_title():
 # Algunos documentos de Consejo de Estado traen, junto al radicado en su
 # primera página, un número entre paréntesis que no aparece en la tabla de
 # resultados de SAMAI (ej. "Radicación  25000-...-01 (30146)"). Cuando
-# aparece, se añade al título entre el radicado y la sigla de clase.
+# aparece, se añade al título justo después del radicado (en títulos antiguos que
+# todavía traen la sigla de clase, el número queda entre el radicado y la sigla).
 
 from core.scrapers.families.samai import (
     _TITULO_CE_RE,
