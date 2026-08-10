@@ -34,7 +34,7 @@ describe("BulkDownloadsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("completed")).toBeInTheDocument();
+    expect(await screen.findByText("Completado")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText(/2 omitidos/)).toBeInTheDocument();
   });

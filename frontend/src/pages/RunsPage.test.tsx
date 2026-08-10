@@ -44,7 +44,7 @@ describe("RunsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("running")).toBeInTheDocument();
+    expect(await screen.findByText("En curso")).toBeInTheDocument();
   });
 
   it("does not show 'no runs' while the first request is still in flight", async () => {
