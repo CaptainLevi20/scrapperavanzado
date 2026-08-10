@@ -24,6 +24,11 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    // The Dashboard route is code-split (React.lazy), so it renders only after
+    // its chunk resolves — allow more than the 1s findBy default, which the
+    // dynamic import can exceed when the whole suite runs in parallel.
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }, { timeout: 5000 })
+    ).toBeInTheDocument();
   });
 });

@@ -1,3 +1,10 @@
+// Groups thousands the Colombian way (a dot: 9.608, 1.234.567) so large counts
+// stay legible across the app — document totals, per-source/tipo tallies, the
+// dashboard stat cards, etc. Kept in one place so every count reads the same.
+export function formatNumber(value: number): string {
+  return value.toLocaleString("es-CO");
+}
+
 export function formatBytes(bytes: number | null): string {
   if (bytes === null) return "—";
   if (bytes < 1024) return `${bytes} B`;

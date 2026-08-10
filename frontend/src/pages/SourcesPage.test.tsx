@@ -38,6 +38,26 @@ describe("SourcesPage", () => {
     expect(await within(table).findByText("Sala Plena")).toBeInTheDocument();
   });
 
+  it("shows skeleton placeholder rows while loading, then swaps them for the real rows", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, async () => {
+        await delay(50);
+        return HttpResponse.json([{ id: 1, family_key: "constitucional", name: "Sala Plena", family_params: {}, active: true }]);
+      })
+    );
+
+    const { container } = renderPage();
+
+    // While the first request is in flight, the table shows placeholder rows.
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+
+    // Once the data lands, the real row replaces the placeholders entirely.
+    // Scoped to the table — the name also appears as an <option> in the filter.
+    const table = screen.getByRole("table");
+    expect(await within(table).findByText("Sala Plena")).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0);
+  });
+
   it("does not show 'no sources' while the first request is still in flight", async () => {
     server.use(
       http.get(`${BASE_URL}/sources`, async () => {

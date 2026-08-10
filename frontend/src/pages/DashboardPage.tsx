@@ -8,7 +8,9 @@ import { fetchAllActiveSources } from "../api/sources";
 import type { Document, DocumentReviewStatus } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
-import { formatDateTime, formatRelativeTime, todayDateString } from "../lib/formatters";
+import { TableRowsSkeleton } from "../components/TableSkeleton";
+import { Skeleton } from "../components/ui/skeleton";
+import { formatDateTime, formatNumber, formatRelativeTime, todayDateString } from "../lib/formatters";
 import { sourceCountsToBuckets, tipoCountsToBuckets, type CountBucket } from "../lib/dashboardStats";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { NativeSelect } from "../components/ui/native-select";
@@ -74,7 +76,7 @@ function BarList({ data }: { data: CountBucket[] }) {
             <span className="truncate text-muted-foreground" title={bucket.label}>
               {bucket.label}
             </span>
-            <span className="shrink-0 font-mono-num text-foreground">{bucket.count}</span>
+            <span className="shrink-0 font-mono-num text-foreground">{formatNumber(bucket.count)}</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-secondary">
             <div
@@ -94,7 +96,7 @@ function MonthlyBars({ counts }: { counts: number[] }) {
     <div className="flex h-36 items-stretch gap-2">
       {counts.map((count, index) => (
         <div key={MONTH_LABELS[index]} className="flex h-full flex-1 flex-col items-center justify-end gap-1.5">
-          <span className="font-mono-num text-[0.65rem] text-muted-foreground">{count > 0 ? count : ""}</span>
+          <span className="font-mono-num text-[0.65rem] text-muted-foreground">{count > 0 ? formatNumber(count) : ""}</span>
           <div
             className="w-full rounded-t bg-sello transition-[height] motion-reduce:transition-none"
             style={{ height: `${(count / max) * 100}%`, minHeight: count > 0 ? "4px" : "0px" }}
@@ -169,18 +171,30 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Radar} label="Fuentes activas" value={activeSourcesQuery.data?.length ?? "—"} />
+        <StatCard
+          icon={Radar}
+          label="Fuentes activas"
+          value={activeSourcesQuery.isLoading ? <Skeleton className="h-8 w-16" /> : activeSourcesQuery.data ? formatNumber(activeSourcesQuery.data.length) : "—"}
+        />
         <StatCard
           icon={FileClock}
           label="Sin revisar"
-          value={pendingReviewQuery.data?.total ?? "—"}
+          value={pendingReviewQuery.isLoading ? <Skeleton className="h-8 w-16" /> : pendingReviewQuery.data ? formatNumber(pendingReviewQuery.data.total) : "—"}
         />
-        <StatCard icon={FileText} label="Documentos totales" value={documentsCountQuery.data?.total ?? "—"} />
+        <StatCard
+          icon={FileText}
+          label="Documentos totales"
+          value={documentsCountQuery.isLoading ? <Skeleton className="h-8 w-16" /> : documentsCountQuery.data ? formatNumber(documentsCountQuery.data.total) : "—"}
+        />
         <StatCard
           icon={Activity}
           label="Runs (24h)"
-          value={runsLast24h.length}
-          detail={`${byStatus.pending} pendientes · ${byStatus.running} en curso · ${byStatus.completed} completados`}
+          value={recentRunsQuery.isLoading ? <Skeleton className="h-8 w-16" /> : formatNumber(runsLast24h.length)}
+          detail={
+            recentRunsQuery.isLoading
+              ? undefined
+              : `${byStatus.pending} pendientes · ${byStatus.running} en curso · ${byStatus.completed} completados`
+          }
         />
       </div>
 
@@ -261,21 +275,27 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {novedades.map((document) => (
-                  <tr key={document.id} className={TBODY_ROW}>
-                    <td className={`${TD} font-medium text-foreground`}>{document.title}</td>
-                    <td className={TD}>{sourceNameById.get(document.source_id) ?? "—"}</td>
-                    <td className={TD}>{document.tipo ?? "—"}</td>
-                    <td className={`${TD_MONO} whitespace-nowrap`}>{formatRelativeTime(document.downloaded_at)}</td>
-                    <td className={TD}>
-                      <ReviewStamp status={document.review_status} />
-                    </td>
-                  </tr>
-                ))}
+                {novedadesQuery.isLoading ? (
+                  <TableRowsSkeleton rows={4} columns={5} widths={["w-56", "w-24", "w-20", "w-16", "w-20"]} />
+                ) : (
+                  novedades.map((document) => (
+                    <tr key={document.id} className={TBODY_ROW}>
+                      <td className={`${TD} font-medium text-foreground`}>{document.title}</td>
+                      <td className={TD}>{sourceNameById.get(document.source_id) ?? "—"}</td>
+                      <td className={TD}>{document.tipo ?? "—"}</td>
+                      <td className={`${TD_MONO} whitespace-nowrap`}>{formatRelativeTime(document.downloaded_at)}</td>
+                      <td className={TD}>
+                        <ReviewStamp status={document.review_status} />
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-          {novedades.length === 0 && <EmptyState message="No han llegado documentos hoy." />}
+          {!novedadesQuery.isLoading && novedades.length === 0 && (
+            <EmptyState message="No han llegado documentos hoy." />
+          )}
         </div>
       </div>
 
@@ -292,23 +312,29 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {recentRuns.slice(0, 5).map((run) => (
-                  <tr key={run.id} className={TBODY_ROW}>
-                    <td className={TD_MONO}>
-                      <Link to={`/runs/${run.id}`} className="font-semibold text-sello-ink hover:underline">
-                        #{run.id}
-                      </Link>
-                    </td>
-                    <td className={TD}>
-                      <StatusBadge status={run.status} />
-                    </td>
-                    <td className={TD}>{formatDateTime(run.created_at)}</td>
-                  </tr>
-                ))}
+                {recentRunsQuery.isLoading ? (
+                  <TableRowsSkeleton rows={5} columns={3} widths={["w-10", "w-24", "w-28"]} />
+                ) : (
+                  recentRuns.slice(0, 5).map((run) => (
+                    <tr key={run.id} className={TBODY_ROW}>
+                      <td className={TD_MONO}>
+                        <Link to={`/runs/${run.id}`} className="font-semibold text-sello-ink hover:underline">
+                          #{run.id}
+                        </Link>
+                      </td>
+                      <td className={TD}>
+                        <StatusBadge status={run.status} />
+                      </td>
+                      <td className={TD}>{formatDateTime(run.created_at)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-          {recentRuns.length === 0 && <EmptyState message="Todavía no se ha ejecutado ningún run." />}
+          {!recentRunsQuery.isLoading && recentRuns.length === 0 && (
+            <EmptyState message="Todavía no se ha ejecutado ningún run." />
+          )}
         </div>
       </div>
     </div>

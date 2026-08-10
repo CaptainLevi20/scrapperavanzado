@@ -6,8 +6,9 @@ import { downloadFromUrl } from "../api/documents";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
+import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Button } from "../components/ui/button";
-import { formatDateTime } from "../lib/formatters";
+import { formatDateTime, formatNumber } from "../lib/formatters";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 
 const POLL_INTERVAL_MS = 4000;
@@ -57,7 +58,7 @@ export function BulkDownloadsPage() {
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
-          <table className={TABLE}>
+          <table className={TABLE} aria-busy={bulkDownloadsQuery.isLoading}>
             <thead>
               <tr className={THEAD_ROW}>
                 <th className={TH}>ID</th>
@@ -68,16 +69,19 @@ export function BulkDownloadsPage() {
               </tr>
             </thead>
             <tbody>
-              {bulkDownloadsQuery.data?.map((item) => (
+              {bulkDownloadsQuery.isLoading ? (
+                <TableRowsSkeleton rows={6} columns={5} widths={["w-10", "w-24", "w-16", "w-28", "w-24"]} />
+              ) : (
+                bulkDownloadsQuery.data?.map((item) => (
                 <tr key={item.id} className={TBODY_ROW}>
                   <td className={TD_MONO}>#{item.id}</td>
                   <td className={TD}>
                     <StatusBadge status={item.status} />
                   </td>
                   <td className={TD}>
-                    {item.document_count}
+                    {formatNumber(item.document_count)}
                     {item.failed_count > 0 && (
-                      <span className="ml-1.5 text-xs text-muted-foreground">({item.failed_count} omitidos)</span>
+                      <span className="ml-1.5 text-xs text-muted-foreground">({formatNumber(item.failed_count)} omitidos)</span>
                     )}
                   </td>
                   <td className={TD_MONO}>{formatDateTime(item.created_at)}</td>
@@ -93,7 +97,8 @@ export function BulkDownloadsPage() {
                     )}
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>

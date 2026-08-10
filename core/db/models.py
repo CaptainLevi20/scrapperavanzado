@@ -107,7 +107,12 @@ class Document(Base):
     doc_id = Column(String, nullable=False, unique=True)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
     run_source_id = Column(Integer, ForeignKey("run_sources.id"), nullable=True)
-    title = Column(String, nullable=False)
+    # Indexed: the general listing's "collapse case families" clause self-joins
+    # documents on equal titles within a family (see repository.list_documents).
+    # Without this index that correlated subquery seq-scans the whole table once
+    # per row — an O(n²) blow-up that made the total-count for the unfiltered
+    # /documents view take ~35s over ~10k rows.
+    title = Column(String, nullable=False, index=True)
     tipo = Column(String, nullable=True)
     seccion = Column(String, nullable=True)
     especialidad = Column(String, nullable=True)

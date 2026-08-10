@@ -5,6 +5,7 @@ import { fetchAllSources, fetchSources, updateSource } from "../api/sources";
 import type { Source } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Button } from "../components/ui/button";
 import { NativeSelect } from "../components/ui/native-select";
 import { useAuth } from "../auth/AuthContext";
@@ -119,7 +120,7 @@ export function SourcesPage() {
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
-          <table className={TABLE}>
+          <table className={TABLE} aria-busy={sourcesQuery.isLoading}>
             <thead>
               <tr className={THEAD_ROW}>
                 <th className={TH}>Nombre</th>
@@ -128,9 +129,11 @@ export function SourcesPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleSources?.map((source) => (
-                <SourceRow key={source.id} source={source} />
-              ))}
+              {sourcesQuery.isLoading ? (
+                <TableRowsSkeleton rows={6} columns={3} widths={["w-48", "w-20", "w-24"]} />
+              ) : (
+                visibleSources?.map((source) => <SourceRow key={source.id} source={source} />)
+              )}
             </tbody>
           </table>
         </div>

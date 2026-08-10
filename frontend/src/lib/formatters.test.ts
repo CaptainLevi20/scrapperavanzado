@@ -1,11 +1,18 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { formatBytes, formatDate, formatDateTime, todayDateString } from "./formatters";
+import { formatBytes, formatDate, formatDateTime, formatNumber, todayDateString } from "./formatters";
 
 describe("formatBytes", () => {
   it("formats bytes under 1KB", () => expect(formatBytes(500)).toBe("500 B"));
   it("formats KB", () => expect(formatBytes(2048)).toBe("2.0 KB"));
   it("formats MB", () => expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB"));
   it("returns an em dash for null", () => expect(formatBytes(null)).toBe("—"));
+});
+
+describe("formatNumber", () => {
+  it("leaves values under a thousand untouched", () => expect(formatNumber(608)).toBe("608"));
+  it("groups thousands with a dot (es-CO)", () => expect(formatNumber(9608)).toBe("9.608"));
+  it("groups millions", () => expect(formatNumber(1234567)).toBe("1.234.567"));
+  it("formats zero", () => expect(formatNumber(0)).toBe("0"));
 });
 
 describe("formatDate / formatDateTime", () => {

@@ -5,9 +5,11 @@ import { cancelRun, fetchRun, fetchRunSources } from "../api/runs";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
+import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Button } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
-import { formatDate, formatDateTime } from "../lib/formatters";
+import { formatDate, formatDateTime, formatNumber } from "../lib/formatters";
 import { isStaleRun, isTerminalRunStatus, shouldPollRun } from "../lib/runStatus";
 
 const POLL_INTERVAL_MS = 4000;
@@ -17,6 +19,47 @@ function InfoField({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
       <dd className="font-mono-num text-sm text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+// Shown while the run's own record is still loading — mirrors the real layout
+// (title, the 5-field summary card, and the per-source table) so the page
+// doesn't jump when the data lands.
+function RunDetailSkeleton() {
+  return (
+    <div className="space-y-6" aria-busy="true">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-6 w-24" />
+      </div>
+      <div className="grid grid-cols-5 gap-4 rounded-lg border border-border bg-card p-5 shadow-sm">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className={TABLE_SHELL}>
+        <div className={TABLE_SCROLL}>
+          <table className={TABLE} aria-busy="true">
+            <thead>
+              <tr className={THEAD_ROW}>
+                <th className={TH}>Fuente</th>
+                <th className={TH}>Estado</th>
+                <th className={TH}>Docs nuevos</th>
+                <th className={TH}>Actualizados</th>
+                <th className={TH}>Docs con error</th>
+                <th className={TH}>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              <TableRowsSkeleton rows={5} columns={6} widths={["w-32", "w-24", "w-10", "w-10", "w-10", "w-16"]} />
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -66,7 +109,7 @@ export function RunDetailPage() {
   if (runQuery.isError) {
     return <ErrorBanner message="No se pudo cargar el run." onRetry={() => runQuery.refetch()} />;
   }
-  if (!runQuery.data) return <p className="text-sm text-muted-foreground">Cargando…</p>;
+  if (!runQuery.data) return <RunDetailSkeleton />;
   const run = runQuery.data;
 
   return (
@@ -107,7 +150,7 @@ export function RunDetailPage() {
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
-          <table className={TABLE}>
+          <table className={TABLE} aria-busy={sourcesQuery.isLoading}>
             <thead>
               <tr className={THEAD_ROW}>
                 <th className={TH}>Fuente</th>
@@ -119,18 +162,22 @@ export function RunDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {sourcesQuery.data?.map((runSource) => (
+              {sourcesQuery.isLoading ? (
+                <TableRowsSkeleton rows={5} columns={6} widths={["w-32", "w-24", "w-10", "w-10", "w-10", "w-16"]} />
+              ) : (
+                sourcesQuery.data?.map((runSource) => (
                 <tr key={runSource.id} className={TBODY_ROW}>
                   <td className={TD}>{runSource.source_name}</td>
                   <td className={TD}>
                     <StatusBadge status={runSource.status} />
                   </td>
-                  <td className={TD_MONO}>{runSource.docs_new}</td>
-                  <td className={TD_MONO}>{runSource.docs_updated}</td>
-                  <td className={TD_MONO}>{runSource.docs_errors}</td>
+                  <td className={TD_MONO}>{formatNumber(runSource.docs_new)}</td>
+                  <td className={TD_MONO}>{formatNumber(runSource.docs_updated)}</td>
+                  <td className={TD_MONO}>{formatNumber(runSource.docs_errors)}</td>
                   <td className={`${TD} text-rojo`}>{runSource.error_message ?? "—"}</td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>

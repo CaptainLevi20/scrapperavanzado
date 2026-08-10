@@ -179,6 +179,27 @@ describe("DocumentsPage", () => {
     expect(await screen.findByText("No hay documentos que coincidan con estos filtros.")).toBeInTheDocument();
   });
 
+  it("shows skeleton placeholder rows before the results while the documents are loading", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, async () => {
+        await delay(50);
+        return HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 });
+      })
+    );
+
+    const { container } = renderPage();
+
+    // Before the results arrive, the table body shows placeholder rows — not a
+    // blank table — so the user gets immediate feedback that documents are on
+    // their way.
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+
+    // Once the real rows load, the placeholders are gone.
+    expect(await screen.findByText("Sentencia C-001-26")).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0);
+  });
+
   it("does not show a file size column — it's tracked but not meant to be displayed here", async () => {
     mockFilterEndpoints();
     server.use(
@@ -221,6 +242,61 @@ describe("DocumentsPage", () => {
     await user.type(screen.getByPlaceholderText(/buscar por t.tulo/i), "sentencia");
 
     await waitFor(() => expect(lastUrl).toContain("title=sentencia"));
+  });
+
+  it("debounces the title search so typing a term fires one request, not one per keystroke", async () => {
+    mockFilterEndpoints();
+    let documentsRequests = 0;
+    let lastUrl = "";
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        documentsRequests += 1;
+        lastUrl = request.url;
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(documentsRequests).toBeGreaterThan(0));
+    const beforeTyping = documentsRequests;
+
+    await user.type(screen.getByPlaceholderText(/buscar por t.tulo/i), "constitucional");
+
+    await waitFor(() => expect(lastUrl).toContain("title=constitucional"));
+    // A per-keystroke implementation would have fired ~14 requests for this
+    // 14-character term; debounced, the burst collapses to a single trailing one.
+    expect(documentsRequests - beforeTyping).toBeLessThanOrEqual(2);
+  });
+
+  it("shows the current range and total (thousands-grouped) in the pagination footer", async () => {
+    mockFilterEndpoints();
+    const items = Array.from({ length: 50 }, (_, i) => ({ ...DOCUMENT, id: i + 1, doc_id: `d${i}`, title: `Doc ${i + 1}` }));
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items, total: 9608, limit: 50, offset: 0 }))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    // Page 1 of many: "Mostrando 1–50 de 9.608" (es-CO groups thousands with a dot).
+    expect(await screen.findByText("1–50")).toBeInTheDocument();
+    expect(screen.getByText("9.608")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    // Advancing a page shifts the range, keeping the same total.
+    expect(await screen.findByText("51–100")).toBeInTheDocument();
+    expect(screen.getByText("9.608")).toBeInTheDocument();
+  });
+
+  it("shows 'Sin documentos' in the footer when there are no results", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }))
+    );
+    renderPage();
+
+    expect(await screen.findByText("Sin documentos")).toBeInTheDocument();
   });
 
   it("only shows Previsualizar in Acciones — no direct download button in the table", async () => {
