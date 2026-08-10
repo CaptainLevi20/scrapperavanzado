@@ -357,6 +357,16 @@ export function DocumentPreviewDialog({
                       >
                         No útil
                       </Button>
+                      {doc.review_status !== "pending" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={markOtherMutation.isPending}
+                          onClick={() => handleMarkOther(doc.id, "pending")}
+                        >
+                          Sin revisar
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" onClick={() => handleDownloadOther(doc)}>
                         <Download className="size-3.5" aria-hidden="true" />
                         Descargar
@@ -442,6 +452,16 @@ export function DocumentPreviewDialog({
             >
               No útil
             </Button>
+            {currentDocument.review_status !== "pending" && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => handleMark("pending")}
+              >
+                Sin revisar
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>

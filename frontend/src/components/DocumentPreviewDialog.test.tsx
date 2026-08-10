@@ -637,4 +637,67 @@ describe("DocumentPreviewDialog", () => {
     await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
     createElementSpy.mockRestore();
   });
+
+  it("shows the footer 'Sin revisar' button only when the current document is already marked, and clicking it sets it back to pending", async () => {
+    const documents = [
+      makeDocument({ id: 80, title: "Doc marcado", review_status: "useful" }),
+      makeDocument({ id: 81, title: "Doc 2" }),
+    ];
+    mockPreviewUrl(80);
+    mockPreviewUrl(81);
+    let patchedBody: { review_status: string } | null = null;
+    server.use(
+      http.patch(`${BASE_URL}/documents/80`, async ({ request }) => {
+        patchedBody = (await request.json()) as { review_status: string };
+        return HttpResponse.json({ ...documents[0], review_status: patchedBody.review_status });
+      })
+    );
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc marcado");
+
+    await user.click(screen.getByRole("button", { name: /sin revisar/i }));
+
+    await waitFor(() => expect(patchedBody).toEqual({ review_status: "pending" }));
+  });
+
+  it("hides the footer 'Sin revisar' button when the current document is still pending", async () => {
+    const documents = [makeDocument({ id: 82, title: "Doc pendiente", review_status: "pending" })];
+    mockPreviewUrl(82);
+
+    renderDialog(documents, 0);
+    await screen.findByTitle("Vista previa de Doc pendiente");
+
+    expect(screen.queryByRole("button", { name: /sin revisar/i })).not.toBeInTheDocument();
+  });
+
+  it("lets the user set a sibling actuación back to pending from the list, shown only when it's already marked", async () => {
+    const documents = [
+      makeDocument({ id: 90, title: "Actual" }),
+      makeDocument({ id: 91, title: "Otra", detalle: "Auto Marcado", review_status: "not_useful" }),
+      makeDocument({ id: 92, title: "Otra", detalle: "Auto Pendiente", review_status: "pending" }),
+    ];
+    mockPreviewUrl(90);
+    let patchedBody: { review_status: string } | null = null;
+    server.use(
+      http.patch(`${BASE_URL}/documents/91`, async ({ request }) => {
+        patchedBody = (await request.json()) as { review_status: string };
+        return HttpResponse.json({ ...documents[1], review_status: patchedBody.review_status });
+      })
+    );
+    const user = userEvent.setup();
+
+    renderDialog(documents, 0, vi.fn(), true);
+    await screen.findByTitle("Vista previa de Actual");
+
+    // The still-pending sibling offers no "Sin revisar" button; the marked one does.
+    const pendingRow = screen.getByText(/Auto Pendiente/).closest("li")!;
+    expect(within(pendingRow).queryByRole("button", { name: /sin revisar/i })).not.toBeInTheDocument();
+
+    const markedRow = screen.getByText(/Auto Marcado/).closest("li")!;
+    await user.click(within(markedRow).getByRole("button", { name: /sin revisar/i }));
+
+    await waitFor(() => expect(patchedBody).toEqual({ review_status: "pending" }));
+  });
 });
