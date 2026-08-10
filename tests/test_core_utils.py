@@ -198,10 +198,10 @@ def test_is_samai_case_title_matches_a_multi_letter_acronym():
     assert is_samai_case_title("11001-03-24-000-2022-00373-00(NSP)") is True
 
 
-def test_is_samai_case_title_rejects_a_bare_radicado_without_acronym():
-    # No known clase matched — _normalizar_titulo leaves it as the bare radicado
-    # (see core/scrapers/families/samai.py), which must not be grouped as a case.
-    assert is_samai_case_title("11001-03-24-000-2022-00373-00") is False
+def test_is_samai_case_title_matches_a_bare_radicado():
+    # Nuevo formato: el título de Consejo de Estado ya no lleva acrónimo, así
+    # que el radicado solo SÍ es un título de caso válido.
+    assert is_samai_case_title("11001-03-24-000-2022-00373-00") is True
 
 
 def test_is_samai_case_title_rejects_an_empty_string():
@@ -215,13 +215,9 @@ def test_is_samai_case_title_matches_a_complemented_title_with_acronimo():
     assert is_samai_case_title("25000-23-37-000-2021-00423-01(30146)(NRD)") is True
 
 
-def test_is_samai_case_title_rejects_a_bare_radicado_complemented_with_only_a_number():
-    # No acronimo matched (_normalizar_titulo left the title as a bare
-    # radicado) but the title still picked up the extra number, so it becomes
-    # "{radicado}({numero})" — a lone all-digit parenthetical group must NOT be
-    # mistaken for a real acronimo (which always starts with an uppercase
-    # letter — see _CLASE_ACRONIMOS in core/scrapers/families/samai.py).
-    assert is_samai_case_title("11001-03-24-000-2026-99999-00(30146)") is False
+def test_is_samai_case_title_matches_a_bare_radicado_complemented_with_only_a_number():
+    # Nuevo formato con número de caso, sin acrónimo.
+    assert is_samai_case_title("11001-03-24-000-2026-99999-00(30146)") is True
 
 
 def test_is_samai_case_title_matches_a_complemented_title_with_numero_ano_format():
@@ -242,6 +238,11 @@ def test_is_samai_case_title_matches_a_raw_undashed_title():
     # case titles for case linking and badge counting.
     assert is_samai_case_title("25000234200020200000801(NRD)") is True
     assert is_samai_case_title("11001031234000202100001(RER)") is True
+
+
+def test_is_samai_case_title_matches_a_bare_raw_radicado_without_acronym():
+    # Mismo caso para el formato crudo de 23 dígitos (documentos viejos).
+    assert is_samai_case_title("25000234200020200000801") is True
 
 
 from core.utils import matching_prefix_length, MIN_MATCH_DIGITS

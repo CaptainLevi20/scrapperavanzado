@@ -33,22 +33,26 @@ def is_radicado_title(title: str) -> bool:
 # extra entre el radicado y el acrónimo — "{radicado}({número})({ACRÓNIMO})" — así que
 # ese grupo numérico es opcional aquí. El número no siempre es solo dígitos (datos
 # reales confirmaron también "3104-2023" y "74.604"), así que el grupo acepta
-# cualquier contenido corto entre paréntesis. El grupo del acrónimo, en cambio, es
-# obligatorio y debe empezar con una letra mayúscula (ver _CLASE_ACRONIMOS en
-# samai.py: todas las siglas reales empiezan con letra, algunas con dígitos al final
-# como "PI1"/"PI2") — nunca puramente numérico, porque un documento sin clase
-# conocida y CON el número extra produce un título "{radicado}({número})" (ver
-# _normalizar_titulo + Finding 2 del review) que de otro modo sería indistinguible
-# de un caso real.
+# cualquier contenido corto entre paréntesis, siempre que empiece con un dígito (para
+# distinguirlo del grupo del acrónimo). Desde jul. 2026 _normalizar_titulo ya NO agrega
+# el acrónimo de la clase — el título de Consejo de Estado queda como "{radicado}" o
+# "{radicado}({número})" — así que el grupo del acrónimo también es opcional aquí. Los
+# títulos viejos con acrónimo ({radicado}({ACRÓNIMO}) y
+# {radicado}({número})({ACRÓNIMO})) se siguen reconociendo durante la transición, hasta
+# que el backfill los homogenice. El grupo del acrónimo, cuando aparece, debe empezar
+# con una letra mayúscula (ver _CLASE_ACRONIMOS en samai.py: todas las siglas reales
+# empiezan con letra, algunas con dígitos al final como "PI1"/"PI2") — nunca puramente
+# numérico, para no confundirlo con el grupo del número.
 # Normalized format (with dashes): 25000-23-42-002-0202-00008-01(NRD)
 SAMAI_CASE_TITLE_PATTERN = re.compile(
-    r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
+    r"^\d{5}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}-\d{2}"
+    r"(?:\(\d[^)]{0,29}\))?(?:\([A-Z][A-Z0-9]*\))?$"
 )
 
 # Raw format (without dashes, for documents captured before scraper started formatting):
 # 25000234200020200000801(NRD)
 SAMAI_CASE_TITLE_RAW_PATTERN = re.compile(
-    r"^\d{23}(?:\([^)]{1,30}\))?\([A-Z][A-Z0-9]*\)$"
+    r"^\d{23}(?:\(\d[^)]{0,29}\))?(?:\([A-Z][A-Z0-9]*\))?$"
 )
 
 
