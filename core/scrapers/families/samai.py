@@ -19,15 +19,15 @@ _URL = "https://samai.consejodeestado.gov.co/vistas/utiles/WEstados.aspx"
 
 logger = logging.getLogger(__name__)
 
-# El código de SAMAI_CORPS para Consejo de Estado — el único corp cuyo título
-# sigue llevando el acrónimo de la clase entre paréntesis (ver _normalizar_titulo).
+# El código de SAMAI_CORPS para Consejo de Estado — su título es solo el
+# radicado, sin sufijo de clase (ver _normalizar_titulo).
 _CONSEJO_DE_ESTADO_CORP_CODE = "1100103"
 
 # La columna "Clase" de SAMAI describe el tipo de proceso, pero el mismo proceso
 # aparece escrito de formas distintas según la sección/época (con o sin el
 # prefijo "LEY 1437 ...", con o sin "ACCIÓN (DE) ...", con o sin la referencia
 # "ARTÍCULO ### DECISIÓN ###"/"ART. ##") — _normalizar_clase quita ese ruido
-# antes de buscar el acrónimo.
+# antes de buscar el nombre legible en _especialidad_legible.
 _LEY_RE = re.compile(r"LEY\s+[0-9./-]+\s*", re.IGNORECASE)
 _ACCION_RE = re.compile(r"^ACCION(ES)?\s+(DE\s+)?", re.IGNORECASE)
 _ART_RE = re.compile(r"ART(?:ICULO|[IÍ]CULO|\.)?\s*\d+\s*(?:DECISION\s+\d+\s*)?", re.IGNORECASE)
@@ -193,19 +193,20 @@ _CLASE_ACRONIMOS = {
 
 
 def _normalizar_titulo(radicado: str, clase: str, corp_code: str) -> str:
-    # Consejo de Estado keeps {radicado}({ACRÓNIMO}) — but Tribunales
-    # Administrativos must NOT look the same (serían fácilmente confundibles
-    # con providencias de Consejo de Estado). En su lugar imitan el formato
-    # de los Tribunales Superiores (core/scrapers/families/rama_judicial.py::
-    # _normalize_title): "T_{CÓDIGO}_{radicado segmentado con guiones bajos}".
-    # El radicado de SAMAI ya llega segmentado con guiones (5-2-2-3-4-5-2
-    # dígitos), así que basta con cambiar "-" por "_" para calzar exactamente
-    # con la segmentación que produce rama_judicial. La clase de proceso no
-    # importa para el título de un Tribunal Administrativo (solo se usa para
-    # nutrir el catálogo de Consejo de Estado — ver _especialidad_legible).
+    # Consejo de Estado: el título es solo el radicado — la clase no se anexa
+    # (ni siquiera como acrónimo). Tribunales Administrativos tampoco lo hacen,
+    # pero además deben NO parecerse al formato de Consejo de Estado (serían
+    # fácilmente confundibles con providencias de Consejo de Estado). En su
+    # lugar imitan el formato de los Tribunales Superiores
+    # (core/scrapers/families/rama_judicial.py::_normalize_title):
+    # "T_{CÓDIGO}_{radicado segmentado con guiones bajos}". El radicado de
+    # SAMAI ya llega segmentado con guiones (5-2-2-3-4-5-2 dígitos), así que
+    # basta con cambiar "-" por "_" para calzar exactamente con la
+    # segmentación que produce rama_judicial. La clase de proceso no afecta el
+    # título en ninguno de los dos casos — solo nutre el catálogo legible de
+    # la columna Especialidad (ver _especialidad_legible).
     if corp_code == _CONSEJO_DE_ESTADO_CORP_CODE:
-        acronimo = _CLASE_ACRONIMOS.get(_normalizar_clase(clase))
-        return f"{radicado}({acronimo})" if acronimo else radicado
+        return radicado
     codigo = TRIBUNAL_CODES.get(corp_code[:2])
     return f"T_{codigo}_{radicado.replace('-', '_')}" if codigo else radicado
 
