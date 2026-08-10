@@ -72,3 +72,17 @@ def test_seed_populates_families_and_sources_and_is_idempotent(db_session):
         s.family_params.get("entidad_id") == "31" and s.family_params.get("dept_code") == ""
         for s in rama_judicial_sources
     )
+
+
+def test_seed_marks_corte_constitucional_documents_useful_on_entry(db_session):
+    """Regression test: everything from Corte Constitucional is confirmed useful
+    by the sources team, so the source must be seeded with
+    family_params.auto_review_status="useful" — otherwise the worker lands its
+    documents as "pending" (the auto-review machinery exists but only fires when
+    this key is present). The source used to be seeded with an empty
+    family_params, so nothing was ever marked useful automatically."""
+    seed_source_families_and_sources(db_session)
+
+    constitucional = repository.list_sources(db_session, family_key="constitucional")
+    assert len(constitucional) == 1
+    assert constitucional[0].family_params.get("auto_review_status") == "useful"

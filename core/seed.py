@@ -49,7 +49,12 @@ def seed_source_families_and_sources(db) -> None:
     for key, (display_name, description) in _FAMILIES.items():
         repository.create_source_family_if_missing(db, key=key, display_name=display_name, description=description)
 
-    repository.create_source_if_missing(db, family_key="constitucional", name="Corte Constitucional", family_params={})
+    # El equipo de fuentes confirma que todo lo que trae la Corte Constitucional
+    # es útil, así que sus documentos deben entrar ya revisados como "useful" en
+    # vez de "pending" (worker.scrape_source_task lee este auto_review_status).
+    repository.create_source_if_missing(
+        db, family_key="constitucional", name="Corte Constitucional", family_params={"auto_review_status": "useful"}
+    )
 
     for corp_code, corp_name in SAMAI_CORPS.items():
         repository.create_source_if_missing(
