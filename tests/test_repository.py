@@ -1,6 +1,22 @@
 import pytest
 
 from core.db import repository
+from core.db.models import Document
+
+
+def test_documents_title_is_indexed():
+    """Guards the performance fix for the unfiltered /documents listing.
+
+    list_documents(collapse_case_families=True) evaluates a correlated EXISTS
+    subquery that self-joins documents on equal titles within a source family.
+    Without an index on documents.title that subquery seq-scans the whole table
+    once per row — an O(n^2) plan that made the total-count for the unfiltered
+    view take ~35s over ~10k rows. If someone drops index=True from the model
+    (and the matching migration), this catches it before it ships."""
+    indexed_column_sets = {
+        tuple(col.name for col in index.columns) for index in Document.__table__.indexes
+    }
+    assert ("title",) in indexed_column_sets
 
 
 def test_create_and_list_sources(db_session):
