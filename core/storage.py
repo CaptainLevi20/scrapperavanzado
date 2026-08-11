@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -7,7 +8,16 @@ from botocore.client import Config as BotoConfig
 from core.config import get_settings
 
 
+@lru_cache
 def _client(endpoint_url: Optional[str] = None):
+    # Cacheado por endpoint_url: crear un cliente boto3 nuevo en cada llamada
+    # abre su propio pool de conexiones que nunca se reutiliza — con muchas
+    # llamadas seguidas (ej. el backfill de storage_sync, miles de
+    # renombrados) las conexiones se acumulan más rápido de lo que el
+    # sistema operativo las cierra, y todo se pone cada vez más lento.
+    # s3_endpoint_url/las credenciales no cambian en la vida del proceso
+    # (get_settings() también está cacheado), así que reutilizar el cliente
+    # es seguro.
     settings = get_settings()
     return boto3.client(
         "s3",
@@ -15,7 +25,13 @@ def _client(endpoint_url: Optional[str] = None):
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
-        config=BotoConfig(signature_version="s3v4"),
+        # Un solo cliente ahora atiende TODAS las llamadas del proceso (ver
+        # el cacheo arriba), no una por llamada — el tope por defecto (10)
+        # alcanzaba con clientes de usar-y-tirar, pero aquí se queda corto
+        # apenas hay descargas concurrentes (MAX_CONCURRENT_DOCUMENT_DOWNLOADS
+        # en worker/tasks.py) o una corrida masiva como el backfill, y las
+        # llamadas de más se quedan esperando un turno libre en vez de fallar.
+        config=BotoConfig(signature_version="s3v4", max_pool_connections=50),
     )
 
 

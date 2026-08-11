@@ -1,7 +1,25 @@
 import requests
 
-from core.storage import presigned_url, upload_file
+from core.storage import _client, presigned_url, upload_file
 from tests.conftest import TEST_S3_BUCKET
+
+
+def test_client_is_reused_across_calls_with_the_same_endpoint():
+    """Regresión: _client() creaba un cliente boto3 (y su propio pool de
+    conexiones) nuevo en cada llamada — con cientos/miles de llamadas
+    seguidas (ej. el backfill de storage_sync) esto acumula conexiones más
+    rápido de lo que el sistema operativo las cierra, poniendo todo cada vez
+    más lento. Debe reutilizar el mismo cliente."""
+    first = _client()
+    second = _client()
+    assert first is second
+
+
+def test_client_caches_separately_per_endpoint_url():
+    default_client = _client()
+    other_client = _client(endpoint_url="http://otro-endpoint-de-prueba:9000")
+    assert default_client is not other_client
+    assert _client(endpoint_url="http://otro-endpoint-de-prueba:9000") is other_client
 
 
 def test_upload_file_and_presigned_url_roundtrip(tmp_path):
