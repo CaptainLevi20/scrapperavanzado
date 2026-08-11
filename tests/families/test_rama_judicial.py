@@ -1,5 +1,8 @@
+from datetime import date
+
 import responses
 
+from core.scrapers.families import rama_judicial
 from core.scrapers.families.rama_judicial import (
     JUZGADOS_ENTIDADES,
     SUPERIORES_DEPTS,
@@ -9,6 +12,7 @@ from core.scrapers.families.rama_judicial import (
     _normalize_title,
 )
 from core.scrapers.registry import FAMILY_REGISTRY
+from core.models import RawDocModel
 
 _BASE_DOMAIN = "https://publicacionesprocesales.ramajudicial.gov.co"
 
@@ -554,3 +558,37 @@ def test_scrap_keeps_first_occurrence_even_when_the_size_check_disagrees(monkeyp
     # Regression test: this used to be a bare print(), invisible to server logs —
     # now it must go through the logging module like the rest of the project.
     assert any("cambió de tamaño" in r.message for r in caplog.records)
+
+
+def _raw(title):
+    return RawDocModel(source="Rama Judicial", link={"url": "u", "method": "GET", "body": {"path": "uuid"}},
+                       title=title, tipo="Sentencias", f_public="2026-08-10")
+
+
+def test_resolve_llena_f_providencia_desde_pdf(monkeypatch, tmp_path):
+    scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
+    monkeypatch.setattr(
+        rama_judicial, "_extraer_texto_primera_pagina",
+        lambda p: "Bogotá, diez (10) de agosto de dos mil veintiséis (2026)",
+    )
+    doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
+    scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
+    assert doc.f_providencia == "2026-08-10"
+
+
+def test_resolve_sin_fecha_deja_f_providencia_none(monkeypatch, tmp_path):
+    scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
+    monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", lambda p: "sin fecha")
+    doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
+    scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
+    assert doc.f_providencia is None
+
+
+def test_resolve_ignora_error_de_lectura(monkeypatch, tmp_path):
+    scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
+    def _boom(p):
+        raise RuntimeError("pdf ilegible")
+    monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", _boom)
+    doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
+    scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
+    assert doc.f_providencia is None
