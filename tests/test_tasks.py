@@ -1549,6 +1549,78 @@ def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, t
         assertion_session.close()
 
 
+def test_build_bulk_download_zip_excludes_documents_already_included_in_a_previous_bulk_download(db_session, test_engine, monkeypatch):
+    """Regression test: a second bulk download used to re-include every document
+    still marked 'useful', even ones already delivered in an earlier zip. Only
+    documents newly marked useful since the last completed bulk download should
+    show up in the next one."""
+    from pathlib import Path
+    import tempfile
+    import zipfile
+
+    from core.storage import presigned_url, upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("doc1.pdf", "doc2.pdf"):
+            local = Path(tmp) / name
+            local.write_bytes(f"contenido {name}".encode())
+            upload_file(local, f"JEP/2026-06-01/Auto/{name}", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc1.pdf",
+    )
+
+    first_bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(first_bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed_first = repository.get_bulk_download(assertion_session, first_bulk_download.id)
+        assert refreshed_first.status == "completed"
+        assert refreshed_first.document_count == 1
+    finally:
+        assertion_session.close()
+
+    # Otra inspección posterior marca un documento nuevo como útil.
+    repository.insert_document(
+        db_session, doc_id="doc-2", source_id=source.id, title="Doc 2", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc2.pdf",
+    )
+
+    second_bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(second_bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed_second = repository.get_bulk_download(assertion_session, second_bulk_download.id)
+        assert refreshed_second.status == "completed"
+        # Solo doc-2 es nuevo — doc-1 ya se entregó en la primera descarga masiva.
+        assert refreshed_second.document_count == 1
+
+        url = presigned_url(TEST_S3_BUCKET, refreshed_second.zip_storage_key)
+        import requests
+        response = requests.get(url, timeout=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "result.zip"
+            zip_path.write_bytes(response.content)
+            with zipfile.ZipFile(zip_path) as zf:
+                names = zf.namelist()
+                assert len(names) == 1
+                assert zf.read(names[0]) == b"contenido doc2.pdf"
+    finally:
+        assertion_session.close()
+
+
 def test_build_bulk_download_zip_skips_a_document_that_fails_to_download(db_session, test_engine, monkeypatch):
     from pathlib import Path
     import tempfile

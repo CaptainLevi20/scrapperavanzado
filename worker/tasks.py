@@ -563,6 +563,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             # correspondencia aunque el bucle se salte algún documento después.
             family_keys = repository.get_source_family_keys(db, [d.source_id for d in documents])
             arcnames = _nombres_zip(documents, family_keys)
+            included_document_ids: list[int] = []
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for document, arcname in zip(documents, arcnames):
                     # Re-validated here even though the key was already checked when
@@ -582,6 +583,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                         download_file(document.storage_bucket, document.storage_key, local_path)
                         zf.write(local_path, arcname=arcname)
                         downloaded_count += 1
+                        included_document_ids.append(document.id)
                     except Exception as exc:
                         logger.warning("No se pudo incluir %s en la descarga masiva: %s", document.storage_key, exc)
                         failed_count += 1
@@ -614,6 +616,10 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             storage_bucket=zip_bucket,
             finished_at=datetime.now(timezone.utc),
         )
+        # Only mark documents as delivered once the zip has actually been
+        # uploaded successfully — if upload_file() above had failed, these
+        # would stay eligible and get retried by the next bulk download.
+        repository.mark_documents_bulk_downloaded(db, included_document_ids, bulk_download_id)
     except Exception as exc:
         repository.set_bulk_download_status(
             db, bulk_download_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)

@@ -139,6 +139,11 @@ class Document(Base):
     # republicación (ver archive_and_replace_document). El nombre canónico
     # muestra "_v{n}" solo cuando hay más de una versión (version_no > 1).
     version_no = Column(Integer, nullable=False, default=1, server_default="1")
+    # Set once this document has been successfully delivered inside a completed
+    # bulk download's zip, so list_useful_documents() can exclude it from the
+    # next one. Cleared whenever the document's review status changes, so a
+    # fresh "useful" decision makes it eligible again.
+    bulk_download_id = Column(Integer, ForeignKey("bulk_downloads.id"), nullable=True)
 
 
 class DocumentVersion(Base):

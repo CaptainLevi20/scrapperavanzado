@@ -267,8 +267,19 @@ def set_bulk_download_status(db: Session, bulk_download_id: int, status: str, **
 
 
 def list_useful_documents(db: Session) -> list[Document]:
-    stmt = select(Document).where(Document.review_status == "useful")
+    # Excludes documents already delivered in an earlier completed bulk
+    # download (bulk_download_id set) — otherwise every new bulk download
+    # would re-bundle everything ever marked useful, not just what's new.
+    stmt = select(Document).where(Document.review_status == "useful", Document.bulk_download_id.is_(None))
     return list(db.scalars(stmt).all())
+
+
+def mark_documents_bulk_downloaded(db: Session, document_ids: list[int], bulk_download_id: int) -> None:
+    if not document_ids:
+        return
+    stmt = update(Document).where(Document.id.in_(document_ids)).values(bulk_download_id=bulk_download_id)
+    db.execute(stmt)
+    db.commit()
 
 
 def document_exists(db: Session, doc_id: str) -> bool:
@@ -884,6 +895,9 @@ def update_document_review_status(db: Session, document_id: int, review_status: 
         return None
     document.review_status = review_status
     document.reviewed_at = datetime.now(timezone.utc)
+    # A fresh review decision makes the document eligible for bulk download
+    # again, even if an earlier version of it was already delivered.
+    document.bulk_download_id = None
     db.commit()
     db.refresh(document)
     return document
@@ -985,7 +999,7 @@ def bulk_update_document_review_status(db: Session, document_ids: list[int], rev
     stmt = (
         update(Document)
         .where(Document.id.in_(document_ids))
-        .values(review_status=review_status, reviewed_at=datetime.now(timezone.utc))
+        .values(review_status=review_status, reviewed_at=datetime.now(timezone.utc), bulk_download_id=None)
     )
     result = db.execute(stmt)
     db.commit()
