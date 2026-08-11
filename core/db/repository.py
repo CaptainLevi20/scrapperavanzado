@@ -965,6 +965,16 @@ def update_document_storage_key(db: Session, document_id: int, storage_key: str)
     return document
 
 
+def update_document_version_storage_key(db: Session, version_id: int, storage_key: str) -> Optional[DocumentVersion]:
+    version = db.get(DocumentVersion, version_id)
+    if version is None:
+        return None
+    version.storage_key = storage_key
+    db.commit()
+    db.refresh(version)
+    return version
+
+
 def purge_documents_for_source(db: Session, source_id: int) -> dict:
     """Deletes every Document (and its DocumentVersion / RunSource / RunError
     rows) belonging to source_id — none of the FKs involved have ON DELETE

@@ -1693,3 +1693,24 @@ def test_republication_increments_version_no(db_session):
     versions = repository.list_document_versions(db_session, doc.id)
     assert sorted(v.version_no for v in versions) == [1, 2]
     assert repository.get_document(db_session, doc.id).version_no == 3
+
+
+def test_update_document_version_storage_key_updates_and_returns_the_version(db_session):
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    doc = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="rad-1",
+        storage_bucket="iurisync-test", storage_key="v1.pdf",
+    )
+    repository.archive_and_replace_document(db_session, doc.id, storage_bucket="iurisync-test", storage_key="v2.pdf")
+    [version] = repository.list_document_versions(db_session, doc.id)
+
+    updated = repository.update_document_version_storage_key(db_session, version.id, "renombrado.pdf")
+
+    assert updated.storage_key == "renombrado.pdf"
+    db_session.refresh(version)
+    assert version.storage_key == "renombrado.pdf"
+
+
+def test_update_document_version_storage_key_returns_none_when_missing(db_session):
+    assert repository.update_document_version_storage_key(db_session, 999999, "x.pdf") is None
