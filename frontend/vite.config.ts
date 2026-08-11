@@ -10,6 +10,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // La oficina tiene equipos con Chrome congelado en la 109 (Windows 8 no
+    // permite actualizar Chrome más allá de esa versión). Se fija el objetivo de
+    // compilación a ese piso para que esbuild rebaje cualquier sintaxis moderna
+    // —de la app o de dependencias como pdf.js— a algo que la 109 sí entienda.
+    // Las funciones nuevas en tiempo de ejecución (Promise.withResolvers,
+    // URL.parse, …) no se pueden rebajar así: esas se cubren con los polyfills
+    // en src/lib/polyfills.ts.
+    target: ["chrome109", "edge109", "firefox115", "safari15"],
+  },
   test: {
     globals: true,
     environment: "jsdom",
