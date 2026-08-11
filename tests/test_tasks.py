@@ -1404,6 +1404,70 @@ def test_scrape_source_task_dispatches_storage_sync_when_a_second_actuacion_arri
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_dispatches_storage_sync_after_republication(db_session, test_engine, monkeypatch):
+    """Republicar un documento le agrega/actualiza el sufijo de versión
+    (_v2) en el nombre — el archivo vigente y la versión recién archivada
+    deben quedar renombrados en MinIO sin que nadie los toque a mano."""
+    from core.utils import compute_doc_id
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    raw_doc = RawDocModel(
+        source="Dummy Source",
+        link={"url": "https://example.com/doc1", "method": "GET"},
+        title="Documento 1",
+        tipo="Auto",
+        f_public="2026-01-01",
+    )
+    doc_id = compute_doc_id(raw_doc, include_publication_date=True)
+
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+
+    existing_key = "Dummy Source/2026-01-01/Auto/Documento 1.pdf"
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / "existente.pdf"
+        local.write_bytes(b"contenido viejo")
+        upload_file(local, existing_key, bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    existing_doc = repository.insert_document(
+        db_session, doc_id=doc_id, source_id=source.id, title="Documento 1",
+        storage_bucket=TEST_S3_BUCKET, storage_key=existing_key,
+        content_type="application/pdf", file_size_bytes=9, source_url="https://example.com/doc1",
+    )
+
+    DummyFamilyScraper.docs_to_return = [raw_doc]
+    responses.add(responses.HEAD, "https://example.com/doc1", headers={"Content-Length": "20"}, status=200)
+    responses.add(
+        responses.GET, "https://example.com/doc1",
+        body=b"contenido republicado", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_document(assertion_session, existing_doc.id)
+        assert refreshed.version_no == 2
+        assert refreshed.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v2.pdf"
+        [version] = repository.list_document_versions(assertion_session, existing_doc.id)
+        assert version.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v1.pdf"
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

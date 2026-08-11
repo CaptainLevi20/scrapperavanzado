@@ -389,6 +389,7 @@ def scrape_source_task(run_source_id: int):
                                             db, existing.id, review_status=auto_review_status or "pending", **payload
                                         )
                                         docs_updated += 1
+                                        documentos_republicados.add(existing.id)
                                 except Exception as db_exc:
                                     db.rollback()
                                     docs_errors += 1
@@ -414,6 +415,8 @@ def scrape_source_task(run_source_id: int):
 
         for family_key, title in titulos_con_actuacion_nueva:
             reconcile_title_group_task.delay(family_key, title)
+        for document_id in documentos_republicados:
+            reconcile_document_task.delay(document_id)
 
         repository.set_run_source_status(
             db,
