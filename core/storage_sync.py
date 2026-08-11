@@ -24,8 +24,10 @@ def reconcile_document(db: Session, document: Document, family_key: Optional[str
         return False
     try:
         rename_object(document.storage_bucket, document.storage_key, nueva_key)
+        # Ambas operaciones (MinIO + DB) en el mismo try — si la DB falla después
+        # de que MinIO ya renombró, aceptamos la inconsistencia temporal.
+        repository.update_document_storage_key(db, document.id, nueva_key)
     except Exception as exc:
         logger.warning("No se pudo renombrar el documento %s en MinIO: %s", document.id, exc)
         return False
-    repository.update_document_storage_key(db, document.id, nueva_key)
     return True

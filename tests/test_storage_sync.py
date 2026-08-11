@@ -62,3 +62,4 @@ def test_reconcile_document_logs_and_returns_false_when_rename_fails(db_session,
     assert result is False
     db_session.refresh(doc)
     assert doc.storage_key == "Rama Judicial/2026-08-06/Auto/placeholder.pdf"  # sin cambios
+    assert "No se pudo renombrar el documento" in caplog.text
