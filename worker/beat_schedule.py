@@ -7,6 +7,7 @@ from core.db import repository
 from core.db.session import SessionLocal
 from worker.celery_app import celery_app
 from worker.tasks import orchestrate_run
+from worker.storage_sync_tasks import reconcile_all_task  # noqa: F401 — registra la tarea en beat_schedule
 
 
 @celery_app.task(name="worker.trigger_scheduled_run")
@@ -33,5 +34,9 @@ celery_app.conf.beat_schedule = {
     "daily-scrape": {
         "task": "worker.trigger_scheduled_run",
         "schedule": crontab(hour=6, minute=0),
+    },
+    "nightly-storage-sync": {
+        "task": "worker.reconcile_all_task",
+        "schedule": crontab(hour=2, minute=0),
     },
 }

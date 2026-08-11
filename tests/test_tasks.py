@@ -335,6 +335,11 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
 
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Republicar dispara reconcile_document_task (ver worker/tasks.py) — con
+    # task_always_eager=True corre de verdad dentro de este test, así que
+    # también necesita su propia sesión apuntando al motor de prueba (si no,
+    # intenta conectar a la base real por defecto y falla).
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     scrape_source_task(run_source.id)
@@ -354,7 +359,6 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
         assert updated_document.reviewed_at is None
 
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
-        assert version.storage_key == "old-key.pdf"
         assert version.file_size_bytes == 9
     finally:
         assertion_session.close()
@@ -411,6 +415,10 @@ def test_scrape_source_task_matches_existing_document_by_stable_doc_id_ignoring_
 
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Republicar dispara reconcile_document_task (ver worker/tasks.py) — con
+    # task_always_eager=True corre de verdad dentro de este test, así que
+    # también necesita su propia sesión apuntando al motor de prueba.
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     try:
@@ -649,6 +657,10 @@ def test_scrape_source_task_applies_auto_review_status_from_family_params_on_rep
 
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Republicar dispara reconcile_document_task (ver worker/tasks.py) — con
+    # task_always_eager=True corre de verdad dentro de este test, así que
+    # también necesita su propia sesión apuntando al motor de prueba.
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     scrape_source_task(run_source.id)
@@ -1328,6 +1340,142 @@ def test_scrape_source_task_cancellation_poller_never_touches_the_run_orm_object
         [refreshed] = repository.list_run_sources(assertion_session, run.id)
         assert refreshed.status == "cancelled"
         assert refreshed.docs_new == 1  # only the fast one made it in
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_dispatches_storage_sync_when_a_second_actuacion_arrives(db_session, test_engine, monkeypatch):
+    """Regresión: T_SANT_68001_33_33_007_2025_00290_02 no tenía otra actuación
+    y su archivo en MinIO se guardó sin ningún sufijo (ver spec). Cuando llega
+    una segunda actuación con el mismo título, el documento existente (el que
+    nadie tocó directamente) también debe quedar renombrado con fecha
+    completa en MinIO, no solo el nuevo."""
+    from pathlib import Path
+    import tempfile
+
+    from core.scrapers.registry import FAMILY_REGISTRY
+    from core.storage import upload_file
+
+    monkeypatch.setitem(FAMILY_REGISTRY, "rama_judicial", DummyFamilyScraper)
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+
+    shared_title = "T_SANT_68001_33_33_007_2025_00290_02"
+    existing_key = f"Rama Judicial/2026-08-06/Auto/{shared_title}.pdf"
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / "existente.pdf"
+        local.write_bytes(b"contenido existente")
+        upload_file(local, existing_key, bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    existing_doc = repository.insert_document(
+        db_session, doc_id="rj-existente", source_id=source.id, title=shared_title,
+        storage_bucket=TEST_S3_BUCKET, storage_key=existing_key,
+        f_providencia=date(2026, 8, 6),
+    )
+
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Tribunal Superior de Bogotá",
+            link={"url": "https://example.com/doc-nuevo", "method": "GET"},
+            title=shared_title,
+            tipo="Auto",
+            f_public="2026-08-20",
+            f_providencia="2026-08-20",
+        )
+    ]
+    responses.add(
+        responses.GET, "https://example.com/doc-nuevo",
+        body=b"contenido nuevo", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        documentos = {
+            d.id: d for d in repository.list_documents_by_title_within_family(assertion_session, "rama_judicial", shared_title)
+        }
+        assert len(documentos) == 2
+        assert documentos[existing_doc.id].storage_key == f"Rama Judicial/2026-08-06/Auto/{shared_title}_20260806.pdf"
+        nuevo = next(d for d in documentos.values() if d.id != existing_doc.id)
+        assert nuevo.storage_key == f"{source.name}/2026-08-20/Auto/{shared_title}_20260820.pdf"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_dispatches_storage_sync_after_republication(db_session, test_engine, monkeypatch):
+    """Republicar un documento le agrega/actualiza el sufijo de versión
+    (_v2) en el nombre — el archivo vigente y la versión recién archivada
+    deben quedar renombrados en MinIO sin que nadie los toque a mano."""
+    from core.utils import compute_doc_id
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    raw_doc = RawDocModel(
+        source="Dummy Source",
+        link={"url": "https://example.com/doc1", "method": "GET"},
+        title="Documento 1",
+        tipo="Auto",
+        f_public="2026-01-01",
+    )
+    doc_id = compute_doc_id(raw_doc, include_publication_date=True)
+
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+
+    existing_key = "Dummy Source/2026-01-01/Auto/Documento 1.pdf"
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / "existente.pdf"
+        local.write_bytes(b"contenido viejo")
+        upload_file(local, existing_key, bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    existing_doc = repository.insert_document(
+        db_session, doc_id=doc_id, source_id=source.id, title="Documento 1",
+        storage_bucket=TEST_S3_BUCKET, storage_key=existing_key,
+        content_type="application/pdf", file_size_bytes=9, source_url="https://example.com/doc1",
+    )
+
+    DummyFamilyScraper.docs_to_return = [raw_doc]
+    responses.add(responses.HEAD, "https://example.com/doc1", headers={"Content-Length": "20"}, status=200)
+    responses.add(
+        responses.GET, "https://example.com/doc1",
+        body=b"contenido republicado", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_document(assertion_session, existing_doc.id)
+        assert refreshed.version_no == 2
+        assert refreshed.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v2.pdf"
+        [version] = repository.list_document_versions(assertion_session, existing_doc.id)
+        assert version.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v1.pdf"
     finally:
         assertion_session.close()
 

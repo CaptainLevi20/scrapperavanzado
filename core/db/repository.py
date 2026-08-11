@@ -587,6 +587,15 @@ def actuacion_counts_by_title(
     return counts
 
 
+def list_documents_by_title_within_family(db: Session, family_key: str, title: str) -> list[Document]:
+    stmt = (
+        select(Document)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == family_key, Document.title == title)
+    )
+    return list(db.scalars(stmt).all())
+
+
 def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
     stmt = (
         select(Document.source_id, Document.radicado)
@@ -963,6 +972,16 @@ def update_document_storage_key(db: Session, document_id: int, storage_key: str)
     db.commit()
     db.refresh(document)
     return document
+
+
+def update_document_version_storage_key(db: Session, version_id: int, storage_key: str) -> Optional[DocumentVersion]:
+    version = db.get(DocumentVersion, version_id)
+    if version is None:
+        return None
+    version.storage_key = storage_key
+    db.commit()
+    db.refresh(version)
+    return version
 
 
 def purge_documents_for_source(db: Session, source_id: int) -> dict:
