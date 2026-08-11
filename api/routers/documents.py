@@ -27,6 +27,7 @@ from core.naming import (
     nombre_version,
 )
 from core.storage import presigned_url
+from worker.storage_sync_tasks import reconcile_document_task
 from worker.tasks import generate_document_preview_pdf
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,7 @@ def patch_document_title(document_id: int, payload: DocumentTitleUpdate, db: Ses
     document = repository.update_document_title(db, document_id, payload.title)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    reconcile_document_task.delay(document.id)
     return _poblar_nombre(db, document)
 
 

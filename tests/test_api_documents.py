@@ -798,6 +798,29 @@ def test_patch_document_title_returns_404_when_missing(api_client, auth_header):
     assert response.status_code == 404
 
 
+def test_patch_document_title_dispatches_storage_sync(api_client, auth_header, db_session, monkeypatch):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session, doc_id="doc-title-sync", source_id=source.id, title="T-065/24",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    called = []
+    monkeypatch.setattr(
+        "api.routers.documents.reconcile_document_task.delay", lambda document_id: called.append(document_id)
+    )
+
+    response = api_client.patch(
+        f"/documents/{document.id}/title", json={"title": "T-065/24 corregido"}, headers=auth_header
+    )
+
+    assert response.status_code == 200
+    assert called == [document.id]
+
+
 def test_bulk_patch_document_review_status_updates_multiple(api_client, auth_header, db_session):
     from core.db import repository
 
