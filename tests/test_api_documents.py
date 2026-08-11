@@ -546,6 +546,25 @@ def test_get_document_stats_accepts_explicit_year(api_client, auth_header, db_se
     assert set(body["available_years"]) == {2024, 2026}
 
 
+def test_document_out_incluye_nombre_con_version(api_client, auth_header, db_session):
+    # SAMAI (familia con actuaciones) + f_providencia + una republicación → nombre con fecha y _v2
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    doc = repository.insert_document(
+        db_session, doc_id="apx-1", source_id=source.id, title="11001-03-28-000-2026-00300-00",
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_providencia=date(2026, 7, 31),
+    )
+    repository.archive_and_replace_document(db_session, doc.id, storage_bucket="iurisync-test", storage_key="b.pdf")
+
+    response = api_client.get(f"/documents/{doc.id}", headers=auth_header)
+    assert response.status_code == 200
+    assert response.json()["nombre"] == "11001-03-28-000-2026-00300-00_20260731_v2"
+
+
 def test_get_document_returns_404_when_missing(api_client, auth_header):
     response = api_client.get("/documents/999999", headers=auth_header)
     assert response.status_code == 404
@@ -565,7 +584,9 @@ def test_download_document_redirects_to_presigned_url(api_client, auth_header, d
         storage_key="Corte Constitucional/2024-02-01/Sentencia/T-065-24.rtf",
     )
 
-    monkeypatch.setattr("api.routers.documents.presigned_url", lambda bucket, key: "https://signed.example.com/file")
+    monkeypatch.setattr(
+        "api.routers.documents.presigned_url", lambda bucket, key, **kwargs: "https://signed.example.com/file"
+    )
 
     response = api_client.get(f"/documents/{document.id}/download", headers=auth_header, follow_redirects=False)
     assert response.status_code in (302, 307)

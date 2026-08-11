@@ -71,6 +71,7 @@ class DocumentOut(BaseModel):
     doc_id: str
     source_id: int
     title: str
+    nombre: str
     tipo: Optional[str] = None
     seccion: Optional[str] = None
     especialidad: Optional[str] = None
@@ -128,6 +129,7 @@ class DocumentVersionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     document_id: int
+    nombre: str
     file_size_bytes: Optional[int] = None
     content_type: Optional[str] = None
     downloaded_at: datetime
