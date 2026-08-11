@@ -10,7 +10,6 @@ import logging
 from sqlalchemy.orm import Session
 
 from core.db.session import SessionLocal
-from core.storage import rename_object  # noqa: F401 — reexportado para que los tests lo puedan parchear aquí
 from core.storage_sync import reconcile_all
 
 logger = logging.getLogger(__name__)
