@@ -1569,3 +1569,17 @@ def test_list_case_links_with_summary_reports_sources_counts_and_dates(db_sessio
     assert summary["document_count"] == 3
     assert str(summary["f_public_min"]) == "2023-01-01"
     assert str(summary["f_public_max"]) == "2024-05-01"
+
+
+def test_new_document_defaults_to_version_no_1(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-vn-1",
+        source_id=source.id,
+        title="T-100/24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    assert doc.version_no == 1

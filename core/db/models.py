@@ -135,6 +135,10 @@ class Document(Base):
     downloaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     review_status = Column(String, nullable=False, default="pending", server_default="pending")
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    # Número de versión de esta actuación. 1 al crearse; se incrementa en cada
+    # republicación (ver archive_and_replace_document). El nombre canónico
+    # muestra "_v{n}" solo cuando hay más de una versión (version_no > 1).
+    version_no = Column(Integer, nullable=False, default=1, server_default="1")
 
 
 class DocumentVersion(Base):
@@ -151,6 +155,10 @@ class DocumentVersion(Base):
     source_url = Column(Text, nullable=True)
     downloaded_at = Column(DateTime(timezone=True), nullable=False)
     superseded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    # Número de versión que tenía el documento cuando ESTA versión era la
+    # vigente (la más antigua = 1). Fijado al archivar en
+    # archive_and_replace_document.
+    version_no = Column(Integer, nullable=False, default=1, server_default="1")
 
 
 class User(Base):
