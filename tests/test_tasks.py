@@ -1332,6 +1332,78 @@ def test_scrape_source_task_cancellation_poller_never_touches_the_run_orm_object
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_dispatches_storage_sync_when_a_second_actuacion_arrives(db_session, test_engine, monkeypatch):
+    """Regresión: T_SANT_68001_33_33_007_2025_00290_02 no tenía otra actuación
+    y su archivo en MinIO se guardó sin ningún sufijo (ver spec). Cuando llega
+    una segunda actuación con el mismo título, el documento existente (el que
+    nadie tocó directamente) también debe quedar renombrado con fecha
+    completa en MinIO, no solo el nuevo."""
+    from pathlib import Path
+    import tempfile
+
+    from core.scrapers.registry import FAMILY_REGISTRY
+    from core.storage import upload_file
+
+    monkeypatch.setitem(FAMILY_REGISTRY, "rama_judicial", DummyFamilyScraper)
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+
+    shared_title = "T_SANT_68001_33_33_007_2025_00290_02"
+    existing_key = f"Rama Judicial/2026-08-06/Auto/{shared_title}.pdf"
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / "existente.pdf"
+        local.write_bytes(b"contenido existente")
+        upload_file(local, existing_key, bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    existing_doc = repository.insert_document(
+        db_session, doc_id="rj-existente", source_id=source.id, title=shared_title,
+        storage_bucket=TEST_S3_BUCKET, storage_key=existing_key,
+        f_providencia=date(2026, 8, 6),
+    )
+
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Tribunal Superior de Bogotá",
+            link={"url": "https://example.com/doc-nuevo", "method": "GET"},
+            title=shared_title,
+            tipo="Auto",
+            f_public="2026-08-20",
+            f_providencia="2026-08-20",
+        )
+    ]
+    responses.add(
+        responses.GET, "https://example.com/doc-nuevo",
+        body=b"contenido nuevo", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        documentos = {
+            d.id: d for d in repository.list_documents_by_title_within_family(assertion_session, "rama_judicial", shared_title)
+        }
+        assert len(documentos) == 2
+        assert documentos[existing_doc.id].storage_key == f"Rama Judicial/2026-08-06/Auto/{shared_title}_20260806.pdf"
+        nuevo = next(d for d in documentos.values() if d.id != existing_doc.id)
+        assert nuevo.storage_key == f"{source.name}/2026-08-20/Auto/{shared_title}_20260820.pdf"
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

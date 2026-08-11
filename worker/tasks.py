@@ -10,12 +10,13 @@ from pathlib import Path, PurePosixPath
 from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
-from core.naming import nombre_archivo_documento
+from core.naming import es_familia_con_actuaciones, nombre_archivo_documento
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
 from core.utils import compute_doc_id, is_safe_storage_key, rekey_filename
 from worker.celery_app import celery_app
+from worker.storage_sync_tasks import reconcile_document_task, reconcile_title_group_task
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,15 @@ def scrape_source_task(run_source_id: int):
         docs_new = 0
         docs_updated = 0
         docs_errors = 0
+        # Títulos con forma de caso que recibieron una actuación nueva en esta
+        # corrida — al terminar se dispara una reconciliación de storage_key
+        # para todo el grupo (core/storage_sync.py), no solo para el
+        # documento nuevo: sus "hermanos" existentes también pueden necesitar
+        # pasar de solo-año a fecha completa.
+        titulos_con_actuacion_nueva: set[tuple[str, str]] = set()
+        # Documentos republicados en esta corrida — cada uno dispara su
+        # propia reconciliación (les cambió el sufijo de versión).
+        documentos_republicados: set[int] = set()
         # Errors the scraper recovered from mid-scrap (a section, page, or date
         # range that failed but didn't abort the whole thing — see
         # _ScrapProgressCollector) must not be silently invisible just because
@@ -371,6 +381,8 @@ def scrape_source_task(run_source_id: int):
                                         )
                                         if created:
                                             docs_new += 1
+                                            if es_familia_con_actuaciones(source.family_key, doc.title):
+                                                titulos_con_actuacion_nueva.add((source.family_key, doc.title))
                                     else:
                                         _, existing, doc_id, doc = entry
                                         repository.archive_and_replace_document(
@@ -399,6 +411,9 @@ def scrape_source_task(run_source_id: int):
                 db, run_source_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)
             )
             return
+
+        for family_key, title in titulos_con_actuacion_nueva:
+            reconcile_title_group_task.delay(family_key, title)
 
         repository.set_run_source_status(
             db,
