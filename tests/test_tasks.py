@@ -1474,7 +1474,7 @@ def test_generate_document_preview_pdf_propagates_conversion_failure_without_sav
         assertion_session.close()
 
 
-def test_build_bulk_download_zip_uploads_zip_preserving_storage_key_hierarchy(db_session, test_engine, monkeypatch):
+def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, test_engine, monkeypatch):
     from pathlib import Path
     import zipfile
 
@@ -1538,9 +1538,13 @@ def test_build_bulk_download_zip_uploads_zip_preserving_storage_key_hierarchy(db
             zip_path = Path(tmp) / "result.zip"
             zip_path.write_bytes(response.content)
             with zipfile.ZipFile(zip_path) as zf:
+                # Las entradas del ZIP usan el nombre canónico (título + extensión),
+                # no la ruta interna de almacenamiento (storage_key) — ver
+                # core/naming.py y worker/tasks.py::_nombres_zip. "jep" no es una
+                # familia con actuaciones, así que el nombre es solo título+ext.
                 names = set(zf.namelist())
-                assert names == {"JEP/2026-06-01/Auto/doc1.pdf", "JEP/2026-06-02/Sentencia/doc2.pdf"}
-                assert zf.read("JEP/2026-06-01/Auto/doc1.pdf") == b"contenido uno"
+                assert names == {"Doc 1.pdf", "Doc 2.pdf"}
+                assert zf.read("Doc 1.pdf") == b"contenido uno"
     finally:
         assertion_session.close()
 
