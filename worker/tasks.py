@@ -20,14 +20,17 @@ from worker.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-def _nombres_zip(documents, family_keys) -> list[str]:
+def _nombres_zip(documents, family_keys, actuacion_counts) -> list[str]:
     """Nombre de cada entrada del ZIP = nombre canónico + extensión. Desambigua
     colisiones agregando ' (2)', ' (3)'… antes de la extensión, para no
-    sobrescribir un archivo con otro dentro del mismo ZIP."""
+    sobrescribir un archivo con otro dentro del mismo ZIP. actuacion_counts
+    (de repository.actuacion_counts_by_title) decide si la fecha va completa
+    (hay otra actuación con el mismo título) o solo el año (todavía no)."""
     usados: dict[str, int] = {}
     nombres: list[str] = []
     for d in documents:
-        base = nombre_archivo_documento(d, family_keys.get(d.source_id))
+        tiene_actuaciones = actuacion_counts.get(d.title, 0) > 1
+        base = nombre_archivo_documento(d, family_keys.get(d.source_id), tiene_actuaciones)
         if base not in usados:
             usados[base] = 1
             nombres.append(base)
@@ -562,7 +565,8 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             # `documents`, así que zip(documents, arcnames) mantiene la
             # correspondencia aunque el bucle se salte algún documento después.
             family_keys = repository.get_source_family_keys(db, [d.source_id for d in documents])
-            arcnames = _nombres_zip(documents, family_keys)
+            actuacion_counts = repository.actuacion_counts_by_title(db, documents, family_keys)
+            arcnames = _nombres_zip(documents, family_keys, actuacion_counts)
             included_document_ids: list[int] = []
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for document, arcname in zip(documents, arcnames):
