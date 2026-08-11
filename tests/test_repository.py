@@ -160,6 +160,44 @@ def test_list_useful_documents_filters_by_review_status(db_session):
     assert [doc.doc_id for doc in useful] == ["doc-useful"]
 
 
+def test_list_useful_documents_excludes_documents_already_in_a_bulk_download(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    delivered = repository.insert_document(
+        db_session, doc_id="doc-delivered", source_id=source.id, title="A", review_status="useful",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="doc-new", source_id=source.id, title="B", review_status="useful",
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    bulk_download = repository.create_bulk_download(db_session)
+    repository.mark_documents_bulk_downloaded(db_session, [delivered.id], bulk_download.id)
+
+    useful = repository.list_useful_documents(db_session)
+
+    assert [doc.doc_id for doc in useful] == ["doc-new"]
+
+
+def test_update_document_review_status_resets_bulk_download_id(db_session):
+    """A document already delivered in a bulk download must become eligible
+    again once it's re-reviewed — otherwise a marked-not-useful-then-useful
+    document silently never appears in a bulk download again."""
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    document = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="A", review_status="useful",
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    bulk_download = repository.create_bulk_download(db_session)
+    repository.mark_documents_bulk_downloaded(db_session, [document.id], bulk_download.id)
+
+    repository.update_document_review_status(db_session, document.id, "useful")
+
+    useful = repository.list_useful_documents(db_session)
+    assert [doc.doc_id for doc in useful] == ["doc-1"]
+
+
 def test_insert_document_is_idempotent_on_doc_id(db_session):
     repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
     source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
