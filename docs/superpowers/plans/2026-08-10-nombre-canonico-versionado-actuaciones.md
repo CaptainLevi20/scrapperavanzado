@@ -263,7 +263,7 @@ def test_familia_samai_con_titulo_de_radicado_es_caso():
 
 
 def test_familia_rama_judicial_con_titulo_de_radicado_es_caso():
-    assert es_familia_con_actuaciones("rama_judicial", "T_11_11001_31_03_022_2019_00814_02") is True
+    assert es_familia_con_actuaciones("rama_judicial", "T_BTA_11001_31_03_022_2019_00814_02") is True
 
 
 def test_familia_sin_actuaciones_no_es_caso():
@@ -371,13 +371,13 @@ def _doc(**kw):
 
 
 def test_nombre_documento_caso_usa_f_providencia():
-    d = _doc(title="11001", f_providencia=date(2026, 7, 31), version_no=1)
-    assert nombre_documento(d, "samai") == "11001_20260731"
+    d = _doc(title="11001-03-28-000-2026-00300-00", f_providencia=date(2026, 7, 31), version_no=1)
+    assert nombre_documento(d, "samai") == "11001-03-28-000-2026-00300-00_20260731"
 
 
 def test_nombre_documento_caso_respaldo_f_public_cuando_no_hay_providencia():
-    d = _doc(title="T_11_x", f_providencia=None, f_public=date(2026, 8, 10), version_no=1)
-    assert nombre_documento(d, "rama_judicial") == "T_11_x_20260810"
+    d = _doc(title="T_BTA_11001_31_03_022_2019_00814_02", f_providencia=None, f_public=date(2026, 8, 10), version_no=1)
+    assert nombre_documento(d, "rama_judicial") == "T_BTA_11001_31_03_022_2019_00814_02_20260810"
 
 
 def test_nombre_documento_no_caso_ignora_fecha():
@@ -391,9 +391,9 @@ def test_nombre_documento_vigente_con_varias_versiones():
 
 
 def test_nombre_version_usa_su_propio_numero_y_la_fecha_del_documento():
-    d = _doc(title="11001", f_providencia=date(2026, 7, 31), version_no=2)
+    d = _doc(title="11001-03-28-000-2026-00300-00", f_providencia=date(2026, 7, 31), version_no=2)
     v = SimpleNamespace(version_no=1, storage_key="v1.pdf")
-    assert nombre_version(d, v, "samai") == "11001_20260731_v1"
+    assert nombre_version(d, v, "samai") == "11001-03-28-000-2026-00300-00_20260731_v1"
 
 
 def test_nombre_archivo_agrega_extension_del_storage_key():
@@ -402,9 +402,9 @@ def test_nombre_archivo_agrega_extension_del_storage_key():
 
 
 def test_nombre_archivo_version_agrega_extension_del_storage_key_de_la_version():
-    d = _doc(title="11001", f_providencia=date(2026, 7, 31), version_no=2)
+    d = _doc(title="11001-03-28-000-2026-00300-00", f_providencia=date(2026, 7, 31), version_no=2)
     v = SimpleNamespace(version_no=1, storage_key="a/b/v1.pdf")
-    assert nombre_archivo_version(d, v, "samai") == "11001_20260731_v1.pdf"
+    assert nombre_archivo_version(d, v, "samai") == "11001-03-28-000-2026-00300-00_20260731_v1.pdf"
 ```
 
 - [ ] **Step 2: Correr el test y verificar que falla**
@@ -614,7 +614,7 @@ def test_resolve_llena_f_providencia_desde_pdf(monkeypatch, tmp_path):
         rama_judicial, "_extraer_texto_primera_pagina",
         lambda p: "Bogotá, diez (10) de agosto de dos mil veintiséis (2026)",
     )
-    doc = _raw("T_11_11001_31_03_022_2019_00814_02")
+    doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
     assert doc.f_providencia == "2026-08-10"
 
@@ -622,7 +622,7 @@ def test_resolve_llena_f_providencia_desde_pdf(monkeypatch, tmp_path):
 def test_resolve_sin_fecha_deja_f_providencia_none(monkeypatch, tmp_path):
     scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
     monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", lambda p: "sin fecha")
-    doc = _raw("T_11_11001_31_03_022_2019_00814_02")
+    doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
     assert doc.f_providencia is None
 
@@ -632,7 +632,7 @@ def test_resolve_ignora_error_de_lectura(monkeypatch, tmp_path):
     def _boom(p):
         raise RuntimeError("pdf ilegible")
     monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", _boom)
-    doc = _raw("T_11_x")
+    doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
     assert doc.f_providencia is None
 ```
@@ -934,9 +934,9 @@ def test_nombres_zip_desambigua_colisiones():
 
 
 def test_nombres_zip_caso_lleva_fecha():
-    docs = [_doc("11001", "a.pdf", f_providencia=date(2026, 7, 31))]
+    docs = [_doc("11001-03-28-000-2026-00300-00", "a.pdf", f_providencia=date(2026, 7, 31))]
     fam = {1: "samai"}
-    assert _nombres_zip(docs, fam) == ["11001_20260731.pdf"]
+    assert _nombres_zip(docs, fam) == ["11001-03-28-000-2026-00300-00_20260731.pdf"]
 ```
 
 - [ ] **Step 2: Correr el test y verificar que falla**
