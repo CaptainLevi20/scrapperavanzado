@@ -1714,3 +1714,36 @@ def test_update_document_version_storage_key_updates_and_returns_the_version(db_
 
 def test_update_document_version_storage_key_returns_none_when_missing(db_session):
     assert repository.update_document_version_storage_key(db_session, 999999, "x.pdf") is None
+
+
+def test_list_documents_by_title_within_family_scopes_by_family(db_session):
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    rama_source = repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
+    jep_source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    doc1 = repository.insert_document(
+        db_session, doc_id="d1", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    doc2 = repository.insert_document(
+        db_session, doc_id="d2", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    # Mismo texto de título, pero en otra familia — no debe aparecer.
+    repository.insert_document(
+        db_session, doc_id="d3", source_id=jep_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="c.pdf",
+    )
+
+    result = repository.list_documents_by_title_within_family(db_session, "rama_judicial", shared_title)
+
+    assert {d.id for d in result} == {doc1.id, doc2.id}
+
+
+def test_list_documents_by_title_within_family_returns_empty_list_when_no_match(db_session):
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
+
+    assert repository.list_documents_by_title_within_family(db_session, "rama_judicial", "no-existe") == []

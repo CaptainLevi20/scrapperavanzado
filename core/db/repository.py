@@ -587,6 +587,15 @@ def actuacion_counts_by_title(
     return counts
 
 
+def list_documents_by_title_within_family(db: Session, family_key: str, title: str) -> list[Document]:
+    stmt = (
+        select(Document)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == family_key, Document.title == title)
+    )
+    return list(db.scalars(stmt).all())
+
+
 def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
     stmt = (
         select(Document.source_id, Document.radicado)
