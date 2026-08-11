@@ -44,6 +44,7 @@ const DOCUMENT = {
   doc_id: "abc",
   source_id: 1,
   title: "Sentencia C-001-26",
+  nombre: "Sentencia C-001-26",
   tipo: "sentencia",
   seccion: null,
   especialidad: null,
@@ -66,6 +67,7 @@ const DOCUMENT_2 = {
   id: 2,
   doc_id: "def",
   title: "Sentencia C-002-26",
+  nombre: "Sentencia C-002-26",
 };
 
 const CASE_DOCUMENT_1 = {
@@ -73,6 +75,7 @@ const CASE_DOCUMENT_1 = {
   id: 10,
   doc_id: "case-1",
   title: "T_BTA_11001_31_03_048_2022_00418_02",
+  nombre: "T_BTA_11001_31_03_048_2022_00418_02",
   f_public: "2026-06-16",
   case_document_count: 3,
 };
@@ -82,6 +85,7 @@ const CASE_DOCUMENT_2 = {
   id: 11,
   doc_id: "case-2",
   title: "T_BTA_11001_31_03_048_2022_00418_02",
+  nombre: "T_BTA_11001_31_03_048_2022_00418_02",
   f_public: "2026-06-30",
   case_document_count: 3,
 };
@@ -91,6 +95,7 @@ const CASE_DOCUMENT_3 = {
   id: 12,
   doc_id: "case-3",
   title: "T_BTA_11001_31_03_048_2022_00418_02",
+  nombre: "T_BTA_11001_31_03_048_2022_00418_02",
   f_public: "2026-07-17",
   case_document_count: 3,
 };
@@ -100,6 +105,7 @@ const CASE_B_DOCUMENT_1 = {
   id: 20,
   doc_id: "case-b-1",
   title: "T_BTA_11001_99_99_099_2022_00999_02",
+  nombre: "T_BTA_11001_99_99_099_2022_00999_02",
   f_public: "2026-05-01",
   case_document_count: 2,
 };
@@ -109,6 +115,7 @@ const CASE_B_DOCUMENT_2 = {
   id: 21,
   doc_id: "case-b-2",
   title: "T_BTA_11001_99_99_099_2022_00999_02",
+  nombre: "T_BTA_11001_99_99_099_2022_00999_02",
   f_public: "2026-05-15",
   case_document_count: 2,
 };
@@ -128,6 +135,19 @@ function mockFilterEndpoints() {
 }
 
 describe("DocumentsPage", () => {
+  it("shows the nombre canónico in the table's name cell, not the raw title field", async () => {
+    mockFilterEndpoints();
+    const document = { ...DOCUMENT, title: "Título de trabajo crudo", nombre: "11001_20260731_v1" };
+    server.use(
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [document], total: 1, limit: 50, offset: 0 }))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("11001_20260731_v1")).toBeInTheDocument();
+    expect(screen.queryByText("Título de trabajo crudo")).not.toBeInTheDocument();
+  });
+
   it("renders fetched documents", async () => {
     mockFilterEndpoints();
     server.use(

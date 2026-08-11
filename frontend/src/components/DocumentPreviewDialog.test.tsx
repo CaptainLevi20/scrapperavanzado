@@ -22,11 +22,16 @@ vi.mock("./PdfViewer", () => ({
 const BASE_URL = "http://localhost:8000";
 
 function makeDocument(overrides: Partial<Document> = {}): Document {
+  // nombre defaults to mirror title so existing tests (written against title)
+  // keep working unchanged — override nombre explicitly in tests that need to
+  // prove nombre (not title) is what's actually displayed/used.
+  const title = overrides.title ?? "Documento 1";
   return {
     id: 1,
     doc_id: "abc",
     source_id: 1,
-    title: "Documento 1",
+    title,
+    nombre: title,
     tipo: "Resolución",
     seccion: null,
     especialidad: null,
@@ -73,6 +78,19 @@ function mockPreviewUrl(id: number, url = `https://signed.example.com/doc${id}.p
 
 describe("DocumentPreviewDialog", () => {
   beforeEach(() => clearStoredToken());
+
+  it("shows the nombre canónico as the dialog title and preview label, not the raw title field", async () => {
+    const documents = [
+      makeDocument({ id: 95, title: "Título de trabajo", nombre: "11001_20260731_v1" }),
+    ];
+    mockPreviewUrl(95);
+
+    renderDialog(documents, 0);
+
+    expect(await screen.findByText("11001_20260731_v1")).toBeInTheDocument();
+    expect(screen.queryByText("Título de trabajo")).not.toBeInTheDocument();
+    expect(await screen.findByTitle("Vista previa de 11001_20260731_v1")).toBeInTheDocument();
+  });
 
   it("renders the pdf viewer for a PDF document", async () => {
     const documents = [makeDocument({ id: 1, title: "Doc PDF" })];
@@ -384,7 +402,8 @@ describe("DocumentPreviewDialog", () => {
     server.use(
       http.patch(`${BASE_URL}/documents/30/title`, async ({ request }) => {
         patchedBody = (await request.json()) as { title: string };
-        return HttpResponse.json({ ...documents[0], title: patchedBody.title });
+        // The backend recomputes nombre from the new title on a manual rename.
+        return HttpResponse.json({ ...documents[0], title: patchedBody.title, nombre: patchedBody.title });
       })
     );
     const user = userEvent.setup();
@@ -610,13 +629,21 @@ describe("DocumentPreviewDialog", () => {
     expect(screen.queryByText(/versiones anteriores/i)).not.toBeInTheDocument();
   });
 
-  it("shows the version history with a working download button", async () => {
+  it("shows the version history with a working download button that uses the version's own nombre canónico", async () => {
     const documents = [makeDocument({ id: 21, title: "Con historial" })];
     mockPreviewUrl(21);
     server.use(
       http.get(`${BASE_URL}/documents/21/versions`, () =>
         HttpResponse.json([
-          { id: 1, document_id: 21, file_size_bytes: 76245, content_type: "application/rtf", downloaded_at: "2026-06-01T00:00:00Z", superseded_at: "2026-07-01T00:00:00Z" },
+          {
+            id: 1,
+            document_id: 21,
+            nombre: "11001_20260701_v1",
+            file_size_bytes: 76245,
+            content_type: "application/rtf",
+            downloaded_at: "2026-06-01T00:00:00Z",
+            superseded_at: "2026-07-01T00:00:00Z",
+          },
         ])
       ),
       http.get(`${BASE_URL}/documents/21/versions/1/download`, () =>
@@ -625,10 +652,16 @@ describe("DocumentPreviewDialog", () => {
       http.get("https://signed.example.com/versions/1.rtf", () => new HttpResponse(new Blob(["contenido viejo"])))
     );
     const clickSpy = vi.fn();
+    let capturedFilename: string | null = null;
     const originalCreateElement = document.createElement.bind(document);
     const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       const element = originalCreateElement(tag);
-      if (tag === "a") element.click = clickSpy;
+      if (tag === "a") {
+        element.click = clickSpy;
+        clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
+          capturedFilename = this.download;
+        });
+      }
       return element;
     });
     const user = userEvent.setup();
@@ -644,7 +677,9 @@ describe("DocumentPreviewDialog", () => {
     const versionsSection = versionsHeading.closest("div") as HTMLElement;
     await user.click(within(versionsSection).getByRole("button", { name: /descargar/i }));
 
-    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
+    // The downloaded filename comes from the version's own nombre (which
+    // already carries its "_v{n}" suffix), not the current document's title.
+    await waitFor(() => expect(capturedFilename).toBe("11001_20260701_v1.rtf"));
     createElementSpy.mockRestore();
   });
 

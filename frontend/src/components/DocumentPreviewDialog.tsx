@@ -137,8 +137,13 @@ export function DocumentPreviewDialog({
     onSuccess: (updated) => {
       setRenameError(null);
       setIsEditingTitle(false);
+      // Also refreshes nombre (not just title): now that the header/preview show
+      // nombre, a successful rename must update it too, or the just-renamed
+      // document would keep displaying its old name until the dialog is reopened.
       setDocumentsSnapshot((snapshot) =>
-        snapshot.map((doc, index) => (index === currentIndex ? { ...doc, title: updated.title } : doc))
+        snapshot.map((doc, index) =>
+          index === currentIndex ? { ...doc, title: updated.title, nombre: updated.nombre } : doc
+        )
       );
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
@@ -206,7 +211,7 @@ export function DocumentPreviewDialog({
     try {
       setDownloadError(null);
       const url = await fetchDocumentVersionUrl(currentDocument.id, version.id);
-      await downloadFromUrl(url, buildVersionDownloadFilename(currentDocument.title, version));
+      await downloadFromUrl(url, buildVersionDownloadFilename(version));
     } catch {
       setDownloadError("Error al descargar la versión anterior");
     }
@@ -220,7 +225,7 @@ export function DocumentPreviewDialog({
             <div className="min-w-0 flex-1">
               {isEditingTitle ? (
                 <>
-                  <DialogTitle className="sr-only">{currentDocument.title}</DialogTitle>
+                  <DialogTitle className="sr-only">{currentDocument.nombre}</DialogTitle>
                   <div className="flex items-center gap-2">
                     <input
                       value={titleDraft}
@@ -255,7 +260,7 @@ export function DocumentPreviewDialog({
                 </>
               ) : (
                 <div className="flex items-center gap-1.5">
-                  <DialogTitle className="font-display truncate">{currentDocument.title}</DialogTitle>
+                  <DialogTitle className="font-display truncate">{currentDocument.nombre}</DialogTitle>
                   <Button
                     size="icon-xs"
                     variant="ghost"
@@ -306,7 +311,7 @@ export function DocumentPreviewDialog({
               <PdfViewer
                 key={previewUrlQuery.data}
                 url={previewUrlQuery.data}
-                title={currentDocument.title}
+                title={currentDocument.nombre}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Cargando…</div>

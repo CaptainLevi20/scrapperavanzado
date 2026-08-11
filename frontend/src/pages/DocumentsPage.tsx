@@ -546,7 +546,7 @@ export function DocumentsPage() {
                     onClick={() => handleTitleClick(document)}
                     className="underline-offset-2 hover:underline"
                   >
-                    {document.title}
+                    {document.nombre}
                   </button>
                   {!!document.case_document_count && document.case_document_count > 1 && (
                     <div className="mt-1">

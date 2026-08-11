@@ -101,15 +101,15 @@ function extensionFromStorageKey(storageKey: string): string | undefined {
   return match ? match[1].toLowerCase() : undefined;
 }
 
-function sanitizeFilename(title: string): string {
+function sanitizeFilename(value: string): string {
   // eslint-disable-next-line no-control-regex
-  return title.replace(/[/\\\x00-\x1f]/g, "-");
+  return value.replace(/[/\\\x00-\x1f]/g, "-");
 }
 
 export function buildDownloadFilename(document: Document): string {
   const ext = extensionFromStorageKey(document.storage_key) ?? (document.content_type ? CONTENT_TYPE_EXTENSIONS[document.content_type] : undefined);
-  const sanitizedTitle = sanitizeFilename(document.title);
-  return ext ? `${sanitizedTitle}.${ext}` : sanitizedTitle;
+  const sanitized = sanitizeFilename(document.nombre);
+  return ext ? `${sanitized}.${ext}` : sanitized;
 }
 
 // The previewed file is always a PDF (native passthrough or an on-demand/pre-generated
@@ -117,17 +117,18 @@ export function buildDownloadFilename(document: Document): string {
 // (e.g. RTF for Corte Constitucional/SAMAI), so its filename can't reuse
 // buildDownloadFilename's storage_key-derived extension.
 export function buildPreviewDownloadFilename(document: Document): string {
-  return `${sanitizeFilename(document.title)}.pdf`;
+  return `${sanitizeFilename(document.nombre)}.pdf`;
 }
 
 // A DocumentVersion has no storage_key (only content_type), so its extension
 // can only come from the CONTENT_TYPE_EXTENSIONS lookup, unlike
 // buildDownloadFilename which can also fall back to the live document's
-// storage_key.
-export function buildVersionDownloadFilename(documentTitle: string, version: DocumentVersion): string {
+// storage_key. The version already carries its own canonical name (with the
+// "_v{n}" suffix baked in), so no separate document title is needed here.
+export function buildVersionDownloadFilename(version: DocumentVersion): string {
   const ext = version.content_type ? CONTENT_TYPE_EXTENSIONS[version.content_type] : undefined;
-  const sanitizedTitle = sanitizeFilename(documentTitle);
-  return ext ? `${sanitizedTitle}-version-${version.id}.${ext}` : `${sanitizedTitle}-version-${version.id}`;
+  const sanitized = sanitizeFilename(version.nombre);
+  return ext ? `${sanitized}.${ext}` : sanitized;
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {

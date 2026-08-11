@@ -58,6 +58,7 @@ export interface Document {
   doc_id: string;
   source_id: number;
   title: string;
+  nombre: string;
   tipo: string | null;
   seccion: string | null;
   especialidad: string | null;
@@ -139,6 +140,7 @@ export interface DocumentStats {
 export interface DocumentVersion {
   id: number;
   document_id: number;
+  nombre: string;
   file_size_bytes: number | null;
   content_type: string | null;
   downloaded_at: string;
