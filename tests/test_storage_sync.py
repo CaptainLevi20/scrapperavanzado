@@ -98,3 +98,28 @@ def test_reconcile_document_versions_returns_zero_when_document_has_no_history(d
     count = storage_sync.reconcile_document_versions(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
     assert count == 0
+
+
+def test_reconcile_document_versions_logs_and_continues_when_rename_fails(db_session, monkeypatch, caplog):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T-123-24",
+        storage_bucket="iurisync-test", storage_key="carpeta/v3.pdf",
+    )
+    repository.archive_and_replace_document(db_session, doc.id, storage_bucket="iurisync-test", storage_key="carpeta/v1-viejo.pdf")
+    doc = repository.get_document(db_session, doc.id)
+    repository.archive_and_replace_document(db_session, doc.id, storage_bucket="iurisync-test", storage_key="carpeta/v2-viejo.pdf")
+    doc = repository.get_document(db_session, doc.id)
+
+    def _boom(bucket, old_key, new_key):
+        raise RuntimeError("MinIO no disponible")
+
+    monkeypatch.setattr(storage_sync, "rename_object", _boom)
+
+    count = storage_sync.reconcile_document_versions(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert count == 0
+    # Verify versions were not renamed (keys should stay unchanged)
+    versions = {v.storage_key for v in repository.list_document_versions(db_session, doc.id)}
+    assert versions == {"carpeta/v3.pdf", "carpeta/v1-viejo.pdf"}  # sin cambios
+    assert "No se pudo renombrar la versión" in caplog.text

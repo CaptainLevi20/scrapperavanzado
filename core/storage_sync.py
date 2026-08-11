@@ -44,9 +44,11 @@ def reconcile_document_versions(db: Session, document: Document, family_key: Opt
             continue
         try:
             rename_object(version.storage_bucket, version.storage_key, nueva_key)
+            # Ambas operaciones (MinIO + DB) en el mismo try — si la DB falla después
+            # de que MinIO ya renombró, aceptamos la inconsistencia temporal.
+            repository.update_document_version_storage_key(db, version.id, nueva_key)
         except Exception as exc:
             logger.warning("No se pudo renombrar la versión %s en MinIO: %s", version.id, exc)
             continue
-        repository.update_document_version_storage_key(db, version.id, nueva_key)
         renombradas += 1
     return renombradas
