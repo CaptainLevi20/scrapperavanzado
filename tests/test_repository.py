@@ -1569,3 +1569,42 @@ def test_list_case_links_with_summary_reports_sources_counts_and_dates(db_sessio
     assert summary["document_count"] == 3
     assert str(summary["f_public_min"]) == "2023-01-01"
     assert str(summary["f_public_max"]) == "2024-05-01"
+
+
+def test_new_document_defaults_to_version_no_1(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-vn-1",
+        source_id=source.id,
+        title="T-100/24",
+        storage_bucket="iurisync-test",
+        storage_key="a.pdf",
+    )
+    assert doc.version_no == 1
+
+
+def test_republication_increments_version_no(db_session):
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    doc = repository.insert_document(
+        db_session, doc_id="doc-vn-2", source_id=source.id, title="rad-1",
+        storage_bucket="iurisync-test", storage_key="v1.pdf",
+    )
+    assert doc.version_no == 1
+
+    repository.archive_and_replace_document(
+        db_session, doc.id, storage_bucket="iurisync-test", storage_key="v2.pdf",
+    )
+    versions = repository.list_document_versions(db_session, doc.id)
+    assert [v.version_no for v in versions] == [1]
+    refreshed = repository.get_document(db_session, doc.id)
+    assert refreshed.version_no == 2
+
+    repository.archive_and_replace_document(
+        db_session, doc.id, storage_bucket="iurisync-test", storage_key="v3.pdf",
+    )
+    versions = repository.list_document_versions(db_session, doc.id)
+    assert sorted(v.version_no for v in versions) == [1, 2]
+    assert repository.get_document(db_session, doc.id).version_no == 3

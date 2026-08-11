@@ -339,11 +339,16 @@ def archive_and_replace_document(
         converted_format=document.converted_format,
         source_url=document.source_url,
         downloaded_at=document.downloaded_at,
+        version_no=document.version_no,
     )
     db.add(version)
     for key, value in new_fields.items():
         setattr(document, key, value)
     document.downloaded_at = datetime.now(timezone.utc)
+    # La versión recién archivada conserva el número que tenía el documento; la
+    # nueva versión vigente es el siguiente entero. Así "_v{n}" del nombre
+    # canónico refleja el orden real (la más antigua = 1, la vigente = la mayor).
+    document.version_no = document.version_no + 1
     # A source configured with family_params.auto_review_status (e.g. "el equipo
     # de fuentes" declaring everything from Corte Constitucional useful) should
     # keep landing there on republication too, not reset to "pending" — callers

@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
+from core.naming import nombre_archivo_documento
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
@@ -17,6 +18,24 @@ from core.utils import compute_doc_id, is_safe_storage_key, rekey_filename
 from worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _nombres_zip(documents, family_keys) -> list[str]:
+    """Nombre de cada entrada del ZIP = nombre canónico + extensión. Desambigua
+    colisiones agregando ' (2)', ' (3)'… antes de la extensión, para no
+    sobrescribir un archivo con otro dentro del mismo ZIP."""
+    usados: dict[str, int] = {}
+    nombres: list[str] = []
+    for d in documents:
+        base = nombre_archivo_documento(d, family_keys.get(d.source_id))
+        if base not in usados:
+            usados[base] = 1
+            nombres.append(base)
+        else:
+            usados[base] += 1
+            p = PurePosixPath(base)
+            nombres.append(f"{p.stem} ({usados[base]}){p.suffix}")
+    return nombres
 
 
 class _ScrapProgressCollector:
@@ -98,8 +117,16 @@ def _download_and_upload_one(
             # rebuilt from the corrected one now (see rekey_filename) — otherwise
             # the fix only lands in the database and the actual stored file (and
             # any bulk-download ZIP built from storage_key) keeps the old name.
+            titulo_antes = doc.title
             scraper.resolve_unverified_document(doc, result.local_path, result.content_type)
-            result.storage_key = rekey_filename(result.storage_key, doc.title)
+            # Solo se reconstruye la clave de almacenamiento si el enganche realmente
+            # corrigió el título (SAMAI/CSJ). Rama Judicial usa el enganche solo para
+            # extraer f_providencia y NO cambia el título; reejecutar rekey en ese caso
+            # reescribiría la clave descriptiva al radicado canónico —perdería el
+            # detalle del nombre y podría colisionar dos actuaciones del mismo radicado
+            # en una misma clave, sobrescribiendo el archivo.
+            if doc.title != titulo_antes:
+                result.storage_key = rekey_filename(result.storage_key, doc.title)
         if skip_upload_if_size_matches is not None and result.file_size_bytes == skip_upload_if_size_matches:
             return None, None
         upload_key = override_storage_key or result.storage_key
@@ -529,14 +556,20 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             zip_path = tmp_path / "bulk_download.zip"
             downloaded_count = 0
             failed_count = 0
+            # Nombre canónico por documento (el mismo que se ve en la app), en vez
+            # de la ruta interna de almacenamiento (storage_key), usado como
+            # entrada del ZIP. Se calcula una sola vez, en el mismo orden que
+            # `documents`, así que zip(documents, arcnames) mantiene la
+            # correspondencia aunque el bucle se salte algún documento después.
+            family_keys = repository.get_source_family_keys(db, [d.source_id for d in documents])
+            arcnames = _nombres_zip(documents, family_keys)
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for document in documents:
+                for document, arcname in zip(documents, arcnames):
                     # Re-validated here even though the key was already checked when
                     # it was first written (see core/downloader.py): this document
                     # may have been saved by an older version of the code, or its
                     # row edited directly, and storage_key is about to be joined
-                    # onto a real local directory and used as a ZIP arcname — both
-                    # places a ".." would actually do damage.
+                    # onto a real local directory — a ".." would actually do damage.
                     if not is_safe_storage_key(document.storage_key):
                         logger.warning(
                             "Clave de almacenamiento no segura, se omite de la descarga masiva: %s", document.storage_key
@@ -547,7 +580,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     try:
                         download_file(document.storage_bucket, document.storage_key, local_path)
-                        zf.write(local_path, arcname=document.storage_key)
+                        zf.write(local_path, arcname=arcname)
                         downloaded_count += 1
                     except Exception as exc:
                         logger.warning("No se pudo incluir %s en la descarga masiva: %s", document.storage_key, exc)

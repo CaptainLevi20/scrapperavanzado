@@ -4,6 +4,7 @@ import { server } from "../test/server";
 import { clearStoredToken } from "./client";
 import {
   buildDownloadFilename,
+  buildVersionDownloadFilename,
   downloadDocumentFile,
   downloadFromUrl,
   fetchDocument,
@@ -224,6 +225,7 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
     doc_id: "abc",
     source_id: 1,
     title: "Sentencia X",
+    nombre: "Sentencia X",
     tipo: null,
     seccion: null,
     especialidad: null,
@@ -245,14 +247,14 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
 
 describe("buildDownloadFilename", () => {
   it("derives the extension from a recognizable storage_key extension", () => {
-    const document = makeDocument({ title: "Sentencia X", storage_key: "abc123.pdf" });
+    const document = makeDocument({ title: "Título crudo", nombre: "Sentencia X", storage_key: "abc123.pdf" });
 
     expect(buildDownloadFilename(document)).toBe("Sentencia X.pdf");
   });
 
   it("falls back to the content_type map when storage_key has no recognizable extension", () => {
     const document = makeDocument({
-      title: "Reporte",
+      nombre: "Reporte",
       storage_key: "some-opaque-key-without-extension",
       content_type: "text/plain",
     });
@@ -262,7 +264,7 @@ describe("buildDownloadFilename", () => {
 
   it("omits the extension entirely when neither storage_key nor content_type yield one", () => {
     const document = makeDocument({
-      title: "Sin extension",
+      nombre: "Sin extension",
       storage_key: "opaque-key",
       content_type: "application/octet-stream",
     });
@@ -270,11 +272,21 @@ describe("buildDownloadFilename", () => {
     expect(buildDownloadFilename(document)).toBe("Sin extension");
   });
 
-  it("sanitizes a title containing a slash", () => {
-    const document = makeDocument({ title: "Auto 123/2026", storage_key: "abc123.pdf" });
+  it("sanitizes a nombre containing a slash, regardless of the (unrelated) title field", () => {
+    const document = makeDocument({ title: "Auto 999/2099", nombre: "Auto 123/2026", storage_key: "abc123.pdf" });
 
     expect(buildDownloadFilename(document)).toBe("Auto 123-2026.pdf");
   });
+});
+
+it("usa el nombre canónico para el archivo de descarga", () => {
+  const doc = { nombre: "11001_20260731_v2", storage_key: "x/y.pdf", content_type: "application/pdf" } as any;
+  expect(buildDownloadFilename(doc)).toBe("11001_20260731_v2.pdf");
+});
+
+it("usa el nombre canónico de la versión", () => {
+  const version = { nombre: "11001_20260731_v1", content_type: "application/pdf", id: 5 } as any;
+  expect(buildVersionDownloadFilename(version)).toBe("11001_20260731_v1.pdf");
 });
 
 describe("fetchDocumentVersions", () => {

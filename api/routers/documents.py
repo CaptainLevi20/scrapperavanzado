@@ -20,8 +20,14 @@ from api.schemas import (
 )
 from core.db import repository
 from core.db.models import Document
+from core.naming import (
+    es_familia_con_actuaciones,
+    nombre_archivo_documento,
+    nombre_archivo_version,
+    nombre_documento,
+    nombre_version,
+)
 from core.storage import presigned_url
-from core.utils import is_radicado_title, is_samai_case_title
 from worker.tasks import generate_document_preview_pdf
 
 logger = logging.getLogger(__name__)
@@ -40,14 +46,20 @@ PREVIEW_TASK_TIMEOUT_SECONDS = 30
 _INVALID_FILENAME_CHARS = re.compile(r'[/\\\x00-\x1f]')
 
 
-def _preview_content_disposition(document: Document) -> str:
+def _preview_content_disposition(document: Document, family_key) -> str:
     # The preview is always a PDF regardless of what format the main download
     # (storage_key) is in — this is what lets the presigned URL carry a filename
     # hint that the browser's OWN pdf viewer chrome (not just our UI) picks up for
     # its native download button, without us proxying the bytes through a Blob
     # (which would have thrown this filename information away).
-    safe_title = _INVALID_FILENAME_CHARS.sub("-", document.title)
-    return f'inline; filename="{safe_title}.pdf"'
+    safe = _INVALID_FILENAME_CHARS.sub("-", nombre_documento(document, family_key))
+    return f'inline; filename="{safe}.pdf"'
+
+
+def _poblar_nombre(db: Session, document: Document) -> Document:
+    fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    document.nombre = nombre_documento(document, fam)
+    return document
 
 
 @router.get("/documents", response_model=PaginatedDocuments)
@@ -95,21 +107,19 @@ def get_documents(
     # "samai" checks both formats: Consejo de Estado titles look like
     # is_samai_case_title, while Tribunal Administrativo titles mirror
     # rama_judicial's format instead (see core/scrapers/families/samai.py).
-    _CASE_TITLE_CHECKS = {
-        "rama_judicial": is_radicado_title,
-        "samai": lambda title: is_samai_case_title(title) or is_radicado_title(title),
-    }
     family_keys = repository.get_source_family_keys(db, [d.source_id for d in items])
+    case_titles_por_familia: dict[str, list[str]] = {}
+    for d in items:
+        fam = family_keys.get(d.source_id)
+        if es_familia_con_actuaciones(fam, d.title):
+            case_titles_por_familia.setdefault(fam, []).append(d.title)
     counts: dict[str, int] = {}
-    for family_key_, is_case_title in _CASE_TITLE_CHECKS.items():
-        titles = [
-            d.title for d in items
-            if family_keys.get(d.source_id) == family_key_ and is_case_title(d.title)
-        ]
-        counts.update(repository.count_documents_by_title_within_family(db, titles, family_key_))
+    for fam, titles in case_titles_por_familia.items():
+        counts.update(repository.count_documents_by_title_within_family(db, titles, fam))
     for d in items:
         count = counts.get(d.title)
         d.case_document_count = count if count and count > 1 else None
+        d.nombre = nombre_documento(d, family_keys.get(d.source_id))
 
     case_link_status = repository.get_case_link_status_for_documents(db, [d.id for d in items])
     for d in items:
@@ -201,14 +211,19 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
         document.case_link_id = info["case_link_id"]
         document.case_link_other_source_name = info["other_source_name"]
 
-    return document
+    return _poblar_nombre(db, document)
 
 
 @router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionOut])
 def get_document_versions(document_id: int, db: Session = Depends(get_db)):
-    if repository.get_document(db, document_id) is None:
+    document = repository.get_document(db, document_id)
+    if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    return repository.list_document_versions(db, document_id)
+    fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    versions = repository.list_document_versions(db, document_id)
+    for v in versions:
+        v.nombre = nombre_version(document, v, fam)
+    return versions
 
 
 @router.get("/documents/{document_id}/versions/{version_id}/download")
@@ -216,7 +231,11 @@ def download_document_version(document_id: int, version_id: int, db: Session = D
     version = repository.get_document_version(db, version_id)
     if version is None or version.document_id != document_id:
         raise HTTPException(status_code=404, detail="Versión no encontrada")
-    url = presigned_url(version.storage_bucket, version.storage_key)
+    document = repository.get_document(db, document_id)
+    fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    filename = _INVALID_FILENAME_CHARS.sub("-", nombre_archivo_version(document, version, fam))
+    disposition = f'attachment; filename="{filename}"'
+    url = presigned_url(version.storage_bucket, version.storage_key, response_content_disposition=disposition)
     return {"url": url}
 
 
@@ -231,7 +250,7 @@ def patch_document_review_status(document_id: int, payload: DocumentReviewUpdate
     document = repository.update_document_review_status(db, document_id, payload.review_status)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    return document
+    return _poblar_nombre(db, document)
 
 
 @router.patch("/documents/{document_id}/title", response_model=DocumentOut)
@@ -239,7 +258,7 @@ def patch_document_title(document_id: int, payload: DocumentTitleUpdate, db: Ses
     document = repository.update_document_title(db, document_id, payload.title)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    return document
+    return _poblar_nombre(db, document)
 
 
 @router.get("/documents/{document_id}/download")
@@ -247,7 +266,10 @@ def download_document(document_id: int, db: Session = Depends(get_db)):
     document = repository.get_document(db, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    url = presigned_url(document.storage_bucket, document.storage_key)
+    fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    filename = _INVALID_FILENAME_CHARS.sub("-", nombre_archivo_documento(document, fam))
+    disposition = f'attachment; filename="{filename}"'
+    url = presigned_url(document.storage_bucket, document.storage_key, response_content_disposition=disposition)
     return RedirectResponse(url)
 
 
@@ -257,7 +279,8 @@ def preview_document(document_id: int, db: Session = Depends(get_db)):
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
-    disposition = _preview_content_disposition(document)
+    fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    disposition = _preview_content_disposition(document, fam)
 
     # A pre-set preview_storage_key takes priority over content_type-based branching:
     # for sources whose native format is already PDF (e.g. JEP) but are stored as RTF

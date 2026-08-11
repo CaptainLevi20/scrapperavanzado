@@ -7,10 +7,11 @@ import requests
 from bs4 import BeautifulSoup
 
 from core.downloader import check_remote_content_length
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
-from core.utils import storage_path
+from core.utils import is_radicado_title, storage_path
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,22 @@ def _extract_detalle(name_no_ext: str) -> Optional[str]:
     return _CAMEL_CASE_BOUNDARY.sub(" ", resto).strip() or None
 
 
+def _extraer_texto_primera_pagina(local_path) -> str:
+    # Los PDFs de Rama Judicial vienen cifrados con AES (contraseña vacía);
+    # pypdf los abre solo si 'cryptography' está instalado (ver requirements).
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(local_path))
+    if reader.is_encrypted:
+        try:
+            reader.decrypt("")
+        except Exception:
+            pass
+    if not reader.pages:
+        return ""
+    return reader.pages[0].extract_text() or ""
+
+
 def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3):
     """GET with up to `retries` attempts, retrying on timeout or a 5xx status.
 
@@ -199,6 +216,23 @@ class ScrapRamaJudicial(BaseScrapper):
         self._dept_code = dept_code
         self._entidad_id = entidad_id
         self._instance_id = None
+
+    def resolve_unverified_document(self, doc, local_path, content_type) -> None:
+        # Rama Judicial no expone la fecha de providencia en sus metadatos; se
+        # extrae de la primera página del PDF. Solo se intenta para documentos
+        # con título de radicado (providencias individuales); si no se puede
+        # leer o parsear, f_providencia queda None y el nombre canónico usa el
+        # respaldo (f_public). Nunca interrumpe la ingestión.
+        if not is_radicado_title(doc.title):
+            return
+        try:
+            texto = _extraer_texto_primera_pagina(local_path)
+        except Exception as e:
+            logger.warning("No se pudo leer la primera página de %s: %s", getattr(local_path, "name", local_path), e)
+            return
+        fecha = parse_fecha_providencia_es(texto)
+        if fecha is not None:
+            doc.f_providencia = fecha.strftime("%Y-%m-%d")
 
     def _get_instance_id(self, session, headers):
         resp = _get_with_retries(session, self.url, headers)
@@ -410,16 +444,18 @@ class ScrapRamaJudicial(BaseScrapper):
                         save_path = storage_path(
                             self.source, especialidad_dir, despacho_dir, fecha_p, tipo_dir, f"{doc_name}(extension)"
                         )
+                        titulo_normalizado = _normalize_title(name_no_ext, self._dept_code)
                         docs.append(RawDocModel(
                             source=self.source,
                             link={"url": download_url, "method": "GET", "body": {"path": file_uuid}},
-                            title=_normalize_title(name_no_ext, self._dept_code),
+                            title=titulo_normalizado,
                             tipo=tipo,
                             especialidad=especialidad_raw,
                             seccion=despacho_raw,
                             f_public=fecha_p,
                             detalle=_extract_detalle(name_no_ext),
                             save_path=save_path,
+                            title_unverified=is_radicado_title(titulo_normalizado),
                         ))
 
             if num_pag >= max_pages:

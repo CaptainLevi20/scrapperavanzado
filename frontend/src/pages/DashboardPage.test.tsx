@@ -22,6 +22,7 @@ function makeDoc(overrides: Partial<Document> = {}): Document {
     doc_id: "doc-1",
     source_id: 1,
     title: "Sentencia C-001-26",
+    nombre: "Sentencia C-001-26",
     tipo: "Resolución",
     seccion: null,
     especialidad: null,

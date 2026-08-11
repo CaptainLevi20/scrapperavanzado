@@ -1,4 +1,5 @@
 import time
+from datetime import date
 
 import pytest
 import responses
@@ -485,6 +486,68 @@ def test_scrape_source_task_calls_resolve_unverified_document_for_flagged_docs(d
         assert document.tipo == "Auto"
         assert document.storage_key.endswith("recuperado-del-archivo.pdf")
         assert "doc1" not in document.storage_key
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_does_not_rekey_storage_when_the_hook_leaves_the_title_unchanged(
+    db_session, test_engine, monkeypatch
+):
+    """Regression test: Rama Judicial's resolve_unverified_document only fills
+    doc.f_providencia from the downloaded PDF — it never touches doc.title. If
+    scrape_source_task still called rekey_filename unconditionally after the
+    hook (as it did before this fix), the descriptive storage_key built from
+    save_path would get rewritten to the short canonical radicado title,
+    losing the descriptive detail and risking two actuaciones of the same
+    radicado colliding on the same storage_key. The rekey must only happen
+    when the hook actually changed doc.title (SAMAI/CSJ's placeholder-title
+    case), not whenever title_unverified=True."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="T_BTA_11001_31_03_022_2019_00814_02",
+            title_unverified=True,
+            tipo="Auto",
+            f_public="2026-01-01",
+            save_path="Dummy/2026-01-01/Auto/DescriptivoLargo(extension)",
+        )
+    ]
+    responses.add(
+        responses.GET,
+        "https://example.com/doc1",
+        body=b"contenido",
+        headers={"Content-Type": "application/pdf"},
+        status=200,
+    )
+
+    def _resolve_unverified_document(self, doc, local_path, content_type):
+        # Como Rama Judicial: solo fija f_providencia, NO cambia doc.title.
+        doc.f_providencia = "2026-08-10"
+
+    monkeypatch.setattr(DummyFamilyScraper, "resolve_unverified_document", _resolve_unverified_document)
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        items, _ = repository.list_documents(assertion_session, source_id=source.id)
+        [document] = items
+        assert document.storage_key.endswith("DescriptivoLargo.pdf")
+        assert "T_BTA" not in document.storage_key
+        assert document.f_providencia == date(2026, 8, 10)
     finally:
         assertion_session.close()
 
@@ -1411,7 +1474,7 @@ def test_generate_document_preview_pdf_propagates_conversion_failure_without_sav
         assertion_session.close()
 
 
-def test_build_bulk_download_zip_uploads_zip_preserving_storage_key_hierarchy(db_session, test_engine, monkeypatch):
+def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, test_engine, monkeypatch):
     from pathlib import Path
     import zipfile
 
@@ -1475,9 +1538,13 @@ def test_build_bulk_download_zip_uploads_zip_preserving_storage_key_hierarchy(db
             zip_path = Path(tmp) / "result.zip"
             zip_path.write_bytes(response.content)
             with zipfile.ZipFile(zip_path) as zf:
+                # Las entradas del ZIP usan el nombre canónico (título + extensión),
+                # no la ruta interna de almacenamiento (storage_key) — ver
+                # core/naming.py y worker/tasks.py::_nombres_zip. "jep" no es una
+                # familia con actuaciones, así que el nombre es solo título+ext.
                 names = set(zf.namelist())
-                assert names == {"JEP/2026-06-01/Auto/doc1.pdf", "JEP/2026-06-02/Sentencia/doc2.pdf"}
-                assert zf.read("JEP/2026-06-01/Auto/doc1.pdf") == b"contenido uno"
+                assert names == {"Doc 1.pdf", "Doc 2.pdf"}
+                assert zf.read("Doc 1.pdf") == b"contenido uno"
     finally:
         assertion_session.close()
 
