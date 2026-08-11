@@ -204,6 +204,19 @@ descarga nunca empieza, casi siempre es una de estas tres cosas: el puerto
 `:9443`, o (si están en **Firefox**) todavía no se aceptó la advertencia de
 seguridad en esa segunda dirección — ver el aviso de Firefox en la sección 5.
 
+**Caso aparte — la previsualización no abre pero la descarga sí:** si al
+_previsualizar_ un documento la vista queda en blanco y, al abrir la consola
+del navegador (tecla F12 → pestaña "Consola"), aparece el mensaje
+`Promise.withResolvers is not a function`, el navegador de ese computador es
+**anterior a finales de 2023** (Chrome/Edge menores a la versión 119, Firefox
+menores a 121). El visor de PDF usa una función del lenguaje que esas versiones
+viejas no traen. La herramienta ya incluye un "relleno" (polyfill) que cubre
+estos navegadores, así que a partir de la versión que trae este arreglo no
+debería volver a pasar; si aun así ocurre, actualizar el navegador a una
+versión reciente lo resuelve. A diferencia de las tres causas anteriores, esto
+afecta **solo la previsualización** (la descarga sigue funcionando) y no tiene
+que ver con la red ni con el puerto `:9443`.
+
 ## 7. Mantenimiento: reiniciar, apagar y actualizar
 
 ### Advertencia importante, vale para TODOS los comandos
