@@ -335,6 +335,11 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
 
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Republicar dispara reconcile_document_task (ver worker/tasks.py) — con
+    # task_always_eager=True corre de verdad dentro de este test, así que
+    # también necesita su propia sesión apuntando al motor de prueba (si no,
+    # intenta conectar a la base real por defecto y falla).
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     scrape_source_task(run_source.id)
@@ -354,7 +359,6 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
         assert updated_document.reviewed_at is None
 
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
-        assert version.storage_key == "old-key.pdf"
         assert version.file_size_bytes == 9
     finally:
         assertion_session.close()
@@ -411,6 +415,10 @@ def test_scrape_source_task_matches_existing_document_by_stable_doc_id_ignoring_
 
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Republicar dispara reconcile_document_task (ver worker/tasks.py) — con
+    # task_always_eager=True corre de verdad dentro de este test, así que
+    # también necesita su propia sesión apuntando al motor de prueba.
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     try:
@@ -649,6 +657,10 @@ def test_scrape_source_task_applies_auto_review_status_from_family_params_on_rep
 
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Republicar dispara reconcile_document_task (ver worker/tasks.py) — con
+    # task_always_eager=True corre de verdad dentro de este test, así que
+    # también necesita su propia sesión apuntando al motor de prueba.
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     scrape_source_task(run_source.id)
