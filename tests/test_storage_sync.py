@@ -167,3 +167,52 @@ def test_reconcile_title_group_gives_year_only_when_there_is_a_single_document(d
     assert result == {"documentos_renombrados": 1, "versiones_renombradas": 0}
     db_session.refresh(doc)
     assert doc.storage_key == "carpeta/T_CUND_25307_33_33_003_2024_00094_01_2026.pdf"
+
+
+def test_reconcile_all_covers_case_families_and_plain_families_together(db_session, monkeypatch):
+    from datetime import date
+
+    rama_source = _rama_judicial_source(db_session)
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    const_source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+
+    shared_title = "T_SANT_68001_33_33_007_2025_00290_02"
+    caso1 = repository.insert_document(
+        db_session, doc_id="d1", source_id=rama_source.id, title=shared_title, f_providencia=date(2026, 8, 6),
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder1.pdf",
+    )
+    caso2 = repository.insert_document(
+        db_session, doc_id="d2", source_id=rama_source.id, title=shared_title, f_providencia=date(2026, 8, 20),
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder2.pdf",
+    )
+    suelto = repository.insert_document(
+        db_session, doc_id="d3", source_id=const_source.id, title="T-065/24",
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder-suelto.pdf",
+    )
+
+    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+
+    result = storage_sync.reconcile_all(db_session)
+
+    assert result == {"documentos_renombrados": 3, "versiones_renombradas": 0}
+    db_session.refresh(caso1)
+    db_session.refresh(caso2)
+    db_session.refresh(suelto)
+    assert caso1.storage_key == "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260806.pdf"
+    assert caso2.storage_key == "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260820.pdf"
+    assert suelto.storage_key == "carpeta/T-065-24.pdf"
+
+
+def test_reconcile_all_is_idempotent(db_session, monkeypatch):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T-123-24",
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder.pdf",
+    )
+
+    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+
+    storage_sync.reconcile_all(db_session)
+    second = storage_sync.reconcile_all(db_session)
+
+    assert second == {"documentos_renombrados": 0, "versiones_renombradas": 0}

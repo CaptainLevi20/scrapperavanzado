@@ -1,11 +1,12 @@
 import logging
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.db import repository
 from core.db.models import Document
-from core.naming import nombre_documento, nombre_version
+from core.naming import es_familia_con_actuaciones, nombre_documento, nombre_version
 from core.storage import rename_object
 from core.utils import rekey_filename
 
@@ -68,4 +69,37 @@ def reconcile_title_group(db: Session, family_key: str, title: str) -> dict:
         if reconcile_document(db, documento, family_key, tiene_actuaciones):
             documentos_renombrados += 1
         versiones_renombradas += reconcile_document_versions(db, documento, family_key, tiene_actuaciones)
+    return {"documentos_renombrados": documentos_renombrados, "versiones_renombradas": versiones_renombradas}
+
+
+def reconcile_all(db: Session) -> dict:
+    """Recorre todo el archivo. Usado por el backfill inicial y por la tarea
+    nocturna (red de seguridad para lo que un disparo inmediato no haya
+    cubierto). Agrupa los documentos de familias con actuaciones por
+    (familia, título) para no recalcular el conteo por cada uno."""
+    documentos = db.scalars(select(Document)).all()
+    family_keys = repository.get_source_family_keys(db, [d.source_id for d in documentos])
+
+    grupos_de_caso: set[tuple[str, str]] = set()
+    documentos_sueltos: list[Document] = []
+    for documento in documentos:
+        family_key = family_keys.get(documento.source_id)
+        if es_familia_con_actuaciones(family_key, documento.title):
+            grupos_de_caso.add((family_key, documento.title))
+        else:
+            documentos_sueltos.append(documento)
+
+    documentos_renombrados = 0
+    versiones_renombradas = 0
+    for family_key, title in grupos_de_caso:
+        resultado = reconcile_title_group(db, family_key, title)
+        documentos_renombrados += resultado["documentos_renombrados"]
+        versiones_renombradas += resultado["versiones_renombradas"]
+
+    for documento in documentos_sueltos:
+        family_key = family_keys.get(documento.source_id)
+        if reconcile_document(db, documento, family_key, False):
+            documentos_renombrados += 1
+        versiones_renombradas += reconcile_document_versions(db, documento, family_key, False)
+
     return {"documentos_renombrados": documentos_renombrados, "versiones_renombradas": versiones_renombradas}
