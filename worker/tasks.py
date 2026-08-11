@@ -98,8 +98,16 @@ def _download_and_upload_one(
             # rebuilt from the corrected one now (see rekey_filename) — otherwise
             # the fix only lands in the database and the actual stored file (and
             # any bulk-download ZIP built from storage_key) keeps the old name.
+            titulo_antes = doc.title
             scraper.resolve_unverified_document(doc, result.local_path, result.content_type)
-            result.storage_key = rekey_filename(result.storage_key, doc.title)
+            # Solo se reconstruye la clave de almacenamiento si el enganche realmente
+            # corrigió el título (SAMAI/CSJ). Rama Judicial usa el enganche solo para
+            # extraer f_providencia y NO cambia el título; reejecutar rekey en ese caso
+            # reescribiría la clave descriptiva al radicado canónico —perdería el
+            # detalle del nombre y podría colisionar dos actuaciones del mismo radicado
+            # en una misma clave, sobrescribiendo el archivo.
+            if doc.title != titulo_antes:
+                result.storage_key = rekey_filename(result.storage_key, doc.title)
         if skip_upload_if_size_matches is not None and result.file_size_bytes == skip_upload_if_size_matches:
             return None, None
         upload_key = override_storage_key or result.storage_key

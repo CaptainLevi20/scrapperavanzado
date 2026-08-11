@@ -444,17 +444,18 @@ class ScrapRamaJudicial(BaseScrapper):
                         save_path = storage_path(
                             self.source, especialidad_dir, despacho_dir, fecha_p, tipo_dir, f"{doc_name}(extension)"
                         )
+                        titulo_normalizado = _normalize_title(name_no_ext, self._dept_code)
                         docs.append(RawDocModel(
                             source=self.source,
                             link={"url": download_url, "method": "GET", "body": {"path": file_uuid}},
-                            title=_normalize_title(name_no_ext, self._dept_code),
+                            title=titulo_normalizado,
                             tipo=tipo,
                             especialidad=especialidad_raw,
                             seccion=despacho_raw,
                             f_public=fecha_p,
                             detalle=_extract_detalle(name_no_ext),
                             save_path=save_path,
-                            title_unverified=is_radicado_title(_normalize_title(name_no_ext, self._dept_code)),
+                            title_unverified=is_radicado_title(titulo_normalizado),
                         ))
 
             if num_pag >= max_pages:
