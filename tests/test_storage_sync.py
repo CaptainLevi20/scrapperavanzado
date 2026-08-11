@@ -123,3 +123,47 @@ def test_reconcile_document_versions_logs_and_continues_when_rename_fails(db_ses
     versions = {v.storage_key for v in repository.list_document_versions(db_session, doc.id)}
     assert versions == {"carpeta/v3.pdf", "carpeta/v1-viejo.pdf"}  # sin cambios
     assert "No se pudo renombrar la versión" in caplog.text
+
+
+def test_reconcile_title_group_gives_full_date_to_every_sibling_when_there_are_two(db_session, monkeypatch):
+    from datetime import date
+
+    source = _rama_judicial_source(db_session)
+    shared_title = "T_SANT_68001_33_33_007_2025_00290_02"
+    doc1 = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title=shared_title, f_providencia=date(2026, 8, 6),
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder1.pdf",
+    )
+    doc2 = repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title=shared_title, f_providencia=date(2026, 8, 20),
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder2.pdf",
+    )
+
+    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+
+    result = storage_sync.reconcile_title_group(db_session, "rama_judicial", shared_title)
+
+    assert result == {"documentos_renombrados": 2, "versiones_renombradas": 0}
+    db_session.refresh(doc1)
+    db_session.refresh(doc2)
+    assert doc1.storage_key == "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260806.pdf"
+    assert doc2.storage_key == "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260820.pdf"
+
+
+def test_reconcile_title_group_gives_year_only_when_there_is_a_single_document(db_session, monkeypatch):
+    from datetime import date
+
+    source = _rama_judicial_source(db_session)
+    title = "T_CUND_25307_33_33_003_2024_00094_01"
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title=title, f_providencia=date(2026, 3, 15),
+        storage_bucket="iurisync-test", storage_key="carpeta/placeholder.pdf",
+    )
+
+    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+
+    result = storage_sync.reconcile_title_group(db_session, "rama_judicial", title)
+
+    assert result == {"documentos_renombrados": 1, "versiones_renombradas": 0}
+    db_session.refresh(doc)
+    assert doc.storage_key == "carpeta/T_CUND_25307_33_33_003_2024_00094_01_2026.pdf"

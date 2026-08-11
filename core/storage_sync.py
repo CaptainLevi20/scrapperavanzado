@@ -52,3 +52,20 @@ def reconcile_document_versions(db: Session, document: Document, family_key: Opt
             continue
         renombradas += 1
     return renombradas
+
+
+def reconcile_title_group(db: Session, family_key: str, title: str) -> dict:
+    """Recalcula si el grupo de documentos con este título dentro de esta
+    familia tiene más de una actuación (misma señal que case_document_count)
+    y reconcilia a cada uno (y sus versiones archivadas) con esa decisión.
+    Se dispara cuando llega una actuación nueva, para corregir también a los
+    'hermanos' existentes que nadie tocó directamente."""
+    documentos = repository.list_documents_by_title_within_family(db, family_key, title)
+    tiene_actuaciones = len(documentos) > 1
+    documentos_renombrados = 0
+    versiones_renombradas = 0
+    for documento in documentos:
+        if reconcile_document(db, documento, family_key, tiene_actuaciones):
+            documentos_renombrados += 1
+        versiones_renombradas += reconcile_document_versions(db, documento, family_key, tiene_actuaciones)
+    return {"documentos_renombrados": documentos_renombrados, "versiones_renombradas": versiones_renombradas}
