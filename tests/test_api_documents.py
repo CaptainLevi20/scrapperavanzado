@@ -547,7 +547,11 @@ def test_get_document_stats_accepts_explicit_year(api_client, auth_header, db_se
 
 
 def test_document_out_incluye_nombre_con_version(api_client, auth_header, db_session):
-    # SAMAI (familia con actuaciones) + f_providencia + una republicación → nombre con fecha y _v2
+    # SAMAI (familia con actuaciones) + f_providencia + una republicación → nombre
+    # con "_v2". La republicación es una nueva VERSIÓN del mismo documento, no una
+    # actuación distinta (sigue siendo la única fila con este título), así que la
+    # fecha lleva solo el año — ver test_document_out_con_otra_actuacion_usa_fecha_completa
+    # para el caso con más de una actuación real.
     from datetime import date
 
     from core.db import repository
@@ -562,7 +566,58 @@ def test_document_out_incluye_nombre_con_version(api_client, auth_header, db_ses
 
     response = api_client.get(f"/documents/{doc.id}", headers=auth_header)
     assert response.status_code == 200
-    assert response.json()["nombre"] == "11001-03-28-000-2026-00300-00_20260731_v2"
+    assert response.json()["nombre"] == "11001-03-28-000-2026-00300-00_2026_v2"
+
+
+def test_document_out_sin_otra_actuacion_usa_solo_el_anio(api_client, auth_header, db_session):
+    """Regresión: un documento con título de radicado pero sin ninguna otra
+    actuación registrada (reportado en producción para
+    T_SANT_68001_33_33_007_2025_00290_02) no debe llevar la fecha completa en
+    el nombre — solo el año."""
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    doc = repository.insert_document(
+        db_session, doc_id="rj-1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_providencia=date(2026, 8, 6),
+    )
+
+    response = api_client.get(f"/documents/{doc.id}", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json()["nombre"] == "T_SANT_68001_33_33_007_2025_00290_02_2026"
+
+
+def test_document_out_con_otra_actuacion_usa_fecha_completa(api_client, auth_header, db_session):
+    """Cuando sí hay más de una actuación (otro documento con el mismo título en
+    la misma familia), ambas llevan la fecha completa, para poder distinguirlas."""
+    from datetime import date
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal Superior de Bogotá", family_params={}
+    )
+    shared_title = "T_SANT_68001_33_33_007_2025_00290_02"
+    doc1 = repository.insert_document(
+        db_session, doc_id="rj-1", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf", f_providencia=date(2026, 8, 6),
+    )
+    repository.insert_document(
+        db_session, doc_id="rj-2", source_id=source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf", f_providencia=date(2026, 8, 20),
+    )
+
+    response = api_client.get(f"/documents/{doc1.id}", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json()["nombre"] == "T_SANT_68001_33_33_007_2025_00290_02_20260806"
 
 
 def test_get_document_returns_404_when_missing(api_client, auth_header):

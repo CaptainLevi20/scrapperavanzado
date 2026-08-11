@@ -1029,6 +1029,53 @@ def test_count_documents_by_title_within_family_returns_empty_dict_for_empty_inp
     assert repository.count_documents_by_title_within_family(db_session, [], "rama_judicial") == {}
 
 
+def test_actuacion_counts_by_title_only_counts_case_shaped_titles_scoped_by_family(db_session):
+    """Usado por el nombre canónico para decidir fecha completa vs. solo el
+    año: solo cuenta títulos con forma de caso (ver es_familia_con_actuaciones)
+    y nunca mezcla el conteo entre familias distintas."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    rama_source = repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
+    jep_source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    shared_title = "T_BTA_11001_31_03_048_2022_00418_02"
+    doc1 = repository.insert_document(
+        db_session, doc_id="d1", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+    doc2 = repository.insert_document(
+        db_session, doc_id="d2", source_id=rama_source.id, title=shared_title,
+        storage_bucket="iurisync-test", storage_key="b.pdf",
+    )
+    # JEP no es una familia "con actuaciones" — su título nunca entra al conteo,
+    # aunque comparta texto con algo que en otra familia sí sería un radicado.
+    doc3 = repository.insert_document(
+        db_session, doc_id="d3", source_id=jep_source.id, title="Auto cualquiera",
+        storage_bucket="iurisync-test", storage_key="c.pdf",
+    )
+
+    family_keys = {rama_source.id: "rama_judicial", jep_source.id: "jep"}
+    counts = repository.actuacion_counts_by_title(db_session, [doc1, doc2, doc3], family_keys)
+
+    assert counts == {shared_title: 2}
+
+
+def test_actuacion_counts_by_title_includes_a_title_with_a_single_actuacion(db_session):
+    """El llamador compara > 1 para decidir 'tiene_actuaciones' — un caso con
+    una sola actuación debe seguir apareciendo (con conteo 1), no ser omitido."""
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
+    title = "T_CUND_25269_33_33_001_2025_00051_01"
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title=title,
+        storage_bucket="iurisync-test", storage_key="a.pdf",
+    )
+
+    counts = repository.actuacion_counts_by_title(db_session, [doc], {source.id: "rama_judicial"})
+
+    assert counts == {title: 1}
+
+
 def test_list_documents_collapse_keeps_only_the_most_recent_actuacion(db_session):
     """The Documents table should show only the newest actuación of a shared
     radicado by default — the older ones remain fetchable via title_exact for

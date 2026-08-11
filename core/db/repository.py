@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.naming import es_familia_con_actuaciones
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
@@ -552,6 +553,27 @@ def count_documents_by_title_within_family(db: Session, titles: list[str], famil
         .group_by(Document.title)
     )
     return dict(db.execute(stmt).all())
+
+
+def actuacion_counts_by_title(
+    db: Session, documents: list[Document], family_keys: dict[int, str]
+) -> dict[str, int]:
+    """Cuenta, para cada documento cuyo título tiene forma de caso en su
+    familia (ver es_familia_con_actuaciones), cuántos documentos comparten ese
+    título dentro de la misma familia — la misma señal que case_document_count.
+    Usado por el nombre canónico para decidir entre fecha completa (>1
+    actuación) o solo el año (todavía sin otra actuación registrada). Agrupa
+    por familia antes de contar para no mezclar conteos entre familias
+    distintas."""
+    titles_por_familia: dict[str, list[str]] = {}
+    for d in documents:
+        fam = family_keys.get(d.source_id)
+        if es_familia_con_actuaciones(fam, d.title):
+            titles_por_familia.setdefault(fam, []).append(d.title)
+    counts: dict[str, int] = {}
+    for fam, titles in titles_por_familia.items():
+        counts.update(count_documents_by_title_within_family(db, titles, fam))
+    return counts
 
 
 def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
