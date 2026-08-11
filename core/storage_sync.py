@@ -13,14 +13,32 @@ from core.utils import rekey_filename
 logger = logging.getLogger(__name__)
 
 
+def _expected_document_key(document: Document, family_key: Optional[str], tiene_actuaciones: bool) -> str:
+    nombre_esperado = nombre_documento(document, family_key, tiene_actuaciones)
+    return rekey_filename(document.storage_key, nombre_esperado)
+
+
+def _expected_version_key(document: Document, version, family_key: Optional[str], tiene_actuaciones: bool) -> str:
+    nombre_esperado = nombre_version(document, version, family_key, tiene_actuaciones)
+    return rekey_filename(version.storage_key, nombre_esperado)
+
+
+def _grupos_en_colision(keys_por_id: dict[int, str]) -> dict[str, list[int]]:
+    """Agrupa ids por su key calculada y devuelve solo los grupos con más de un
+    id — es decir, las keys que dos o más filas calcularían igual."""
+    grupos: dict[str, list[int]] = {}
+    for id_, key in keys_por_id.items():
+        grupos.setdefault(key, []).append(id_)
+    return {key: ids for key, ids in grupos.items() if len(ids) > 1}
+
+
 def reconcile_document(db: Session, document: Document, family_key: Optional[str], tiene_actuaciones: bool) -> bool:
     """Renombra en MinIO el archivo de `document` si su storage_key actual no
     coincide con su nombre canónico vigente. Devuelve True solo si el
     renombrado se ejecutó con éxito y storage_key quedó actualizado en la
     base — una falla se registra en el log y no propaga (ver Global
     Constraints del plan: nunca bloquea al llamador)."""
-    nombre_esperado = nombre_documento(document, family_key, tiene_actuaciones)
-    nueva_key = rekey_filename(document.storage_key, nombre_esperado)
+    nueva_key = _expected_document_key(document, family_key, tiene_actuaciones)
     if nueva_key == document.storage_key:
         return False
     try:
@@ -30,15 +48,32 @@ def reconcile_document(db: Session, document: Document, family_key: Optional[str
         repository.update_document_storage_key(db, document.id, nueva_key)
     except Exception as exc:
         logger.warning("No se pudo renombrar el documento %s en MinIO: %s", document.id, exc)
+        # Si la falla vino de la escritura en la DB (no de MinIO), la sesión
+        # compartida queda en estado de transacción fallida — sin este
+        # rollback, la próxima consulta que use esta misma sesión (el
+        # siguiente documento del mismo reconcile_title_group/reconcile_all)
+        # levantaría fuera de cualquier try/except, abortando todo el barrido.
+        db.rollback()
         return False
     return True
 
 
-def reconcile_document_versions(db: Session, document: Document, family_key: Optional[str], tiene_actuaciones: bool) -> int:
+def reconcile_document_versions(
+    db: Session,
+    document: Document,
+    family_key: Optional[str],
+    tiene_actuaciones: bool,
+    skip_version_ids: Optional[set[int]] = None,
+) -> int:
     """Igual que reconcile_document, pero para cada versión archivada de
-    `document`. Devuelve cuántas se renombraron con éxito."""
+    `document`. Devuelve cuántas se renombraron con éxito. Las versiones cuyo
+    id esté en `skip_version_ids` (detectadas de antemano como colisión de
+    nombre calculado con otra versión del mismo grupo) ni se intentan
+    renombrar."""
     renombradas = 0
     for version in repository.list_document_versions(db, document.id):
+        if skip_version_ids and version.id in skip_version_ids:
+            continue
         nombre_esperado = nombre_version(document, version, family_key, tiene_actuaciones)
         nueva_key = rekey_filename(version.storage_key, nombre_esperado)
         if nueva_key == version.storage_key:
@@ -50,6 +85,10 @@ def reconcile_document_versions(db: Session, document: Document, family_key: Opt
             repository.update_document_version_storage_key(db, version.id, nueva_key)
         except Exception as exc:
             logger.warning("No se pudo renombrar la versión %s en MinIO: %s", version.id, exc)
+            # Ver comentario equivalente en reconcile_document: sin este
+            # rollback, una falla de escritura en la DB deja la sesión
+            # inutilizable para el resto del barrido.
+            db.rollback()
             continue
         renombradas += 1
     return renombradas
@@ -60,15 +99,58 @@ def reconcile_title_group(db: Session, family_key: str, title: str) -> dict:
     familia tiene más de una actuación (misma señal que case_document_count)
     y reconcilia a cada uno (y sus versiones archivadas) con esa decisión.
     Se dispara cuando llega una actuación nueva, para corregir también a los
-    'hermanos' existentes que nadie tocó directamente."""
+    'hermanos' existentes que nadie tocó directamente.
+
+    Antes de renombrar nada, detecta colisiones: dos hermanos (o dos versiones
+    archivadas, posiblemente de hermanos distintos) pueden calcular exactamente
+    la misma key de MinIO cuando comparten carpeta de subida y nombre canónico
+    (algo que sí puede pasar — ver el finding de la revisión final). Si eso
+    ocurre, renombrar ambos causaría que el segundo rename_object (copia +
+    borrado del lado del servidor) sobrescriba el archivo al que el primero
+    acaba de mudarse, perdiendo su contenido en silencio. Por eso: ninguno de
+    los dos lados de una colisión se toca (storage_key queda exactamente como
+    estaba), se deja un warning en el log, y el resto del grupo (los que no
+    colisionan) se reconcilia con normalidad."""
     documentos = repository.list_documents_by_title_within_family(db, family_key, title)
     tiene_actuaciones = len(documentos) > 1
+
+    keys_por_documento: dict[int, str] = {
+        documento.id: _expected_document_key(documento, family_key, tiene_actuaciones)
+        for documento in documentos
+    }
+    keys_por_version: dict[int, str] = {}
+    for documento in documentos:
+        for version in repository.list_document_versions(db, documento.id):
+            keys_por_version[version.id] = _expected_version_key(documento, version, family_key, tiene_actuaciones)
+
+    grupos_colision_documentos = _grupos_en_colision(keys_por_documento)
+    grupos_colision_versiones = _grupos_en_colision(keys_por_version)
+
+    for key, ids in grupos_colision_documentos.items():
+        logger.warning(
+            "Colisión de nombre calculado entre documentos hermanos del título %r (familia %s): "
+            "los documentos %s calculan la misma key %r — no se renombran, storage_key queda sin cambios.",
+            title, family_key, ids, key,
+        )
+    for key, ids in grupos_colision_versiones.items():
+        logger.warning(
+            "Colisión de nombre calculado entre versiones archivadas del título %r (familia %s): "
+            "las versiones %s calculan la misma key %r — no se renombran, storage_key queda sin cambios.",
+            title, family_key, ids, key,
+        )
+
+    documentos_a_omitir = {id_ for ids in grupos_colision_documentos.values() for id_ in ids}
+    versiones_a_omitir = {id_ for ids in grupos_colision_versiones.values() for id_ in ids}
+
     documentos_renombrados = 0
     versiones_renombradas = 0
     for documento in documentos:
-        if reconcile_document(db, documento, family_key, tiene_actuaciones):
-            documentos_renombrados += 1
-        versiones_renombradas += reconcile_document_versions(db, documento, family_key, tiene_actuaciones)
+        if documento.id not in documentos_a_omitir:
+            if reconcile_document(db, documento, family_key, tiene_actuaciones):
+                documentos_renombrados += 1
+        versiones_renombradas += reconcile_document_versions(
+            db, documento, family_key, tiene_actuaciones, skip_version_ids=versiones_a_omitir,
+        )
     return {"documentos_renombrados": documentos_renombrados, "versiones_renombradas": versiones_renombradas}
 
 
