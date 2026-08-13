@@ -34,6 +34,10 @@ _FAMILIES = {
         "Ministerio de Agricultura y Desarrollo Rural",
         "Normativa (leyes, decretos, resoluciones, conpes) publicada por el Ministerio de Agricultura y Desarrollo Rural",
     ),
+    "mineducacion": (
+        "Ministerio de Educación Nacional",
+        "Normativa (leyes, decretos, resoluciones, circulares, directivas, acuerdos) publicada por el Ministerio de Educación Nacional",
+    ),
 }
 
 
@@ -100,6 +104,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="madr", name="Ministerio de Agricultura y Desarrollo Rural", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="mineducacion", name="Ministerio de Educación Nacional", family_params={}
     )
 
 
