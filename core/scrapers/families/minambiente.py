@@ -17,12 +17,16 @@ _AJAX_ACTION = "normativa_paginacion-load-posts-2"
 
 # slug (solo para logging) -> (termID del sitio, tipo mostrado, letra del código de título)
 # "Conpes"/"CONPES" y "Concepto" se tratan aparte (ver _CONCEPTOS_TERM_ID / letra literal).
+# "Circular" usa letra "C" (misma convención que mincit.py) pero su número real
+# es un código de radicado alfanumérico, no un consecutivo — ver
+# _CODIGO_CIRCULAR_PATTERN más abajo.
 _CATEGORIAS = {
     "resoluciones": (46, "Resolución", "R"),
     "leyes": (47, "Ley", "L"),
     "decretos": (48, "Decreto", "D"),
     "autos": (58, "Auto", "A"),
     "conpes": (61, "Conpes", "CONPES"),
+    "circulares": (60, "Circular", "C"),
 }
 _CONCEPTOS_TERM_ID = 962
 _CONCEPTOS_TIPO = "Concepto"
@@ -56,6 +60,18 @@ _FECHA_PATTERN = re.compile(
 )
 
 _NUMERO_PATTERN = re.compile(r"\d+")
+# Las Circulares no numeran con un consecutivo corto: usan un código de
+# radicado que mezcla dígitos y una letra, con el año embebido al inicio
+# (ej. "10002026E4000041" en "Circular 10002026E4000041 del 23 de julio de
+# 2026"). Un \d+ simple lo cortaría en el primer bloque de dígitos
+# ("10002026"), perdiendo el resto del código — se exige que empiece y
+# termine en dígito, con letras/dígitos en el medio, como un solo token
+# contiguo (sin espacios). Si una Circular no trae un código así (ej.
+# "Circular de medidas y recomendaciones..."), no matchea; si además esa
+# entrada no tiene ninguna fecha reconocible en el título (caso real
+# observado), se descarta por completo, igual que cualquier otra categoría
+# sin fecha parseable.
+_CODIGO_CIRCULAR_PATTERN = re.compile(r"\d[\dA-Za-z]*\d")
 _PUBLICADO_PATTERN = re.compile(
     rf"Publicado:\s*({_MESES_ALT})\s+(\d{{1,2}}),\s*(\d{{4}})", re.IGNORECASE
 )
@@ -116,6 +132,11 @@ def _parse_fecha_concepto(texto: str) -> Optional[str]:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
+    if letra == "C":
+        # El código de radicado de Circulares ya viene con su propio formato
+        # fijo (no es un consecutivo corto) — se usa tal cual, sin forzarlo a
+        # entero ni rellenarlo con ceros.
+        return f"C_MADS_{numero}_{anio}"
     return f"{letra}_MADS_{int(numero):04d}_{anio}"
 
 
@@ -162,7 +183,8 @@ class ScrapMinAmbiente(BaseScrapper):
             publicado_span = bloque.find("span", class_="txt-peque-archivo")
             f_public = _parse_publicado(publicado_span.get_text(strip=True)) if publicado_span else None
 
-            numero_match = _NUMERO_PATTERN.search(titulo_sitio)
+            patron_numero = _CODIGO_CIRCULAR_PATTERN if tipo == "Circular" else _NUMERO_PATTERN
+            numero_match = patron_numero.search(titulo_sitio)
             numero = numero_match.group(0) if numero_match else None
             resto = _resto_tras_numero(titulo_sitio, numero) if numero else titulo_sitio
             f_providencia = _parse_fecha(resto)

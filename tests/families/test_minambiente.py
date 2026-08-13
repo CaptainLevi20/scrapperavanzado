@@ -34,6 +34,12 @@ def test_normalize_title_uses_conpes_literal_instead_of_a_single_letter():
     assert _normalize_title("CONPES", "4088", "2022") == "CONPES_MADS_4088_2022"
 
 
+def test_normalize_title_circular_uses_the_radicado_code_as_is():
+    # El código de Circular no es un entero corto (mezcla dígitos y letras),
+    # así que no se le aplica int()/zfill como al resto de categorías.
+    assert _normalize_title("C", "10002026E4000041", "2026") == "C_MADS_10002026E4000041_2026"
+
+
 def test_parse_fecha_dia_de_mes_del_anio():
     assert _parse_fecha(" del 15 julio de 2026") == "2026-07-15"
 
@@ -197,6 +203,45 @@ def test_extraer_normas_conpes_uses_conpes_literal():
     assert docs[0].title == "CONPES_MADS_4088_2022"
 
 
+_BOX_CIRCULAR_CON_CODIGO_HTML = """
+<div class="row box-docgd">
+  <div class="col-md-10">
+    <div><a class="documento-normativa" href="https://www.minambiente.gov.co/wp-content/uploads/2026/07/CIRC-10002026E4000041.pdf"
+         title="Circular 10002026E4000041 del 23 de julio de 2026">Circular 10002026E4000041 del 23 de julio de 2026</a></div>
+    <div><span class="txt-peque-archivo">Publicado: julio 24, 2026</span></div>
+  </div>
+</div>
+"""
+
+
+def test_extraer_normas_circular_uses_radicado_code_not_first_digit_run():
+    scraper = ScrapMinAmbiente()
+    docs = scraper._extraer_normas(_BOX_CIRCULAR_CON_CODIGO_HTML, "Circular", "C", "2026-01-01", "2026-12-31")
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.title == "C_MADS_10002026E4000041_2026"
+    assert doc.title_unverified is False
+    assert doc.f_providencia == "2026-07-23"
+
+
+_BOX_CIRCULAR_SIN_CODIGO_HTML = """
+<div class="row box-docgd">
+  <div class="col-md-10">
+    <div><a class="documento-normativa" href="https://www.minambiente.gov.co/wp-content/uploads/2022/01/CIRC-NIRO.pdf"
+         title="Circular de medidas y recomendaciones frente al fenómeno de El Niño">Circular de medidas y recomendaciones frente al fenómeno de El Niño</a></div>
+  </div>
+</div>
+"""
+
+
+def test_extraer_normas_circular_without_code_or_date_is_dropped():
+    scraper = ScrapMinAmbiente()
+    docs = scraper._extraer_normas(_BOX_CIRCULAR_SIN_CODIGO_HTML, "Circular", "C", "2000-01-01", "2030-12-31")
+
+    assert docs == []
+
+
 _CONCEPTOS_HTML = """
 <div class="row box-docgd">
   <div class="col-md-11">
@@ -274,6 +319,7 @@ def test_scrap_aggregates_across_categories_and_conceptos():
     responses.add(responses.POST, _AJAX_URL, body="", match=[_matcher(46)])
     responses.add(responses.POST, _AJAX_URL, body="", match=[_matcher(58)])
     responses.add(responses.POST, _AJAX_URL, body=_BOX_CONPES_HTML, match=[_matcher(61)])
+    responses.add(responses.POST, _AJAX_URL, body=_BOX_CIRCULAR_CON_CODIGO_HTML, match=[_matcher(60)])
     responses.add(responses.POST, _AJAX_URL, body=_CONCEPTOS_HTML, match=[_matcher(962)])
 
     scraper = ScrapMinAmbiente()
@@ -283,6 +329,7 @@ def test_scrap_aggregates_across_categories_and_conceptos():
         "D_MADS_0766_2026",
         "L_MADS_2294_2023",
         "CONPES_MADS_4088_2022",
+        "C_MADS_10002026E4000041_2026",
         "CONCEPTO_MADS_concep_028506",
     }
 
@@ -294,6 +341,7 @@ def test_scrap_continues_past_a_failing_category():
     responses.add(responses.POST, _AJAX_URL, body="", match=[_matcher(46)])
     responses.add(responses.POST, _AJAX_URL, body="", match=[_matcher(58)])
     responses.add(responses.POST, _AJAX_URL, body=_BOX_CONPES_HTML, match=[_matcher(61)])
+    responses.add(responses.POST, _AJAX_URL, body=_BOX_CIRCULAR_CON_CODIGO_HTML, match=[_matcher(60)])
     responses.add(responses.POST, _AJAX_URL, body=_CONCEPTOS_HTML, match=[_matcher(962)])
 
     progreso = []
@@ -301,7 +349,12 @@ def test_scrap_continues_past_a_failing_category():
     docs = scraper.scrap(fini="2020-01-01", ffin="2026-12-31", on_progress=progreso.append)
 
     assert "D_MADS_0766_2026" not in {d.title for d in docs}
-    assert {d.title for d in docs} == {"L_MADS_2294_2023", "CONPES_MADS_4088_2022", "CONCEPTO_MADS_concep_028506"}
+    assert {d.title for d in docs} == {
+        "L_MADS_2294_2023",
+        "CONPES_MADS_4088_2022",
+        "C_MADS_10002026E4000041_2026",
+        "CONCEPTO_MADS_concep_028506",
+    }
     assert any("Error" in m and "Decreto" in m for m in progreso)
 
 
@@ -312,6 +365,7 @@ def test_scrap_respects_limit():
     responses.add(responses.POST, _AJAX_URL, body="", match=[_matcher(46)])
     responses.add(responses.POST, _AJAX_URL, body="", match=[_matcher(58)])
     responses.add(responses.POST, _AJAX_URL, body=_BOX_CONPES_HTML, match=[_matcher(61)])
+    responses.add(responses.POST, _AJAX_URL, body=_BOX_CIRCULAR_CON_CODIGO_HTML, match=[_matcher(60)])
     responses.add(responses.POST, _AJAX_URL, body=_CONCEPTOS_HTML, match=[_matcher(962)])
 
     scraper = ScrapMinAmbiente()

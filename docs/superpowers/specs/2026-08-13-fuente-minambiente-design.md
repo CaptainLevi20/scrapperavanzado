@@ -33,9 +33,9 @@ página renderizada):
   | Decretos | 48 | Sí |
   | Autos | 58 | Sí |
   | Conpes | 61 | Sí |
+  | Circulares | 60 | Sí (nomenclatura especial, ver abajo) |
   | Conceptos | 962 | Sí (estructura especial) |
   | Agenda Regulatoria | 59 | No |
-  | Circulares | 60 | No |
   | Boletín Legal | 956 | No |
   | Boletín Legal Decretos | 961 | No |
 
@@ -49,14 +49,22 @@ Quedan fuera de v1 (verificado con fetch):
 
 - **Agenda Regulatoria**: títulos versionados sin número de acto
   (`"Agenda Regulatoria V4 2026"`, `"Agenda Regulatoria 2025 Versión 7"`).
-- **Circulares**: el "número" es un código de radicado largo
-  (`"Circular 10002026E4000041 del 23 de julio de 2026"`), no un consecutivo
-  corto; al menos una entrada real no tiene número en absoluto. No hay
-  nomenclatura limpia que aplicar.
 - **Boletín Legal** y **Boletín Legal Decretos**: sus enlaces no son PDFs de
   MinAmbiente, son páginas externas de `suin-juriscol.gov.co`
   (`viewDocument.asp?ruta=...`). No hay archivo descargable, y el contenido
   ya está cubierto por Leyes/Decretos (v1) desde la fuente original.
+
+**Circulares sí entra en v1** (a diferencia de la primera versión de este
+diseño): su "número" es en realidad un código de radicado alfanumérico
+(`"Circular 10002026E4000041 del 23 de julio de 2026"`), no un consecutivo
+corto — se maneja con un patrón de extracción y una nomenclatura de título
+dedicados (ver "Parseo" y "Nomenclatura del título" abajo) en vez de
+forzarlo al esquema `{LETRA}_MADS_{numero:04d}_{año}` de las demás
+categorías. Al menos una entrada real no trae ningún código (ej. `"Circular
+de medidas y recomendaciones frente al fenómeno de El Niño"`); esas, al no
+tener tampoco fecha reconocible en el título, se descartan igual que
+cualquier otra entrada sin fecha parseable — no se inventa nomenclatura para
+ellas.
 
 Se pueden agregar después con su propio diseño, igual que MADR dejó
 pendientes Jurisprudencia/Notificaciones/Agenda regulatoria/Análisis
@@ -70,7 +78,7 @@ Archivo nuevo `core/scrapers/families/minambiente.py`, registrado con
 
 ## Parseo — dos formas de bloque
 
-### 1) Resoluciones/Leyes/Decretos/Autos/Conpes
+### 1) Resoluciones/Leyes/Decretos/Autos/Conpes/Circulares
 
 Bloque `div.row.box-docgd` (BeautifulSoup, iterando por categoría):
 
@@ -96,6 +104,13 @@ Bloque `div.row.box-docgd` (BeautifulSoup, iterando por categoría):
   se extrae con `re.search(r"\d+", título)` (primer run de dígitos) en vez
   del `^\S+\s+(\d+)` de `mincit`, porque hay ruido real antes del tipo
   (`"Actualizada – Res 0953 del 03 de Septiembre de 2021"`).
+- **Circulares — número distinto**: su código de radicado mezcla dígitos y
+  una letra en un solo token contiguo (`"10002026E4000041"`), así que
+  `\d+` lo cortaría en el primer bloque de dígitos. Se usa un patrón
+  dedicado (`\d[\dA-Za-z]*\d`, primer token que empieza y termina en
+  dígito) solo para esta categoría — el resto de la extracción de fecha
+  (`_resto_tras_numero` + `_FECHA_PATTERN` sobre lo que queda después del
+  código) es idéntico al de las demás categorías.
 - **Fecha "Publicado:"**: un solo formato fijo, `"Publicado: {mes} {día},
   {año}"` en español sin cero a la izquierda — confirmado en 133+111+104+
   109+33 muestras reales.
@@ -152,6 +167,9 @@ descripción legible vive en `detalle`):
   Ministerio de Ambiente y Desarrollo Sostenible.
 - `title = f"CONPES_MADS_{numero:04d}_{año}"` (literal `CONPES`, mismo
   precedente de `madr`).
+- `title = f"C_MADS_{código}_{año}"` para Circulares, usando el código de
+  radicado tal cual (sin `int()`/relleno de ceros, ya que no es un entero
+  corto — ej. `10002026E4000041` → `C_MADS_10002026E4000041_2026`).
 - `title = f"CONCEPTO_MADS_{rad_salida}"` para Conceptos, usando el código
   de `Rad. Salida` (ej. `concep_250812_028506`) — ya único y filename-safe.
 - **Sin número o sin fecha parseable**: `title` = texto crudo del sitio,

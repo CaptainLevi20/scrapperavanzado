@@ -36,8 +36,8 @@ _FAMILIES = {
     ),
     "minambiente": (
         "Ministerio de Ambiente y Desarrollo Sostenible",
-        "Normativa (resoluciones, decretos, leyes, autos, conpes, conceptos) publicada por el Ministerio de Ambiente y "
-        "Desarrollo Sostenible",
+        "Normativa (resoluciones, decretos, leyes, autos, conpes, circulares, conceptos) publicada por el Ministerio de "
+        "Ambiente y Desarrollo Sostenible",
     ),
 }
 
