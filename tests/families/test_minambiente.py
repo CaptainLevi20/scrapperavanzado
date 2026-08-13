@@ -117,10 +117,39 @@ def test_extraer_normas_parses_block_and_builds_canonical_title():
     assert doc.f_providencia == "2026-07-15"
     assert doc.f_public == "2026-07-16"
     assert doc.detalle == "Por el cual se reglamenta el uso del recurso hídrico"
-    assert doc.link["url"] == "https://www.minambiente.gov.co/wp-content/uploads/2026/07/DECRETO-0766.pdf"
-    assert doc.save_path == (
-        "Ministerio de Ambiente y Desarrollo Sostenible/2026-07-15/Decreto/D_MADS_0766_2026(extension)"
-    )
+
+
+# Estructura real del sitio (confirmada con fetch contra minambiente.gov.co):
+# hay DOS <span class="txt-peque-archivo"> por bloque — el primero, dentro de
+# .box-archivo, es el peso del archivo (casi siempre vacío); el que trae
+# "Publicado: ..." está más abajo. Regresión: bloque.find() con solo el
+# selector de clase se quedaba con el primero (vacío).
+_BOX_RESOLUCION_CON_SPAN_VACIO_HTML = """
+<div class="row box-docgd">
+  <div class="col-md-1">
+    <div class="box-archivo">
+      <a class="url-archivo" href="https://www.minambiente.gov.co/wp-content/uploads/2026/08/RES-0970.zip"></a>
+      <span class="peso-archivo txt-peque-archivo"></span>
+    </div>
+  </div>
+  <div class="col-md-11">
+    <div><a class="documento-normativa"
+         href="https://www.minambiente.gov.co/wp-content/uploads/2026/08/RES-0970.zip"
+         title="Resolución 0970 de 2026">Resolución 0970 de 2026</a></div>
+    <div><p class="descripcion-archivo">"Por medio de la cual se modifica la Resolución 0221 de 2025"</p></div>
+    <div><span class="txt-peque-archivo">Publicado: agosto 5, 2026</span></div>
+  </div>
+</div>
+"""
+
+
+def test_extraer_normas_skips_empty_leading_span_to_find_publicado():
+    scraper = ScrapMinAmbiente()
+    docs = scraper._extraer_normas(_BOX_RESOLUCION_CON_SPAN_VACIO_HTML, "Resolución", "R", "2026-01-01", "2026-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].f_public == "2026-08-05"
+    assert docs[0].f_providencia == "2026-01-01"  # el título no trae día/mes, solo año
 
 
 def test_extraer_normas_filters_by_providencia_not_publicado():

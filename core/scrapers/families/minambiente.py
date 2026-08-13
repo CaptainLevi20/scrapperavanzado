@@ -180,8 +180,18 @@ class ScrapMinAmbiente(BaseScrapper):
             descripcion = bloque.find("p", class_="descripcion-archivo")
             detalle = descripcion.get_text(" ", strip=True).strip('"') if descripcion else None
 
-            publicado_span = bloque.find("span", class_="txt-peque-archivo")
-            f_public = _parse_publicado(publicado_span.get_text(strip=True)) if publicado_span else None
+            # El bloque trae DOS <span class="txt-peque-archivo">: el primero, dentro
+            # de .box-archivo, es el peso del archivo (casi siempre vacío); el que
+            # realmente dice "Publicado: ..." está más abajo, junto a la descripción.
+            # bloque.find() se queda con el primero (vacío) si no se filtra por
+            # contenido — confirmado con fetch real contra el sitio, no se detectaba
+            # en los fixtures de prueba porque no incluían el bloque .box-archivo.
+            f_public = None
+            for span in bloque.find_all("span", class_="txt-peque-archivo"):
+                texto_span = span.get_text(strip=True)
+                if texto_span.startswith("Publicado"):
+                    f_public = _parse_publicado(texto_span)
+                    break
 
             patron_numero = _CODIGO_CIRCULAR_PATTERN if tipo == "Circular" else _NUMERO_PATTERN
             numero_match = patron_numero.search(titulo_sitio)
