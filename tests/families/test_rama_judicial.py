@@ -1,5 +1,6 @@
 from datetime import date
 
+import requests
 import responses
 
 from core.scrapers.families import rama_judicial
@@ -9,6 +10,7 @@ from core.scrapers.families.rama_judicial import (
     TRIBUNAL_CODES,
     ScrapRamaJudicial,
     _extract_detalle,
+    _get_with_retries,
     _normalize_title,
 )
 from core.scrapers.registry import FAMILY_REGISTRY
@@ -217,6 +219,73 @@ def test_fetch_detail_parses_file_table():
     files = scraper._fetch_detail({"User-Agent": "test"}, _BASE_DOMAIN + "/detalle/1")
 
     assert files == [("Auto_2024.pdf", _BASE_DOMAIN + "/descargas/archivo.pdf?uuid=abc-123", "abc-123")]
+
+
+@responses.activate
+def test_get_with_retries_retries_on_connection_error_then_succeeds(monkeypatch):
+    # Real bug found in production: Tribunal Superior de Antioquia (this same
+    # scraper, shared by all 33 Tribunales Superiores + Juzgados sources)
+    # failed its whole run because a dropped/reset connection was never
+    # retried at all — only requests.exceptions.Timeout was. ConnectionError
+    # is just as transient.
+    monkeypatch.setattr(rama_judicial.time, "sleep", lambda *_a, **_k: None)
+    calls = {"count": 0}
+
+    def _callback(request):
+        calls["count"] += 1
+        if calls["count"] < 2:
+            raise requests.exceptions.ConnectionError()
+        return (200, {}, "ok")
+
+    responses.add_callback(responses.GET, _BASE_DOMAIN + "/x", callback=_callback)
+    session = requests.Session()
+
+    resp = _get_with_retries(session, _BASE_DOMAIN + "/x", {})
+
+    assert resp.text == "ok"
+    assert calls["count"] == 2
+
+
+@responses.activate
+def test_get_with_retries_pauses_between_attempts(monkeypatch):
+    # The site was observed timing out repeatedly during a period of heavy
+    # load; retrying with zero pause just hammers it again immediately. A
+    # short sleep between attempts (mirrors samai.py's time.sleep(5)) gives
+    # it a chance to recover.
+    sleeps = []
+    monkeypatch.setattr(rama_judicial.time, "sleep", lambda secs: sleeps.append(secs))
+    calls = {"count": 0}
+
+    def _callback(request):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise requests.exceptions.Timeout()
+        return (200, {}, "ok")
+
+    responses.add_callback(responses.GET, _BASE_DOMAIN + "/x", callback=_callback)
+    session = requests.Session()
+
+    resp = _get_with_retries(session, _BASE_DOMAIN + "/x", {})
+
+    assert resp.text == "ok"
+    assert sleeps == [5, 5]
+
+
+@responses.activate
+def test_get_with_retries_raises_after_exhausting_all_attempts(monkeypatch):
+    monkeypatch.setattr(rama_judicial.time, "sleep", lambda *_a, **_k: None)
+
+    def _callback(request):
+        raise requests.exceptions.Timeout()
+
+    responses.add_callback(responses.GET, _BASE_DOMAIN + "/x", callback=_callback)
+    session = requests.Session()
+
+    try:
+        _get_with_retries(session, _BASE_DOMAIN + "/x", {})
+        assert False, "expected Timeout to propagate"
+    except requests.exceptions.Timeout:
+        pass
 
 
 @responses.activate
