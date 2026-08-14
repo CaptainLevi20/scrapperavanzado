@@ -129,7 +129,9 @@ export function RunDetailPage() {
 
       {runIsStale && (
         <ErrorBanner
-          message="Dejamos de actualizar esta pantalla automáticamente porque el run lleva más de 30 minutos activo (puede seguir trabajando igual, solo dejamos de refrescar solos para no sobrecargar el navegador). Usa Reintentar para retomar las actualizaciones automáticas."
+          variant="info"
+          message="El run sigue activo, pero esta pantalla dejó de actualizarse sola. Usa 'Actualizar estado' para ver su progreso más reciente."
+          retryLabel="Actualizar estado"
           onRetry={() => {
             setResumedAtMs(Date.now());
             runQuery.refetch();
