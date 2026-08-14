@@ -168,10 +168,22 @@ class ScrapMineducacion(BaseScrapper):
             por_anio_extra = self._extraer_filas_pagina(resp_anio.text, tipo, letra, on_progress=on_progress)
             por_anio.update(por_anio_extra)
 
-        for filas in por_anio.values():
-            for doc in filas:
-                if fini <= doc.f_public <= ffin:
-                    docs.append(doc)
+        # Se filtra por AÑO, no por fecha exacta: f_public es un año
+        # sintético ("{año}-01-01", el Normograma no da día/mes -- ver
+        # spec), así que comparar contra fini/ffin como si fuera una fecha
+        # real dejaría fuera para siempre cualquier documento nuevo en
+        # corridas incrementales normales (fini/ffin son una ventana corta
+        # tipo "hoy - 3 días", casi nunca 1 de enero): un documento de
+        # agosto de 2026 recién publicado, guardado como "2026-01-01",
+        # nunca sería >= a un fini como "2026-08-01". Comparando por año se
+        # sigue encontrando todo lo nuevo del año en curso en cada corrida
+        # (a costa de un chequeo HEAD de más por documento ya conocido de
+        # ese año -- barato, y el mismo motivo por el que
+        # doc_id_uses_publication_date se dejó en True: no depende de esta
+        # fecha para la identidad).
+        for anio, filas in por_anio.items():
+            if anio_ini <= int(anio) <= anio_fin:
+                docs.extend(filas)
 
         return docs
 

@@ -139,12 +139,32 @@ un tercero), o aceptar solo año. El usuario pidió una recomendación; se
 recomendó **solo año** por dos motivos: el volumen (Decreto y Ley con casi
 100 años de historial cada uno) y que es el mismo criterio ya aceptado en
 `madr.py` para casos sin fecha completa (`"DE 2022"` → `"2022-01-01"`), no
-una excepción nueva. `f_public` se llena como `f"{año}-01-01"`; el filtro
-`fini`/`ffin` compara contra ese valor con el mismo criterio que
-`madr.py` (comparación de cadena exacta, no "el año se solapa con el
-rango" — un documento de un año límite puede quedar fuera si `fini` cae
-después del 1 de enero de ese año, limitación conocida y ya aceptada en
-otras fuentes).
+una excepción nueva. `f_public` se llena como `f"{año}-01-01"`.
+
+**Bug real encontrado después de implementar (el usuario preguntó "¿y
+entonces para hacer el scraping por rango de fechas?" y eso llevó a
+revisar cómo se usa `fini`/`ffin` en producción)**: la primera versión del
+filtro comparaba `fini <= f_public <= ffin` como cadena exacta, igual que
+`madr.py`. Eso es seguro en `madr.py` porque ahí el fallback a "solo año"
+es la excepción (CONPES), no la regla — la mayoría de sus documentos sí
+tienen fecha completa. Aquí, en cambio, **las 7 categorías son año-
+solamente sin excepción**, y las corridas programadas reales usan una
+ventana angosta (`worker/beat_schedule.py`: `fini = hoy - 3 días`, `ffin =
+hoy`, no un rango desde el 1 de enero). Con la comparación de cadena
+exacta, un documento nuevo publicado en agosto de 2026 se guarda como
+`f_public = "2026-01-01"`, que es **menor** que un `fini` como
+`"2026-08-01"` — la corrida nunca lo encontraría, ni ese día ni ningún
+otro día del resto del año. La fuente habría quedado ciega a documentos
+nuevos fuera de una corrida manual que arrancara exactamente en enero.
+Se corrigió comparando por **año**, no por fecha exacta
+(`anio_ini <= int(año_del_documento) <= anio_fin`): así una corrida
+incremental normal (`fini`/`ffin` dentro del año en curso) sigue
+encontrando todo lo nuevo de ese año, a costa de un chequeo HEAD de más
+por documento ya conocido de ese año en cada corrida (barato,
+`checks_for_republication` se queda en su default `True`). Se agregó una
+prueba de regresión que reproduce exactamente la ventana corta real
+(`fini`/`ffin` de mediados de año, lejos del 1 de enero) y confirma que un
+documento de ese año se sigue encontrando.
 
 `doc_id_uses_publication_date` se deja en el default `True`: a diferencia
 de `minvivienda`/`minambiente` (donde `f_public` es un timestamp de
@@ -185,7 +205,7 @@ desde la API, sin lógica hardcodeada por `family_key`.
 
 ## Pruebas
 
-`tests/families/test_mineducacion.py`, 23 pruebas (reescrito por completo,
+`tests/families/test_mineducacion.py`, 24 pruebas (reescrito por completo,
 reemplaza las 48 pruebas de la primera versión): `_normalize_title`
 (incluye el caso alfanumérico defensivo), `_pdf_href_from_doc_href`
 (con/sin carpeta), `_extraer_fila` (fila limpia con sufijo " ME", fila sin
@@ -193,11 +213,13 @@ sufijo, formato no reconocido con aviso, sin enlace, sin descripción),
 `_scrap_categoria` (solo pide los años-fragmento que hacen falta y que no
 vinieron ya embebidos, NO vuelve a pedir un año que la categoría chica ya
 trajo embebido — regresión directa del hallazgo real de Acuerdo/404, filtra
-fuera de rango, continúa cuando un año-fragmento o la página base fallan),
-`scrap()` (agrega las 7 categorías, continúa si una falla, límite
-respetado, `stop_event` respetado entre categorías), registro en
-`FAMILY_REGISTRY`, y flags de la familia (`filters_by_publication_date` en
-`False`, `doc_id_uses_publication_date` en `True`).
+fuera de rango, continúa cuando un año-fragmento o la página base fallan,
+**encuentra documentos del año en curso con una ventana angosta tipo "hoy -
+3 días" lejos del 1 de enero — regresión directa del bug de filtrado
+descrito arriba**), `scrap()` (agrega las 7 categorías, continúa si una
+falla, límite respetado, `stop_event` respetado entre categorías), registro
+en `FAMILY_REGISTRY`, y flags de la familia (`filters_by_publication_date`
+en `False`, `doc_id_uses_publication_date` en `True`).
 
 ## Verificación contra el sitio real
 

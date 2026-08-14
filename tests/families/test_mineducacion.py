@@ -215,6 +215,33 @@ def test_scrap_categoria_does_not_refetch_a_year_already_embedded_in_the_base_pa
 
 
 @responses.activate
+def test_scrap_categoria_finds_current_year_documents_on_a_narrow_incremental_window():
+    # Regresión: f_public es siempre "{año}-01-01" (el Normograma no da
+    # día/mes), pero las corridas programadas reales usan una ventana corta
+    # tipo "hoy - 3 días" (ver worker/beat_schedule.py), casi nunca 1 de
+    # enero. Si el filtro comparara fini/ffin como fecha exacta contra
+    # "2026-01-01", un documento recién publicado en agosto de 2026 nunca
+    # pasaría un fini como "2026-08-01" -- la fuente quedaría ciega a
+    # documentos nuevos el resto del año. El filtro debe comparar por año,
+    # no por fecha exacta.
+    base_page = _pagina(
+        ["2026"],
+        filas_html=_fila("Resolución 1 de 2026 ME", "docs/resolucion_1_2026.htm"),
+    )
+    responses.add(responses.GET, "https://normograma.info/men/compilacion/compilacion/cndser_x.html", body=base_page)
+
+    scraper = ScrapMineducacion()
+    import requests
+
+    session = requests.Session()
+    # Ventana angosta típica de una corrida programada: "hoy - 3 días" a
+    # "hoy", muy lejos del 1 de enero.
+    docs = scraper._scrap_categoria(session, "cndser_x", "Resolución", "R", "2026-08-10", "2026-08-13")
+
+    assert {d.title for d in docs} == {"R_MEN_0001_2026"}
+
+
+@responses.activate
 def test_scrap_categoria_filters_out_of_range_years():
     base_page = _pagina(
         ["2026"],
