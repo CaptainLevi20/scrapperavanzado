@@ -44,6 +44,10 @@ _FAMILIES = {
         "Normativa (resoluciones, decretos, leyes, conpes, acuerdos, directivas, circulares, autos) publicada por el "
         "Ministerio de Vivienda, Ciudad y Territorio",
     ),
+    "mineducacion": (
+        "Ministerio de Educación Nacional",
+        "Normativa del sector educación (leyes, decretos, resoluciones, circulares, directivas, acuerdos, conceptos) del Normograma del Ministerio de Educación Nacional",
+    ),
 }
 
 
@@ -118,6 +122,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="minvivienda", name="Ministerio de Vivienda, Ciudad y Territorio", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="mineducacion", name="Ministerio de Educación Nacional", family_params={}
     )
 
 
