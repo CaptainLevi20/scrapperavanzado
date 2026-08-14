@@ -2,13 +2,9 @@ import responses
 
 from core.scrapers.families.mineducacion import (
     ScrapMineducacion,
-    _clasificar_tipo,
-    _elegir_adjunto,
-    _extraer_numero,
-    _limpiar_titulo,
+    _extraer_fila,
     _normalize_title,
-    _parse_fecha,
-    _resto_tras_numero,
+    _pdf_href_from_doc_href,
 )
 from core.scrapers.registry import FAMILY_REGISTRY
 
@@ -23,406 +19,327 @@ def test_filters_by_publication_date_stays_at_default_false():
     assert ScrapMineducacion.filters_by_publication_date is False
 
 
-def test_doc_id_uses_publication_date_stays_at_default_true():
-    # A diferencia de minambiente/minvivienda (donde f_public es un
-    # timestamp del sitio que puede re-fecharse por reindexado del CMS),
-    # aquí f_public es la fecha real de la norma, parseada del propio
-    # título -- intrínseca al documento, nunca cambia para el mismo archivo.
+def test_doc_id_uses_publication_date_is_true():
+    # A diferencia de minvivienda/minambiente (donde f_public es un
+    # timestamp del sitio que puede re-fecharse), aquí f_public viene del
+    # propio identificador del documento en el Normograma -- intrínseco,
+    # nunca cambia para el mismo archivo.
     assert ScrapMineducacion.doc_id_uses_publication_date is True
 
 
-def test_limpiar_titulo_strips_zero_width_space():
-    assert _limpiar_titulo("​Resolución 018741 del 06 de octubre de 2023") == (
-        "Resolución 018741 del 06 de octubre de 2023"
-    )
-
-
-def test_limpiar_titulo_strips_surrounding_whitespace():
-    assert _limpiar_titulo("  Circular 040 del 28 de julio de 2026  ") == "Circular 040 del 28 de julio de 2026"
-
-
-def test_clasificar_tipo_resolucion_con_tilde():
-    assert _clasificar_tipo("Resolución N° 020664 del 4 de agosto de 2026") == ("Resolución", "R")
-
-
-def test_clasificar_tipo_resolucion_sin_tilde():
-    assert _clasificar_tipo("Resolucion No. 010295 de 16 de abril 2026") == ("Resolución", "R")
-
-
-def test_clasificar_tipo_is_case_insensitive():
-    assert _clasificar_tipo("RESOLUCIÓN No.011223 25 Oct 2019") == ("Resolución", "R")
-
-
-def test_clasificar_tipo_decreto():
-    assert _clasificar_tipo("Decreto NO.0617 del 17 de junio de 2026") == ("Decreto", "D")
-
-
-def test_clasificar_tipo_ley():
-    assert _clasificar_tipo("Ley 2167 del 22 de diciembre de 2021") == ("Ley", "L")
-
-
-def test_clasificar_tipo_circular():
-    assert _clasificar_tipo("Circular N° 033 del 18 de junio de 2026") == ("Circular", "C")
-
-
-def test_clasificar_tipo_directiva_uses_literal_letra():
-    assert _clasificar_tipo("Directiva 005 del 24 de julio de 2026") == ("Directiva", "DIRECTIVA")
-
-
-def test_clasificar_tipo_acuerdo():
-    assert _clasificar_tipo("Acuerdo 01 del 23 de diciembre de 2020") == ("Acuerdo", "A")
-
-
-def test_clasificar_tipo_excludes_proyecto_de_decreto():
-    # "Proyecto de Decreto/Resolución" es un borrador en consulta pública,
-    # no una norma vigente -- se excluye a propósito, junto con cualquier
-    # otro documento que no encaje en un tipo de norma reconocido (ej.
-    # "Guía...", "Manual...", "Reglamento Operativo...").
-    assert _clasificar_tipo("Proyecto de Decreto") is None
-    assert _clasificar_tipo("Proyecto de Resolución") is None
-
-
-def test_clasificar_tipo_excludes_unrecognized_documents():
-    assert _clasificar_tipo("Guía de orientaciones oferta basada cualificaciones MNC - Agosto de 2021") is None
-    assert _clasificar_tipo("Manual de Identidad Visual") is None
-    assert _clasificar_tipo("Reglamento Operativo del 18 de enero de 2022") is None
-
-
-def test_extraer_numero_finds_first_digit_run():
-    assert _extraer_numero("Resolución N° 020664 del 4 de agosto de 2026") == "020664"
-
-
-def test_extraer_numero_skips_no_marker_without_digits():
-    assert _extraer_numero("Circular N.037 del 7 de julio 2026") == "037"
-
-
-def test_extraer_numero_returns_none_when_no_digits():
-    assert _extraer_numero("Directiva sin número reconocible") is None
-
-
-def test_resto_tras_numero_strips_everything_up_to_and_including_the_number():
-    assert _resto_tras_numero("020664 del 4 de agosto de 2026", "020664") == " del 4 de agosto de 2026"
-
-
-def test_resto_tras_numero_returns_full_text_when_number_not_found():
-    assert _resto_tras_numero("sin número", "9999") == "sin número"
-
-
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("R", "020664", "2026") == "R_MEN_20664_2026"
+    assert _normalize_title("R", "19230", "2026") == "R_MEN_19230_2026"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("A", "01", "2020") == "A_MEN_0001_2020"
+    assert _normalize_title("D", "802", "2026") == "D_MEN_0802_2026"
 
 
 def test_normalize_title_uses_directiva_literal_instead_of_a_single_letter():
-    assert _normalize_title("DIRECTIVA", "005", "2026") == "DIRECTIVA_MEN_0005_2026"
+    assert _normalize_title("DIRECTIVA", "3", "2026") == "DIRECTIVA_MEN_0003_2026"
 
 
-def test_parse_fecha_dia_de_mes_de_anio():
-    assert _parse_fecha(" del 4 de agosto de 2026") == "2026-08-04"
+def test_normalize_title_falls_back_to_raw_number_when_not_numeric():
+    assert _normalize_title("C", "12A", "2026") == "C_MEN_12A_2026"
 
 
-def test_parse_fecha_dia_de_mes_sin_conector_antes_del_anio():
-    # Real: "Circular N.037 del 7 de julio 2026" -- sin "de" antes del año.
-    assert _parse_fecha(" del 7 de julio 2026") == "2026-07-07"
-
-
-def test_parse_fecha_dia_sin_de_antes_del_mes():
-    # Real: "RESOLUCIÓN No. 019316 28 de Julio de  2026" (doble espacio antes
-    # del año, "28" pegado directo al mes sin "de" intermedio en el resto).
-    assert _parse_fecha(" 28 de Julio de  2026") == "2026-07-28"
-
-
-def test_parse_fecha_mes_completo_sin_dia():
-    assert _parse_fecha(" de agosto de 2026") == "2026-08-01"
-
-
-def test_parse_fecha_solo_anio():
-    assert _parse_fecha(" de 2026") == "2026-01-01"
-
-
-def test_parse_fecha_numerica_dia_mes_anio():
-    # Real: "Circular CONJUNTA 001 del 15-3-2022".
-    assert _parse_fecha(" del 15-3-2022") == "2022-03-15"
-
-
-def test_parse_fecha_mes_abreviado_mayusculas():
-    # Real: "Resolución 012410 26 NOV 2019".
-    assert _parse_fecha(" 26 NOV 2019") == "2019-11-26"
-
-
-def test_parse_fecha_mes_abreviado_con_punto():
-    assert _parse_fecha(" 04 FEB. 2026") == "2026-02-04"
-
-
-def test_parse_fecha_returns_none_when_no_date_found():
-    assert _parse_fecha(" Ministerial No 37") is None
-
-
-def test_parse_fecha_falls_back_to_month_start_on_calendar_impossible_date():
-    assert _parse_fecha(" del 31 de abril de 2024") == "2024-04-01"
-
-
-def test_parse_fecha_is_case_insensitive():
-    assert _parse_fecha(" DEL 27 DE MAYO DEL 2016") == "2016-05-27"
-
-
-def _figura(href: str, texto: str) -> str:
-    return (
-        f'<div class="figure bajardoc cid-956"><a href="{href}" title="Ir a {texto}">'
-        f'<img src="x.png"></a><a href="{href}" title="Ir a {texto}">{texto}</a></div>'
+def test_pdf_href_from_doc_href_swaps_docs_for_docs_pdf_and_extension():
+    assert (
+        _pdf_href_from_doc_href("docs/resolucion_mineducacion_19230_2026.htm")
+        == "docs/pdf/resolucion_mineducacion_19230_2026.pdf"
     )
 
 
-def test_elegir_adjunto_prefers_pdf_over_earlier_non_pdf():
-    from bs4 import BeautifulSoup
-
-    # Real ejemplo: un .docx (formulario anexo) listado ANTES que el PDF de
-    # la circular misma -- tomar el primero a secas elegiría el anexo.
-    html = (
-        _figura("anexo.docx", "Formato Préstamo Bicicletas")
-        + _figura("circular.pdf", "Circular No. 21 de marzo 4")
-    )
-    soup = BeautifulSoup(html, "html.parser")
-    figuras = soup.select("div.figure.bajardoc")
-
-    enlace = _elegir_adjunto(figuras)
-    assert enlace["href"] == "circular.pdf"
+def test_pdf_href_from_doc_href_handles_no_leading_folder():
+    assert _pdf_href_from_doc_href("resolucion_19230_2026.htm") == "pdf/resolucion_19230_2026.pdf"
 
 
-def test_elegir_adjunto_takes_first_pdf_among_several():
-    from bs4 import BeautifulSoup
-
-    html = (
-        _figura("norma.pdf", "Resolución N° 020664 del 4 de agosto de 2026")
-        + _figura("anexo1.pdf", "Documento Técnico de Soporte")
-        + _figura("anexo2.pdf", "Marco Jurídico e Institucional")
-    )
-    soup = BeautifulSoup(html, "html.parser")
-    figuras = soup.select("div.figure.bajardoc")
-
-    enlace = _elegir_adjunto(figuras)
-    assert enlace["href"] == "norma.pdf"
-
-
-def test_elegir_adjunto_falls_back_to_first_when_no_pdf_at_all():
-    from bs4 import BeautifulSoup
-
-    html = _figura("solo.docx", "Único adjunto, sin PDF")
-    soup = BeautifulSoup(html, "html.parser")
-    figuras = soup.select("div.figure.bajardoc")
-
-    enlace = _elegir_adjunto(figuras)
-    assert enlace["href"] == "solo.docx"
-
-
-def test_elegir_adjunto_returns_none_when_no_figures():
-    assert _elegir_adjunto([]) is None
-
-
-def _recuadro(titulo: str, figuras_html: str, abstract: str = "Descripción de prueba.") -> str:
+def _fila(id_documento: str, href: str, descripcion: str = "Descripción de prueba.") -> str:
     return f"""
-    <div class="recuadro my-5">
-      <h3 class="h4 titulo aid-1">{titulo}</h3>
-      <p class="fecha">Actualizado: 05 de agosto de 2026</p>
-      <p class="abstract">{abstract}</p>
-      {figuras_html}
+    <div class="opcion-nueva">
+      <a href="{href}" target="_blank">
+        <div class="id-documento">{id_documento}</div>
+        <div class="descripcion-documento"><p>{descripcion}</p></div>
+      </a>
     </div>
     """
 
 
-_PAGINA_ANIO_HTML_TPL = """
-<html><head><base href="https://www.mineducacion.gov.co/1780/w3-multipropertyvalues-x-x.html"></head>
-<body>
-{recuadros}
+def test_extraer_fila_parses_a_clean_row_with_me_suffix():
+    html = _fila(
+        "Resolución 19230 de 2026 ME",
+        "docs/resolucion_mineducacion_19230_2026.htm",
+        descripcion="Por la cual se valida el Modelo de Gestión de Calidad.",
+    )
+    from bs4 import BeautifulSoup
+
+    fila = BeautifulSoup(html, "html.parser").select_one("div.opcion-nueva")
+
+    resultado = _extraer_fila(fila, "Resolución", "R", source="Ministerio de Educación Nacional")
+    assert resultado is not None
+    anio, doc = resultado
+
+    assert anio == "2026"
+    assert doc.title == "R_MEN_19230_2026"
+    assert doc.tipo == "Resolución"
+    assert doc.f_public == "2026-01-01"
+    assert doc.title_unverified is False
+    assert doc.detalle == "Por la cual se valida el Modelo de Gestión de Calidad."
+    assert doc.link["url"] == (
+        "https://normograma.info/men/compilacion/compilacion/docs/pdf/resolucion_mineducacion_19230_2026.pdf"
+    )
+    assert doc.save_path == "Ministerio de Educación Nacional/2026-01-01/Resolución/R_MEN_19230_2026(extension)"
+
+
+def test_extraer_fila_parses_a_row_without_me_suffix():
+    # Decreto y Ley no llevan el sufijo " ME" (los expiden Presidencia y
+    # Congreso, no el Ministerio).
+    html = _fila("Decreto 802 de 2026", "docs/decreto_0802_2026.htm")
+    from bs4 import BeautifulSoup
+
+    fila = BeautifulSoup(html, "html.parser").select_one("div.opcion-nueva")
+
+    resultado = _extraer_fila(fila, "Decreto", "D", source="Ministerio de Educación Nacional")
+    assert resultado is not None
+    anio, doc = resultado
+    assert anio == "2026"
+    assert doc.title == "D_MEN_0802_2026"
+
+
+def test_extraer_fila_returns_none_for_unrecognized_format():
+    html = _fila("Texto sin el formato esperado", "docs/algo.htm")
+    from bs4 import BeautifulSoup
+
+    fila = BeautifulSoup(html, "html.parser").select_one("div.opcion-nueva")
+
+    progreso = []
+    resultado = _extraer_fila(fila, "Resolución", "R", on_progress=progreso.append, source="MEN")
+    assert resultado is None
+    assert any("no reconocido" in m for m in progreso)
+
+
+def test_extraer_fila_returns_none_when_no_link():
+    html = """
+    <div class="opcion-nueva">
+      <div class="id-documento">Resolución 1 de 2026 ME</div>
+    </div>
+    """
+    from bs4 import BeautifulSoup
+
+    fila = BeautifulSoup(html, "html.parser").select_one("div.opcion-nueva")
+
+    assert _extraer_fila(fila, "Resolución", "R", source="MEN") is None
+
+
+def test_extraer_fila_handles_missing_description():
+    html = """
+    <div class="opcion-nueva">
+      <a href="docs/resolucion_1_2026.htm">
+        <div class="id-documento">Resolución 1 de 2026 ME</div>
+      </a>
+    </div>
+    """
+    from bs4 import BeautifulSoup
+
+    fila = BeautifulSoup(html, "html.parser").select_one("div.opcion-nueva")
+
+    resultado = _extraer_fila(fila, "Resolución", "R", source="MEN")
+    assert resultado is not None
+    _, doc = resultado
+    assert doc.detalle is None
+
+
+_SELECT_HTML_TPL = """
+<html><body>
+<select>
+{options}
+</select>
+{filas}
 </body></html>
 """
 
 
-def _pagina(recuadros: str) -> str:
-    return _PAGINA_ANIO_HTML_TPL.format(recuadros=recuadros)
+def _pagina(years_options: list, filas_html: str = "") -> str:
+    options = "\n".join(f'<option value="{i+1}">{y}</option>' for i, y in enumerate(years_options))
+    return _SELECT_HTML_TPL.format(options=options, filas=filas_html)
 
 
-def test_scrap_parses_a_clean_resolucion_row():
-    recuadro = _recuadro(
-        "Resolución N° 020664 del 4 de agosto de 2026",
-        _figura("articles-430163_pdf.pdf", "Resolución N° 020664 del 4 de agosto de 2026"),
-        abstract="Por medio de la cual se adoptan los lineamientos.",
+@responses.activate
+def test_scrap_categoria_only_fetches_years_not_already_embedded():
+    base_page = _pagina(
+        ["2026", "2025", "2024"],
+        filas_html=_fila("Resolución 1 de 2026 ME", "docs/resolucion_1_2026.htm"),
     )
-    html = _pagina(recuadro)
+    year_2025_page = _fila("Resolución 2 de 2025 ME", "docs/resolucion_2_2025.htm")
+
+    responses.add(responses.GET, "https://normograma.info/men/compilacion/compilacion/cndser_x.html", body=base_page)
+    responses.add(
+        responses.GET,
+        "https://normograma.info/men/compilacion/compilacion/cndser_x_2025.html",
+        body=year_2025_page,
+    )
+    # 2024 no se pide porque queda fuera del rango solicitado (fini=2025).
 
     scraper = ScrapMineducacion()
-    docs = scraper._extraer_anio(html, "https://www.mineducacion.gov.co/fallback/", "2026-01-01", "2026-12-31")
+    import requests
 
-    assert len(docs) == 1
-    doc = docs[0]
-    assert doc.title == "R_MEN_20664_2026"
-    assert doc.tipo == "Resolución"
-    assert doc.f_public == "2026-08-04"
-    assert doc.title_unverified is False
-    assert doc.detalle == "Por medio de la cual se adoptan los lineamientos."
-    assert doc.link["url"] == "https://www.mineducacion.gov.co/1780/articles-430163_pdf.pdf"
-    assert doc.save_path == "Ministerio de Educación Nacional/2026-08-04/Resolución/R_MEN_20664_2026(extension)"
+    session = requests.Session()
+    docs = scraper._scrap_categoria(session, "cndser_x", "Resolución", "R", "2025-01-01", "2026-12-31")
+
+    assert {d.title for d in docs} == {"R_MEN_0001_2026", "R_MEN_0002_2025"}
+    assert len(responses.calls) == 2  # base + solo 2025, nunca 2024
 
 
-def test_scrap_resolves_relative_links_against_the_base_tag_not_the_request_url():
-    # El <base href> de la plantilla Newtenberg apunta a una URL distinta de
-    # la URL amigable pedida -- si se resolviera contra la URL pedida en vez
-    # del <base>, el enlace de descarga quedaría mal formado.
-    recuadro = _recuadro(
-        "Decreto NO.0617 del 17 de junio de 2026",
-        _figura("articles-429281_recurso_1.pdf", "Decreto NO.0617 del 17 de junio de 2026"),
+@responses.activate
+def test_scrap_categoria_does_not_refetch_a_year_already_embedded_in_the_base_page():
+    # Categoría pequeña (ej. Acuerdo real): todos sus años ya vienen en la
+    # página base, sin archivos "_{año}.html" separados -- pedir uno
+    # devolvería 404 en el sitio real. No debe intentarlo.
+    base_page = _pagina(
+        ["2023", "2022"],
+        filas_html=(
+            _fila("Acuerdo 1 de 2023 ME", "docs/acuerdo_1_2023.htm")
+            + _fila("Acuerdo 1 de 2022 ME", "docs/acuerdo_1_2022.htm")
+        ),
     )
-    html = _pagina(recuadro)
+    responses.add(responses.GET, "https://normograma.info/men/compilacion/compilacion/cndsea_x.html", body=base_page)
 
     scraper = ScrapMineducacion()
-    docs = scraper._extraer_anio(
-        html,
-        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2026/",
-        "2026-01-01",
-        "2026-12-31",
+    import requests
+
+    session = requests.Session()
+    docs = scraper._scrap_categoria(session, "cndsea_x", "Acuerdo", "A", "2022-01-01", "2023-12-31")
+
+    assert {d.title for d in docs} == {"A_MEN_0001_2023", "A_MEN_0001_2022"}
+    assert len(responses.calls) == 1  # solo la página base, ningún fragmento
+
+
+@responses.activate
+def test_scrap_categoria_filters_out_of_range_years():
+    base_page = _pagina(
+        ["2026"],
+        filas_html=_fila("Resolución 1 de 2026 ME", "docs/resolucion_1_2026.htm"),
     )
-
-    assert docs[0].link["url"] == "https://www.mineducacion.gov.co/1780/articles-429281_recurso_1.pdf"
-
-
-def test_scrap_excludes_proyecto_rows():
-    recuadro = f"""
-    <div class="recuadro my-5">
-      <h3 class="h4 titulo aid-1">Proyecto de Decreto</h3>
-      <p class="abstract">Borrador en consulta pública.</p>
-    </div>
-    """
-    html = _pagina(recuadro)
+    responses.add(responses.GET, "https://normograma.info/men/compilacion/compilacion/cndser_x.html", body=base_page)
 
     scraper = ScrapMineducacion()
-    docs = scraper._extraer_anio(html, "https://www.mineducacion.gov.co/fallback/", "2026-01-01", "2026-12-31")
+    import requests
 
-    assert docs == []
-
-
-def test_scrap_skips_row_with_recognized_type_but_no_parseable_date():
-    recuadro = _recuadro(
-        "Directiva Ministerial No 37",
-        _figura("articles-360750.pdf", "Directiva Ministerial No 37"),
-    )
-    html = _pagina(recuadro)
-
-    progreso = []
-    scraper = ScrapMineducacion()
-    docs = scraper._extraer_anio(
-        html, "https://www.mineducacion.gov.co/fallback/", "2017-01-01", "2017-12-31", on_progress=progreso.append
-    )
-
-    assert docs == []
-    assert any("fecha" in m for m in progreso)
-
-
-def test_scrap_skips_row_without_any_attachment():
-    recuadro = """
-    <div class="recuadro my-5">
-      <h3 class="h4 titulo aid-1">Resolución 020664 del 4 de agosto de 2026</h3>
-      <p class="abstract">Sin adjunto.</p>
-    </div>
-    """
-    html = _pagina(recuadro)
-
-    scraper = ScrapMineducacion()
-    docs = scraper._extraer_anio(html, "https://www.mineducacion.gov.co/fallback/", "2026-01-01", "2026-12-31")
-
-    assert docs == []
-
-
-def test_scrap_filters_out_documents_outside_requested_range():
-    recuadro = _recuadro(
-        "Resolución 020664 del 4 de agosto de 2020",
-        _figura("articles-1.pdf", "Resolución 020664 del 4 de agosto de 2020"),
-    )
-    html = _pagina(recuadro)
-
-    scraper = ScrapMineducacion()
-    docs = scraper._extraer_anio(html, "https://www.mineducacion.gov.co/fallback/", "2026-01-01", "2026-12-31")
+    session = requests.Session()
+    docs = scraper._scrap_categoria(session, "cndser_x", "Resolución", "R", "2020-01-01", "2020-12-31")
 
     assert docs == []
 
 
 @responses.activate
-def test_scrap_fetches_one_page_per_year_in_range():
-    html_2025 = _pagina(
-        _recuadro(
-            "Circular 001 de 15 de enero de 2025",
-            _figura("articles-1.pdf", "Circular 001 de 15 de enero de 2025"),
-        )
-    )
-    html_2026 = _pagina(
-        _recuadro(
-            "Resolución 020664 del 4 de agosto de 2026",
-            _figura("articles-2.pdf", "Resolución 020664 del 4 de agosto de 2026"),
-        )
-    )
+def test_scrap_categoria_continues_when_a_year_fragment_fails():
+    base_page = _pagina(["2026", "2025"], filas_html=_fila("Resolución 1 de 2026 ME", "docs/resolucion_1_2026.htm"))
+    responses.add(responses.GET, "https://normograma.info/men/compilacion/compilacion/cndser_x.html", body=base_page)
     responses.add(
-        responses.GET,
-        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2025/",
-        body=html_2025,
-    )
-    responses.add(
-        responses.GET,
-        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2026/",
-        body=html_2026,
-    )
-
-    scraper = ScrapMineducacion()
-    docs = scraper.scrap(fini="2025-01-01", ffin="2026-12-31")
-
-    assert {d.title for d in docs} == {"C_MEN_0001_2025", "R_MEN_20664_2026"}
-
-
-@responses.activate
-def test_scrap_continues_past_a_failing_year():
-    html_2026 = _pagina(
-        _recuadro(
-            "Resolución 020664 del 4 de agosto de 2026",
-            _figura("articles-2.pdf", "Resolución 020664 del 4 de agosto de 2026"),
-        )
-    )
-    responses.add(
-        responses.GET,
-        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2025/",
-        status=500,
-    )
-    responses.add(
-        responses.GET,
-        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2026/",
-        body=html_2026,
+        responses.GET, "https://normograma.info/men/compilacion/compilacion/cndser_x_2025.html", status=500
     )
 
     progreso = []
     scraper = ScrapMineducacion()
-    docs = scraper.scrap(fini="2025-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    import requests
 
-    assert {d.title for d in docs} == {"R_MEN_20664_2026"}
+    session = requests.Session()
+    docs = scraper._scrap_categoria(
+        session, "cndser_x", "Resolución", "R", "2025-01-01", "2026-12-31", on_progress=progreso.append
+    )
+
+    assert {d.title for d in docs} == {"R_MEN_0001_2026"}
     assert any("Error" in m and "2025" in m for m in progreso)
 
 
 @responses.activate
+def test_scrap_categoria_continues_when_base_page_fails():
+    responses.add(responses.GET, "https://normograma.info/men/compilacion/compilacion/cndser_x.html", status=500)
+
+    progreso = []
+    scraper = ScrapMineducacion()
+    import requests
+
+    session = requests.Session()
+    docs = scraper._scrap_categoria(
+        session, "cndser_x", "Resolución", "R", "2025-01-01", "2026-12-31", on_progress=progreso.append
+    )
+
+    assert docs == []
+    assert any("Error" in m for m in progreso)
+
+
+def _categoria_urls():
+    slugs = {
+        "resoluciones": "cndser_ministerio_educacion_nacional",
+        "decretos": "cndsed_presidencia_republica",
+        "circulares": "cndsec_ministerio_educacion_nacional",
+        "directivas": "cndsed_ministerio_educacion_nacional",
+        "acuerdos": "cndsea_ministerio_educacion_nacional",
+        "leyes": "cndsel_congreso_republica",
+        "conceptos": "c-dc_occ_ministerio_educacion_nacional",
+    }
+    return {k: f"https://normograma.info/men/compilacion/compilacion/{v}.html" for k, v in slugs.items()}
+
+
+@responses.activate
+def test_scrap_aggregates_across_all_seven_categories():
+    urls = _categoria_urls()
+    empty_page = _pagina([])
+    resoluciones_page = _pagina(["2026"], filas_html=_fila("Resolución 1 de 2026 ME", "docs/resolucion_1_2026.htm"))
+    leyes_page = _pagina(["2026"], filas_html=_fila("Ley 2600 de 2026", "docs/ley_2600_2026.htm"))
+
+    responses.add(responses.GET, urls["resoluciones"], body=resoluciones_page)
+    responses.add(responses.GET, urls["decretos"], body=empty_page)
+    responses.add(responses.GET, urls["circulares"], body=empty_page)
+    responses.add(responses.GET, urls["directivas"], body=empty_page)
+    responses.add(responses.GET, urls["acuerdos"], body=empty_page)
+    responses.add(responses.GET, urls["leyes"], body=leyes_page)
+    responses.add(responses.GET, urls["conceptos"], body=empty_page)
+
+    scraper = ScrapMineducacion()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
+
+    assert {d.title for d in docs} == {"R_MEN_0001_2026", "L_MEN_2600_2026"}
+
+
+@responses.activate
+def test_scrap_continues_past_a_failing_category():
+    urls = _categoria_urls()
+    empty_page = _pagina([])
+    leyes_page = _pagina(["2026"], filas_html=_fila("Ley 2600 de 2026", "docs/ley_2600_2026.htm"))
+
+    responses.add(responses.GET, urls["resoluciones"], status=500)
+    responses.add(responses.GET, urls["decretos"], body=empty_page)
+    responses.add(responses.GET, urls["circulares"], body=empty_page)
+    responses.add(responses.GET, urls["directivas"], body=empty_page)
+    responses.add(responses.GET, urls["acuerdos"], body=empty_page)
+    responses.add(responses.GET, urls["leyes"], body=leyes_page)
+    responses.add(responses.GET, urls["conceptos"], body=empty_page)
+
+    progreso = []
+    scraper = ScrapMineducacion()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
+
+    assert {d.title for d in docs} == {"L_MEN_2600_2026"}
+    assert any("Error" in m and "Resolución" in m for m in progreso)
+
+
+@responses.activate
 def test_scrap_respects_limit():
-    html_2026 = _pagina(
-        _recuadro(
-            "Resolución 1 del 1 de enero de 2026",
-            _figura("articles-1.pdf", "Resolución 1 del 1 de enero de 2026"),
-        )
-        + _recuadro(
-            "Resolución 2 del 2 de enero de 2026",
-            _figura("articles-2.pdf", "Resolución 2 del 2 de enero de 2026"),
-        )
+    urls = _categoria_urls()
+    empty_page = _pagina([])
+    resoluciones_page = _pagina(
+        ["2026"],
+        filas_html=(
+            _fila("Resolución 1 de 2026 ME", "docs/resolucion_1_2026.htm")
+            + _fila("Resolución 2 de 2026 ME", "docs/resolucion_2_2026.htm")
+        ),
     )
-    responses.add(
-        responses.GET,
-        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2026/",
-        body=html_2026,
-    )
+
+    responses.add(responses.GET, urls["resoluciones"], body=resoluciones_page)
+    for key in ("decretos", "circulares", "directivas", "acuerdos", "leyes", "conceptos"):
+        responses.add(responses.GET, urls[key], body=empty_page)
 
     scraper = ScrapMineducacion()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", limit=1)
@@ -431,7 +348,7 @@ def test_scrap_respects_limit():
 
 
 @responses.activate
-def test_scrap_respects_stop_event_between_years():
+def test_scrap_respects_stop_event_between_categories():
     import threading
 
     stop_event = threading.Event()
