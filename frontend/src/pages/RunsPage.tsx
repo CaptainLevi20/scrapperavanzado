@@ -17,7 +17,7 @@ import { Label } from "../components/ui/label";
 import { NativeSelect } from "../components/ui/native-select";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 import { formatDate, formatDateTime } from "../lib/formatters";
-import { isStaleRun, shouldPollRun } from "../lib/runStatus";
+import { shouldPollRun } from "../lib/runStatus";
 
 const PAGE_SIZE = 20;
 const POLL_INTERVAL_MS = 4000;
@@ -147,7 +147,6 @@ export function RunsPage() {
   });
   const visibleRuns = runsQuery.data?.slice(0, PAGE_SIZE);
   const hasNextPage = (runsQuery.data?.length ?? 0) > PAGE_SIZE;
-  const hasStaleRun = visibleRuns?.some((run) => isStaleRun(run.created_at, run.status));
 
   return (
     <div className="space-y-6">
@@ -184,12 +183,6 @@ export function RunsPage() {
 
       {runsQuery.isError && (
         <ErrorBanner message="No se pudieron cargar los runs." onRetry={() => runsQuery.refetch()} />
-      )}
-      {!runsQuery.isError && hasStaleRun && (
-        <ErrorBanner
-          message="Alguno de estos runs lleva mucho tiempo sin actualizarse. Puede haberse quedado colgado — usa Reintentar para revisar su estado más reciente."
-          onRetry={() => runsQuery.refetch()}
-        />
       )}
 
       <div className={TABLE_SHELL}>

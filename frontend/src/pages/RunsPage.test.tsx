@@ -149,11 +149,15 @@ describe("RunsPage", () => {
     vi.useRealTimers();
   });
 
-  it("stops polling and warns instead of hammering the server when a run is stuck", async () => {
+  it("stops polling without a banner when a run is stuck", async () => {
     // Regression test: a worker process that dies outright (killed, crashed,
     // container restarted) never writes "failed" — the run just stays
     // "running" forever. Before this fix, polling every 4s would continue
-    // for as long as the tab stayed open.
+    // for as long as the tab stayed open. The list intentionally has no
+    // stale-run banner (unlike RunDetailPage) — with several runs mixed
+    // together it can't say which one is stuck, so it just quietly stops
+    // instead of showing an unactionable message; the status badges already
+    // tell the user what they need at a glance.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const staleCreatedAt = new Date(Date.now() - MAX_POLL_AGE_MS - 60_000).toISOString();
     let callCount = 0;
@@ -168,9 +172,6 @@ describe("RunsPage", () => {
 
     renderPage();
     await waitFor(() => expect(callCount).toBe(1));
-    expect(
-      await screen.findByText(/lleva mucho tiempo sin actualizarse/)
-    ).toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(4100);
     expect(callCount).toBe(1); // no repitió la consulta automática
