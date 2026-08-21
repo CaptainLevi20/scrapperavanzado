@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cancelRun, fetchRun, fetchRunSources } from "../api/runs";
+import { cancelRun, fetchRun, fetchRunSources, retryFailedRunSources } from "../api/runs";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
@@ -105,6 +105,14 @@ export function RunDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["run", id] }),
   });
 
+  const retryMutation = useMutation({
+    mutationFn: () => retryFailedRunSources(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["run", id] });
+      queryClient.invalidateQueries({ queryKey: ["run-sources", id] });
+    },
+  });
+
   if (Number.isNaN(id)) return <ErrorBanner message="Run inválido." />;
   if (runQuery.isError) {
     return <ErrorBanner message="No se pudo cargar el run." onRetry={() => runQuery.refetch()} />;
@@ -147,6 +155,16 @@ export function RunDetailPage() {
           onClick={() => cancelMutation.mutate()}
         >
           {run.cancel_requested ? "Cancelación solicitada" : "Cancelar run"}
+        </Button>
+      )}
+
+      {(run.status === "failed" || run.status === "completed_with_errors") && (
+        <Button
+          variant="outline"
+          disabled={retryMutation.isPending}
+          onClick={() => retryMutation.mutate()}
+        >
+          Reintentar fuentes fallidas
         </Button>
       )}
 

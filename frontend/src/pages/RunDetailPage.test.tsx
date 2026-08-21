@@ -135,6 +135,58 @@ describe("RunDetailPage", () => {
     expect(await screen.findByText("Cancelación solicitada")).toBeInTheDocument();
   });
 
+  it("shows the retry-failed button only for failed or completed_with_errors runs", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "completed" })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    await screen.findByText("Run #1");
+    expect(screen.queryByText("Reintentar fuentes fallidas")).not.toBeInTheDocument();
+  });
+
+  it("shows the retry-failed button for a failed run", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "failed" })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([RUN_SOURCE]))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Reintentar fuentes fallidas")).toBeInTheDocument();
+  });
+
+  it("shows the retry-failed button for a completed_with_errors run", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status: "completed_with_errors" })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([RUN_SOURCE]))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Reintentar fuentes fallidas")).toBeInTheDocument();
+  });
+
+  it("requests a retry of failed sources, and the button disappears once the run resumes", async () => {
+    let status = "failed";
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json({ ...RUN, status })),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([RUN_SOURCE])),
+      http.post(`${BASE_URL}/runs/1/retry-failed`, () => {
+        status = "running";
+        return HttpResponse.json({ ...RUN, status: "running" });
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Reintentar fuentes fallidas"));
+
+    await waitFor(() => expect(screen.queryByText("Reintentar fuentes fallidas")).not.toBeInTheDocument());
+  });
+
   it("keeps polling run_sources even when the first response is an empty array", async () => {
     // Real bug found by running the app end-to-end: orchestrate_run is queued as a
     // separate Celery task, so GET /runs/:id/sources can return [] before any

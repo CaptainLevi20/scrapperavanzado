@@ -425,6 +425,11 @@ def scrape_source_task(run_source_id: int):
             docs_new=docs_new,
             docs_updated=docs_updated,
             docs_errors=docs_errors,
+            # A retried source may still carry the previous attempt's
+            # error_message — without clearing it here, a source that fails
+            # once and then completes on retry would keep showing the old
+            # error next to a "Completado" status.
+            error_message=None,
             finished_at=datetime.now(timezone.utc),
         )
     finally:
@@ -460,6 +465,18 @@ def finalize_run(_results, run_id: int):
     _finalize_run(run_id)
 
 
+@celery_app.task(name="worker.retry_failed_run_sources")
+def retry_failed_run_sources_task(run_id: int, run_source_ids: list[int]):
+    # Reuses the exact same per-source task and finalization step as a fresh
+    # run — finalize_run recomputes the run's status from ALL of its
+    # run_sources (not just the retried ones), so a source that's still
+    # failed and wasn't included here correctly keeps the run at
+    # "completed_with_errors" instead of prematurely flipping to "completed".
+    if not run_source_ids:
+        return
+    chord((scrape_source_task.s(rsid) for rsid in run_source_ids), finalize_run.s(run_id)).apply_async()
+
+
 def _finalize_run(run_id: int):
     db = SessionLocal()
     try:
@@ -471,8 +488,12 @@ def _finalize_run(run_id: int):
         # should override.
         if run is not None and run.cancel_requested:
             status = "cancelled"
-        elif any(rs.status == "failed" for rs in run_sources):
+        elif run_sources and all(rs.status == "failed" for rs in run_sources):
             status = "failed"
+        elif any(rs.status == "failed" for rs in run_sources):
+            # Some sources failed, but not all — "failed" would read as a
+            # total loss when most of the run actually went through fine.
+            status = "completed_with_errors"
         else:
             status = "completed"
 
@@ -586,6 +607,10 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             actuacion_counts = repository.actuacion_counts_by_title(db, documents, family_keys)
             arcnames = _nombres_zip(documents, family_keys, actuacion_counts)
             included_document_ids: list[int] = []
+            # Documentos concretos que fallaron — no solo el conteo — para que,
+            # si todos terminan fallando, el mensaje de error diga cuáles
+            # investigar en vez de tener que reconstruir esa lista a mano.
+            failed_documents: list[tuple[int, str]] = []
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for document, arcname in zip(documents, arcnames):
                     # Re-validated here even though the key was already checked when
@@ -598,6 +623,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                             "Clave de almacenamiento no segura, se omite de la descarga masiva: %s", document.storage_key
                         )
                         failed_count += 1
+                        failed_documents.append((document.id, document.title))
                         continue
                     local_path = downloads_dir / document.storage_key
                     local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -609,6 +635,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                     except Exception as exc:
                         logger.warning("No se pudo incluir %s en la descarga masiva: %s", document.storage_key, exc)
                         failed_count += 1
+                        failed_documents.append((document.id, document.title))
                     finally:
                         # Freed as soon as it's zipped instead of kept around until the
                         # whole batch finishes — otherwise disk usage peaks at roughly
@@ -616,11 +643,14 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                         local_path.unlink(missing_ok=True)
 
             if downloaded_count == 0:
+                detalle = "; ".join(f"{doc_id} ({title})" for doc_id, title in failed_documents[:10])
+                if len(failed_documents) > 10:
+                    detalle += f"; y {len(failed_documents) - 10} más"
                 repository.set_bulk_download_status(
                     db,
                     bulk_download_id,
                     "failed",
-                    error_message=f"No se pudo leer ninguno de los {len(documents)} documentos útiles",
+                    error_message=f"No se pudo leer ninguno de los {len(documents)} documentos útiles: {detalle}",
                     finished_at=datetime.now(timezone.utc),
                 )
                 return

@@ -2,6 +2,7 @@ const STATUS_STYLES: Record<string, string> = {
   pending: "border-grafito/40 text-grafito",
   running: "border-sello/60 text-sello-ink",
   completed: "border-verde/50 text-verde",
+  completed_with_errors: "border-sello/50 text-sello-ink",
   failed: "border-rojo/50 text-rojo",
   cancelled: "border-grafito/60 text-grafito",
 };
@@ -14,6 +15,7 @@ const STATUS_LABELS: Record<string, string> = {
   pending: "Pendiente",
   running: "En curso",
   completed: "Completado",
+  completed_with_errors: "Completado con errores",
   failed: "Fallido",
   cancelled: "Cancelado",
 };

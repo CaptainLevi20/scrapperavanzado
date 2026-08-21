@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { fetchCaseLink, separateCaseLinkStage } from "../api/caseLinks";
-import { downloadBlob, fetchDocumentBlob } from "../api/documents";
-import type { CaseLinkStage } from "../api/types";
+import type { CaseLinkStage, CaseLinkStageDocument } from "../api/types";
 import { Button } from "../components/ui/button";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { formatDate } from "../lib/formatters";
@@ -19,6 +18,7 @@ export function CaseLinkDetailPage() {
   const { caseLinkId } = useParams<{ caseLinkId: string }>();
   const id = Number(caseLinkId);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [actionError, setActionError] = useState<string | null>(null);
 
   const caseLinkQuery = useQuery({
@@ -36,13 +36,10 @@ export function CaseLinkDetailPage() {
     onError: () => setActionError("No se pudo quitar la etapa. Intenta de nuevo."),
   });
 
-  async function openDocument(documentId: number, title: string) {
-    try {
-      const blob = await fetchDocumentBlob(documentId);
-      downloadBlob(blob, title);
-    } catch {
-      setActionError("No se pudo abrir el documento.");
-    }
+  function openDocument(document: CaseLinkStageDocument, sourceId: number) {
+    navigate("/documents", {
+      state: { openDocument: { id: document.id, source_id: sourceId, title: document.title } },
+    });
   }
 
   const orderedStages = useMemo(
@@ -96,7 +93,7 @@ export function CaseLinkDetailPage() {
                   <span>{document.title}</span>
                   <button
                     type="button"
-                    onClick={() => openDocument(document.id, document.title)}
+                    onClick={() => openDocument(document, stage.source_id)}
                     className="text-xs text-primary underline-offset-2 hover:underline"
                   >
                     Abrir

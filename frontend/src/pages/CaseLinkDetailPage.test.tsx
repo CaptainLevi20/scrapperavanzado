@@ -1,14 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CaseLinkDetailPage } from "./CaseLinkDetailPage";
 import * as caseLinksApi from "../api/caseLinks";
-import * as documentsApi from "../api/documents";
 
 vi.mock("../api/caseLinks");
-vi.mock("../api/documents");
 
 const CASE_LINK = {
   id: 5,
@@ -26,6 +24,11 @@ const CASE_LINK = {
   ],
 };
 
+function DocumentsStub() {
+  const location = useLocation();
+  return <div>Documentos: {JSON.stringify(location.state)}</div>;
+}
+
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -33,6 +36,7 @@ function renderPage() {
       <MemoryRouter initialEntries={["/expedientes/5"]}>
         <Routes>
           <Route path="/expedientes/:caseLinkId" element={<CaseLinkDetailPage />} />
+          <Route path="/documents" element={<DocumentsStub />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -79,16 +83,19 @@ describe("CaseLinkDetailPage", () => {
     ]);
   });
 
-  it("opens a document when its button is clicked", async () => {
-    vi.mocked(documentsApi.fetchDocumentBlob).mockResolvedValue(new Blob(["x"]));
-    vi.mocked(documentsApi.downloadBlob).mockImplementation(() => {});
+  it("navigates to Documents with the document's preview requested, instead of downloading it", async () => {
     renderPage();
     await screen.findByText("T_ATLA_08001_23_33_000_2026_00146_00");
 
     const [openButton] = screen.getAllByRole("button", { name: /abrir/i });
     await userEvent.click(openButton);
 
-    await waitFor(() => expect(documentsApi.fetchDocumentBlob).toHaveBeenCalledWith(10));
+    // stage_id 11's source_id is 1 (see CASE_LINK fixture) — the timeline
+    // route itself has no full Document, only id/title per stage document
+    // plus the stage's own source_id, so that's exactly what gets passed on.
+    await waitFor(() =>
+      expect(screen.getByText('Documentos: {"openDocument":{"id":10,"source_id":1,"title":"T_ATLA_08001_23_33_000_2026_00146_00"}}')).toBeInTheDocument()
+    );
   });
 
   it("removes a stage when 'Quitar del expediente' is clicked and confirmed", async () => {

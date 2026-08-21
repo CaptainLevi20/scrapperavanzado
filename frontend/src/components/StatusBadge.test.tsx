@@ -14,6 +14,7 @@ describe("StatusBadge", () => {
       ["pending", "Pendiente"],
       ["running", "En curso"],
       ["completed", "Completado"],
+      ["completed_with_errors", "Completado con errores"],
       ["failed", "Fallido"],
       ["cancelled", "Cancelado"],
     ];

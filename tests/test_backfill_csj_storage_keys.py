@@ -22,9 +22,10 @@ def test_backfill_renames_object_and_updates_storage_key_when_mismatched(db_sess
     renamed = []
     monkeypatch.setattr(
         backfill_module,
-        "rename_object",
+        "copy_object",
         lambda bucket, old_key, new_key: renamed.append((bucket, old_key, new_key)),
     )
+    monkeypatch.setattr(backfill_module, "delete_object", lambda *a: None)
 
     result = backfill(db_session)
 
@@ -46,11 +47,8 @@ def test_backfill_leaves_untouched_when_storage_key_already_matches_title(db_ses
     )
 
     renamed = []
-    monkeypatch.setattr(
-        backfill_module,
-        "rename_object",
-        lambda *a: renamed.append(a),
-    )
+    monkeypatch.setattr(backfill_module, "copy_object", lambda *a: renamed.append(a))
+    monkeypatch.setattr(backfill_module, "delete_object", lambda *a: renamed.append(a))
 
     result = backfill(db_session)
 
@@ -71,7 +69,8 @@ def test_backfill_is_idempotent_across_two_runs(db_session, monkeypatch):
         storage_key="CSJ/SCT/CSJ_SCT_doc_2026.pdf",
     )
 
-    monkeypatch.setattr(backfill_module, "rename_object", lambda *a: None)
+    monkeypatch.setattr(backfill_module, "copy_object", lambda *a: None)
+    monkeypatch.setattr(backfill_module, "delete_object", lambda *a: None)
 
     backfill(db_session)
     second_result = backfill(db_session)
@@ -96,7 +95,8 @@ def test_backfill_ignores_documents_from_other_sources(db_session, monkeypatch):
     )
 
     called = []
-    monkeypatch.setattr(backfill_module, "rename_object", lambda *a: called.append(a))
+    monkeypatch.setattr(backfill_module, "copy_object", lambda *a: called.append(a))
+    monkeypatch.setattr(backfill_module, "delete_object", lambda *a: called.append(a))
 
     result = backfill(db_session)
 
@@ -127,7 +127,8 @@ def test_backfill_continues_after_rename_failure(db_session, monkeypatch):
         if "doc_2026" in old_key and "doc2" not in old_key:
             raise RuntimeError("MinIO no disponible")
 
-    monkeypatch.setattr(backfill_module, "rename_object", rename_with_failure)
+    monkeypatch.setattr(backfill_module, "copy_object", rename_with_failure)
+    monkeypatch.setattr(backfill_module, "delete_object", lambda *a: None)
 
     result = backfill(db_session)
 
@@ -136,3 +137,35 @@ def test_backfill_continues_after_rename_failure(db_session, monkeypatch):
     assert doc1.storage_key == "CSJ/SCT/CSJ_SCT_doc_2026.pdf"  # sin cambios, la renombrada falló
     assert doc2.storage_key == "CSJ/SCT/CSJ_SCT_DEF5678_2026.pdf"  # esta sí se procesó
     assert result["documents_updated"] == 1
+
+
+def test_backfill_does_not_delete_old_key_when_db_write_fails_after_copy(db_session, monkeypatch):
+    """Mismo incidente que tests/test_storage_sync.py::
+    test_reconcile_document_does_not_delete_old_key_when_db_write_fails_after_copy
+    (doc 39905, 2026-08-21), pero para este backfill puntual, que sigue el
+    mismo patrón copiar-actualizar-borrar."""
+    source = _csj_source(db_session)
+    doc = repository.insert_document(
+        db_session,
+        doc_id="doc-1",
+        source_id=source.id,
+        title="CSJ_SCT_ABC1234_2026",
+        storage_bucket="iurisync-test",
+        storage_key="CSJ/SCT/CSJ_SCT_doc_2026.pdf",
+    )
+
+    deleted = []
+    monkeypatch.setattr(backfill_module, "copy_object", lambda *a: None)
+    monkeypatch.setattr(backfill_module, "delete_object", lambda bucket, key: deleted.append(key))
+
+    def _flaky_update(db, document_id, storage_key):
+        raise RuntimeError("DB no disponible")
+
+    monkeypatch.setattr(backfill_module.repository, "update_document_storage_key", _flaky_update)
+
+    result = backfill(db_session)
+
+    db_session.refresh(doc)
+    assert doc.storage_key == "CSJ/SCT/CSJ_SCT_doc_2026.pdf"  # sin cambios
+    assert "CSJ/SCT/CSJ_SCT_doc_2026.pdf" not in deleted  # la clave vieja sigue existiendo
+    assert result["documents_updated"] == 0

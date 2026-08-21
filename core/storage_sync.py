@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.db import repository
 from core.db.models import Document
 from core.naming import es_familia_con_actuaciones, nombre_documento, nombre_version
-from core.storage import rename_object
+from core.storage import copy_object, delete_object
 from core.utils import rekey_filename
 
 logger = logging.getLogger(__name__)
@@ -37,24 +37,47 @@ def reconcile_document(db: Session, document: Document, family_key: Optional[str
     coincide con su nombre canónico vigente. Devuelve True solo si el
     renombrado se ejecutó con éxito y storage_key quedó actualizado en la
     base — una falla se registra en el log y no propaga (ver Global
-    Constraints del plan: nunca bloquea al llamador)."""
+    Constraints del plan: nunca bloquea al llamador).
+
+    La clave vieja en MinIO NUNCA se borra hasta que la escritura en la base
+    ya se confirmó (regresión — incidente doc 39905, 2026-08-21: la versión
+    anterior renombraba en MinIO —copia + borrado— y recién después escribía
+    en la base; si esa escritura fallaba, storage_key se quedaba apuntando a
+    la clave vieja, que ya se había borrado, dejando el documento con
+    registro válido pero sin archivo real). Si la escritura en la base falla
+    aquí, en el peor caso queda una copia duplicada bajo la clave nueva sin
+    que la base la sepa — inofensivo (espacio extra), nunca una referencia
+    rota."""
     nueva_key = _expected_document_key(document, family_key, tiene_actuaciones)
     if nueva_key == document.storage_key:
         return False
+    old_key = document.storage_key
     try:
-        rename_object(document.storage_bucket, document.storage_key, nueva_key)
-        # Ambas operaciones (MinIO + DB) en el mismo try — si la DB falla después
-        # de que MinIO ya renombró, aceptamos la inconsistencia temporal.
-        repository.update_document_storage_key(db, document.id, nueva_key)
+        copy_object(document.storage_bucket, old_key, nueva_key)
     except Exception as exc:
         logger.warning("No se pudo renombrar el documento %s en MinIO: %s", document.id, exc)
-        # Si la falla vino de la escritura en la DB (no de MinIO), la sesión
-        # compartida queda en estado de transacción fallida — sin este
-        # rollback, la próxima consulta que use esta misma sesión (el
-        # siguiente documento del mismo reconcile_title_group/reconcile_all)
-        # levantaría fuera de cualquier try/except, abortando todo el barrido.
-        db.rollback()
         return False
+    try:
+        repository.update_document_storage_key(db, document.id, nueva_key)
+    except Exception as exc:
+        logger.warning("No se pudo actualizar storage_key del documento %s tras copiarlo en MinIO: %s", document.id, exc)
+        # Si la falla vino de la escritura en la DB, la sesión compartida
+        # queda en estado de transacción fallida — sin este rollback, la
+        # próxima consulta que use esta misma sesión (el siguiente documento
+        # del mismo reconcile_title_group/reconcile_all) levantaría fuera de
+        # cualquier try/except, abortando todo el barrido.
+        db.rollback()
+        try:
+            delete_object(document.storage_bucket, nueva_key)
+        except Exception:
+            pass
+        return False
+    try:
+        delete_object(document.storage_bucket, old_key)
+    except Exception as exc:
+        # La base ya apunta a nueva_key, que sí existe — la clave vieja queda
+        # como copia duplicada sin usar, no como referencia rota.
+        logger.warning("No se pudo borrar la clave vieja %s del documento %s en MinIO: %s", old_key, document.id, exc)
     return True
 
 
@@ -78,18 +101,29 @@ def reconcile_document_versions(
         nueva_key = rekey_filename(version.storage_key, nombre_esperado)
         if nueva_key == version.storage_key:
             continue
+        old_key = version.storage_key
         try:
-            rename_object(version.storage_bucket, version.storage_key, nueva_key)
-            # Ambas operaciones (MinIO + DB) en el mismo try — si la DB falla después
-            # de que MinIO ya renombró, aceptamos la inconsistencia temporal.
-            repository.update_document_version_storage_key(db, version.id, nueva_key)
+            copy_object(version.storage_bucket, old_key, nueva_key)
         except Exception as exc:
             logger.warning("No se pudo renombrar la versión %s en MinIO: %s", version.id, exc)
+            continue
+        try:
+            repository.update_document_version_storage_key(db, version.id, nueva_key)
+        except Exception as exc:
+            logger.warning("No se pudo actualizar storage_key de la versión %s tras copiarla en MinIO: %s", version.id, exc)
             # Ver comentario equivalente en reconcile_document: sin este
             # rollback, una falla de escritura en la DB deja la sesión
             # inutilizable para el resto del barrido.
             db.rollback()
+            try:
+                delete_object(version.storage_bucket, nueva_key)
+            except Exception:
+                pass
             continue
+        try:
+            delete_object(version.storage_bucket, old_key)
+        except Exception as exc:
+            logger.warning("No se pudo borrar la clave vieja %s de la versión %s en MinIO: %s", old_key, version.id, exc)
         renombradas += 1
     return renombradas
 

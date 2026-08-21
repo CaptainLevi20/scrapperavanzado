@@ -52,6 +52,56 @@ def test_get_runs_rejects_out_of_range_limit_and_offset(api_client, auth_header)
     assert api_client.get("/runs?limit=1000000", headers=auth_header).status_code == 422
 
 
+def test_retry_failed_dispatches_retry_task_for_failed_sources_and_sets_run_running(
+    api_client, auth_header, monkeypatch, db_session
+):
+    from core.db import repository
+
+    monkeypatch.setattr("api.routers.runs.orchestrate_run.delay", lambda *a, **k: None)
+    calls = []
+    monkeypatch.setattr(
+        "api.routers.runs.retry_failed_run_sources_task.delay",
+        lambda run_id, run_source_ids: calls.append((run_id, run_source_ids)),
+    )
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    ok_source = repository.create_source(db_session, family_key="samai", name="Tribunal OK", family_params={})
+    bad_source = repository.create_source(db_session, family_key="samai", name="Tribunal Fallido", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    ok_run_source = repository.create_run_source(db_session, run_id=run.id, source_id=ok_source.id)
+    bad_run_source = repository.create_run_source(db_session, run_id=run.id, source_id=bad_source.id)
+    repository.set_run_source_status(db_session, ok_run_source.id, "completed")
+    repository.set_run_source_status(db_session, bad_run_source.id, "failed", error_message="boom")
+    repository.set_run_status(db_session, run.id, "failed")
+
+    response = api_client.post(f"/runs/{run.id}/retry-failed", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "running"
+    assert calls == [(run.id, [bad_run_source.id])]
+
+
+def test_retry_failed_returns_400_when_no_source_failed(api_client, auth_header, monkeypatch, db_session):
+    from core.db import repository
+
+    monkeypatch.setattr("api.routers.runs.orchestrate_run.delay", lambda *a, **k: None)
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Tribunal OK", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    repository.set_run_source_status(db_session, run_source.id, "completed")
+    repository.set_run_status(db_session, run.id, "completed")
+
+    response = api_client.post(f"/runs/{run.id}/retry-failed", headers=auth_header)
+
+    assert response.status_code == 400
+
+
+def test_retry_failed_returns_404_for_unknown_run(api_client, auth_header):
+    response = api_client.post("/runs/999999/retry-failed", headers=auth_header)
+    assert response.status_code == 404
+
+
 def test_get_run_sources_reports_docs_updated(api_client, auth_header, monkeypatch, db_session):
     from core.db import repository
 
