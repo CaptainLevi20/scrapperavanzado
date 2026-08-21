@@ -184,7 +184,7 @@ describe("RunDetailPage", () => {
 
     renderPage();
     await waitFor(() => expect(runCallCount).toBe(1));
-    expect(await screen.findByText(/[Dd]ejamos de actualizar esta pantalla/)).toBeInTheDocument();
+    expect(await screen.findByText(/dejó de actualizarse sola/)).toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(4100);
     expect(runCallCount).toBe(1); // no repitió ninguna de las dos consultas automáticas
@@ -213,14 +213,14 @@ describe("RunDetailPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPage();
     await waitFor(() => expect(runCallCount).toBe(1));
-    await screen.findByText(/Dejamos de actualizar esta pantalla/);
+    await screen.findByText(/dejó de actualizarse sola/);
 
-    await user.click(screen.getByText("Reintentar"));
+    await user.click(screen.getByText("Actualizar estado"));
 
-    // The banner (and its Reintentar button) disappears right away — that's
-    // the visible confirmation the click did something, instead of a silent
-    // refetch that could leave the screen looking unchanged.
-    expect(screen.queryByText(/Dejamos de actualizar esta pantalla/)).not.toBeInTheDocument();
+    // The banner (and its "Actualizar estado" button) disappears right away —
+    // that's the visible confirmation the click did something, instead of a
+    // silent refetch that could leave the screen looking unchanged.
+    expect(screen.queryByText(/dejó de actualizarse sola/)).not.toBeInTheDocument();
     await waitFor(() => expect(runCallCount).toBe(2)); // the immediate manual refetch
 
     // With polling resumed, it should keep firing on its own from here —
