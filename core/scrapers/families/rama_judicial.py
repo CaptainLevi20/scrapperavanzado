@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 
@@ -181,12 +182,33 @@ def _extraer_texto_primera_pagina(local_path) -> str:
     return reader.pages[0].extract_text() or ""
 
 
-def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3):
-    """GET with up to `retries` attempts, retrying on timeout or a 5xx status.
+# This site (shared by all 33 Tribunales Superiores + Juzgados sources, since
+# they're all the same scraper class differing only by dept_code) goes
+# through the same slow/overloaded stretches as JEP and SAMAI — confirmed in
+# production when Tribunal Superior de Antioquia exhausted 3 immediate
+# retries on a 60s read timeout during a period of heavy load. ConnectionError
+# (a dropped/reset connection) is just as transient as a Timeout and was
+# previously not retried at all, propagating on the very first occurrence.
+# timeout=120 (raised from 60): even with the retry+backoff above, Antioquia
+# and Tribunal Superior de Bogotá kept hitting the exact same 60s read
+# timeout across three separate production runs, including at delta=10
+# (small page) — ruling out response size as the cause and pointing at this
+# site genuinely taking over a minute to answer some requests.
+_RETRYABLE_NETWORK_ERRORS = (
+    requests.exceptions.Timeout,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+)
 
-    Mirrors the original per-call retry loops in this module: on the final
-    attempt a Timeout propagates to the caller; a persistent 5xx does not
-    raise here; it's left to the caller's own `raise_for_status()`/try-except.
+
+def _get_with_retries(session, url, headers, params=None, timeout=120, retries=3):
+    """GET with up to `retries` attempts, retrying on a timeout, a dropped/reset
+    connection, an interrupted read, or a 5xx status. A short pause between
+    attempts (mirrors samai.py's time.sleep(5)) gives a genuinely overloaded
+    site a moment to recover instead of hammering it again immediately. On
+    the final attempt a transient network error propagates to the caller; a
+    persistent 5xx does not raise here; it's left to the caller's own
+    `raise_for_status()`/try-except.
     """
     resp = None
     for attempt in range(retries):
@@ -194,9 +216,11 @@ def _get_with_retries(session, url, headers, params=None, timeout=60, retries=3)
             resp = session.get(url, headers=headers, params=params, timeout=timeout)
             if resp.status_code < 500:
                 break
-        except requests.exceptions.Timeout:
+        except _RETRYABLE_NETWORK_ERRORS:
             if attempt == retries - 1:
                 raise
+        if attempt < retries - 1:
+            time.sleep(5)
     return resp
 
 
@@ -252,7 +276,7 @@ class ScrapRamaJudicial(BaseScrapper):
         s = requests.Session()
         try:
             resp = _get_with_retries(s, detail_url, headers)
-        except requests.exceptions.Timeout:
+        except _RETRYABLE_NETWORK_ERRORS:
             return []
         try:
             resp.raise_for_status()
@@ -283,7 +307,12 @@ class ScrapRamaJudicial(BaseScrapper):
 
         return files
 
-    def scrap(self, fini, ffin, q="", limit=10, stop_event=None, on_progress=None) -> List[RawDocModel]:
+    # limit=100 (the site's own page-size param, "delta") confirmed live against
+    # this endpoint: a wide date range for Bogotá dropped from 76 pages at
+    # delta=10 to 8 pages at delta=100, each request still answering in ~1-2s —
+    # the previous limit=10 default meant far more sequential round trips than
+    # this site needs, and was the main driver of long runs for wide ranges.
+    def scrap(self, fini, ffin, q="", limit=100, stop_event=None, on_progress=None) -> List[RawDocModel]:
         session = requests.Session()
         headers = {"User-Agent": "Mozilla/5.0"}
 
