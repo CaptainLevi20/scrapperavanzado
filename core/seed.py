@@ -46,7 +46,7 @@ _FAMILIES = {
     ),
     "mineducacion": (
         "Ministerio de Educación Nacional",
-        "Normativa del sector educación (leyes, decretos, resoluciones, circulares, directivas, acuerdos, conceptos) del Normograma del Ministerio de Educación Nacional",
+        "Normativa (leyes, decretos, resoluciones, circulares, directivas, acuerdos) publicada por el Ministerio de Educación Nacional",
     ),
     "mininterior": (
         "Ministerio del Interior",
