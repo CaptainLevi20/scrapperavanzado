@@ -18,7 +18,7 @@ export interface SourceUpdateInput {
   family_params?: Record<string, unknown>;
 }
 
-export type RunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type RunStatus = "pending" | "running" | "completed" | "completed_with_errors" | "failed" | "cancelled";
 export type RunSourceStatus = "pending" | "running" | "completed" | "failed";
 
 export interface Run {

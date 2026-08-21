@@ -2,7 +2,9 @@
 // polling and the cancel button both need to treat any of these as done, not
 // just "completed".
 export function isTerminalRunStatus(status: string): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
+  return (
+    status === "completed" || status === "completed_with_errors" || status === "failed" || status === "cancelled"
+  );
 }
 
 // A worker process that dies outright (OOM-killed, container restarted, host

@@ -39,6 +39,17 @@ function renderPageWithTodayState() {
   );
 }
 
+function renderPageWithOpenDocumentState(openDocument: { id: number; source_id: number; title: string }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[{ pathname: "/documents", state: { openDocument } }]}>
+        <DocumentsPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
 const DOCUMENT = {
   id: 1,
   doc_id: "abc",
@@ -723,6 +734,26 @@ describe("DocumentsPage", () => {
     const agregadoButton = screen.getByRole("button", { name: /Agregado/ });
     expect(agregadoButton.className).toMatch(/border-sello/);
     expect(agregadoButton.textContent).toContain(todayFormatted);
+  });
+
+  it("opens the preview dialog automatically for the document named in openDocument navigation state (arriving from the expediente timeline)", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("title_exact")) {
+          return HttpResponse.json({ items: [DOCUMENT], total: 1, limit: 50, offset: 0 });
+        }
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 });
+      }),
+      http.get(`${BASE_URL}/documents/:id/preview`, () => HttpResponse.json({ url: "https://example.com/preview.pdf" })),
+      http.get(`${BASE_URL}/documents/:id/versions`, () => HttpResponse.json([]))
+    );
+
+    renderPageWithOpenDocumentState({ id: DOCUMENT.id, source_id: DOCUMENT.source_id, title: DOCUMENT.title });
+
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByTitle(`Vista previa de ${DOCUMENT.nombre}`)).toBeInTheDocument();
   });
 
   it("shows a case badge only for documents with case_document_count over 1, and opens the preview dialog with the case's members in chronological order on click", async () => {

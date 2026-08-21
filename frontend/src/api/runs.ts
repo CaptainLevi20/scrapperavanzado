@@ -27,3 +27,7 @@ export function createRun(input: RunCreateInput): Promise<Run> {
 export function cancelRun(id: number): Promise<Run> {
   return apiFetch<Run>(`/runs/${id}/cancel`, { method: "POST" });
 }
+
+export function retryFailedRunSources(id: number): Promise<Run> {
+  return apiFetch<Run>(`/runs/${id}/retry-failed`, { method: "POST" });
+}

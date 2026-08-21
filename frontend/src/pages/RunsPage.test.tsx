@@ -47,6 +47,20 @@ describe("RunsPage", () => {
     expect(await screen.findByText("En curso")).toBeInTheDocument();
   });
 
+  it("offers 'Completado con errores' as a status filter option, distinct from 'Fallido'", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/source-families`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([]))
+    );
+
+    renderPage();
+
+    await screen.findByRole("combobox", { name: "Estado del run" });
+    expect(screen.getByRole("option", { name: "Completado con errores" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Fallido" })).toBeInTheDocument();
+  });
+
   it("does not show 'no runs' while the first request is still in flight", async () => {
     server.use(
       http.get(`${BASE_URL}/sources`, () => HttpResponse.json([])),

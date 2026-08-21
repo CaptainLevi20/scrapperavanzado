@@ -203,7 +203,7 @@ export function DocumentsPage() {
   const hasDateFilter = !!fPublicFrom || !!fPublicTo;
   const hasDownloadedFilter = !!downloadedFrom || !!downloadedTo;
 
-  async function openCaseDialog(document: Document) {
+  async function openCaseDialog(document: Pick<Document, "id" | "source_id" | "title">) {
     const requestId = ++caseDialogRequestId.current;
     setCaseDialogError(null);
     try {
@@ -226,6 +226,18 @@ export function DocumentsPage() {
       setCaseDialogError("No se pudo abrir el expediente. Intenta de nuevo.");
     }
   }
+
+  // Arriving from the expediente timeline ("Abrir" on a stage's document,
+  // CaseLinkDetailPage) navigates here with the target document in router
+  // state instead of downloading it — open its preview the same way a click
+  // on its case badge/title would, once, on arrival.
+  useEffect(() => {
+    const openDocument = (location.state as { openDocument?: Pick<Document, "id" | "source_id" | "title"> } | null)
+      ?.openDocument;
+    if (openDocument) {
+      openCaseDialog(openDocument);
+    }
+  }, []);
 
   async function handleTitleClick(document: Document) {
     if (!document.case_document_count || document.case_document_count <= 1) {

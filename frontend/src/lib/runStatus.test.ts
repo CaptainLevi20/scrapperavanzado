@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { isStaleRun, isTerminalRunStatus, MAX_POLL_AGE_MS, shouldPollRun } from "./runStatus";
 
 describe("isTerminalRunStatus", () => {
-  it("treats completed, failed, and cancelled as terminal", () => {
+  it("treats completed, completed_with_errors, failed, and cancelled as terminal", () => {
     expect(isTerminalRunStatus("completed")).toBe(true);
+    expect(isTerminalRunStatus("completed_with_errors")).toBe(true);
     expect(isTerminalRunStatus("failed")).toBe(true);
     expect(isTerminalRunStatus("cancelled")).toBe(true);
   });

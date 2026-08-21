@@ -80,12 +80,15 @@ def delete_object(bucket: str, key: str) -> None:
     client.delete_object(Bucket=bucket, Key=key)
 
 
-def rename_object(bucket: str, old_key: str, new_key: str) -> None:
-    """Server-side rename (copy + delete) — the object's bytes never leave
+def copy_object(bucket: str, old_key: str, new_key: str) -> None:
+    """Server-side copy, source left untouched — the object's bytes never leave
     MinIO/S3 through this process, unlike a download_file + upload_file
-    round-trip."""
+    round-trip. A caller doing a rename must not pair this with an
+    unconditional delete_object(old_key): if something else that depends on
+    new_key (typically a database write) fails afterward, deleting old_key
+    would leave that record pointing at an object that no longer exists. See
+    core/storage_sync.py for the safe sequencing."""
     if old_key == new_key:
         return
     client = _client()
     client.copy_object(Bucket=bucket, CopySource={"Bucket": bucket, "Key": old_key}, Key=new_key)
-    delete_object(bucket, old_key)

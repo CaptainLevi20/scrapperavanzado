@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from core.db import repository
 from core.db.models import Document, Source
 from core.db.session import SessionLocal
-from core.storage import rename_object
+from core.storage import copy_object, delete_object
 from core.utils import rekey_filename
 
 logger = logging.getLogger(__name__)
@@ -40,14 +40,29 @@ def backfill(db: Session) -> dict:
         nuevo_key = rekey_filename(documento.storage_key, documento.title)
         if nuevo_key == documento.storage_key:
             continue
+        old_key = documento.storage_key
         try:
-            rename_object(documento.storage_bucket, documento.storage_key, nuevo_key)
+            copy_object(documento.storage_bucket, old_key, nuevo_key)
+        except Exception as e:
+            logger.warning("No se pudo renombrar el documento %s: %s", documento.id, e)
+            continue
+        try:
             repository.update_document_storage_key(db, documento.id, nuevo_key)
-            documents_updated += 1
         except Exception as e:
             logger.warning("No se pudo renombrar el documento %s: %s", documento.id, e)
             db.rollback()
+            try:
+                delete_object(documento.storage_bucket, nuevo_key)
+            except Exception:
+                pass
             continue
+        try:
+            delete_object(documento.storage_bucket, old_key)
+        except Exception as e:
+            # storage_key ya apunta a nuevo_key, que sí existe — la clave
+            # vieja queda como copia duplicada sin usar, no como referencia rota.
+            logger.warning("No se pudo borrar la clave vieja %s del documento %s: %s", old_key, documento.id, e)
+        documents_updated += 1
 
     return {"documents_updated": documents_updated}
 

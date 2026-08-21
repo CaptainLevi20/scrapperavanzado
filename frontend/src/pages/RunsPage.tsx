@@ -176,6 +176,7 @@ export function RunsPage() {
           <option value="pending">Pendiente</option>
           <option value="running">En curso</option>
           <option value="completed">Completado</option>
+          <option value="completed_with_errors">Completado con errores</option>
           <option value="failed">Fallido</option>
           <option value="cancelled">Cancelado</option>
         </NativeSelect>

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { cancelRun, createRun, fetchRun, fetchRunSources, fetchRuns } from "./runs";
+import { cancelRun, createRun, fetchRun, fetchRunSources, fetchRuns, retryFailedRunSources } from "./runs";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -89,5 +89,20 @@ describe("runs API", () => {
 
     expect(method).toBe("POST");
     expect(run.cancel_requested).toBe(true);
+  });
+
+  it("retryFailedRunSources posts to the retry-failed endpoint", async () => {
+    let method = "";
+    server.use(
+      http.post(`${BASE_URL}/runs/9/retry-failed`, ({ request }) => {
+        method = request.method;
+        return HttpResponse.json({ id: 9, triggered_by: "manual", status: "running", fini: null, ffin: null, cancel_requested: false, started_at: null, finished_at: null, created_at: "2026-07-10T00:00:00Z" });
+      })
+    );
+
+    const run = await retryFailedRunSources(9);
+
+    expect(method).toBe("POST");
+    expect(run.status).toBe("running");
   });
 });

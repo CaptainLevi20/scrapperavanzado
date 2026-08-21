@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from api.deps import get_db, require_session
 from api.schemas import RunCreate, RunOut, RunSourceOut
 from core.db import repository
-from worker.tasks import orchestrate_run
+from worker.tasks import orchestrate_run, retry_failed_run_sources_task
 
 router = APIRouter(dependencies=[Depends(require_session)])
 
@@ -47,3 +47,18 @@ def post_run_cancel(run_id: int, db: Session = Depends(get_db)):
     if run is None:
         raise HTTPException(status_code=404, detail="Run no encontrado")
     return run
+
+
+@router.post("/runs/{run_id}/retry-failed", response_model=RunOut)
+def post_run_retry_failed(run_id: int, db: Session = Depends(get_db)):
+    run = repository.get_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+
+    failed_ids = [rs.id for rs in repository.list_run_sources(db, run_id) if rs.status == "failed"]
+    if not failed_ids:
+        raise HTTPException(status_code=400, detail="No hay fuentes fallidas para reintentar")
+
+    repository.set_run_status(db, run_id, "running")
+    retry_failed_run_sources_task.delay(run_id, failed_ids)
+    return repository.get_run(db, run_id)

@@ -11,7 +11,8 @@ def test_run_backfill_renames_a_mismatched_document(db_session, monkeypatch):
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder.pdf",
     )
 
-    monkeypatch.setattr(core.storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(core.storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(core.storage_sync, "delete_object", lambda *a: None)
 
     result = run_backfill(db_session)
 

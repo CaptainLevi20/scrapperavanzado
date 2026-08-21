@@ -63,6 +63,37 @@ def test_scrape_source_task_downloads_new_document_and_marks_run_source_complete
         assertion_session.close()
 
 
+def test_scrape_source_task_clears_a_stale_error_message_on_a_successful_retry(db_session, test_engine, monkeypatch):
+    """Regresión: antes de esto, el error_message de un intento fallido
+    anterior se quedaba en la fuente aunque un reintento posterior sí
+    terminara bien — la tabla de detalle del run seguía mostrando el error
+    viejo junto a un estado 'Completado', lo cual es confuso justo para el
+    botón de reintentar fuentes fallidas."""
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    repository.set_run_source_status(db_session, run_source.id, "failed", error_message="conexión rechazada")
+
+    DummyFamilyScraper.docs_to_return = []
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        [refreshed] = repository.list_run_sources(assertion_session, run.id)
+        assert refreshed.status == "completed"
+        assert refreshed.error_message is None
+    finally:
+        assertion_session.close()
+
+
 @responses.activate
 def test_scrape_source_task_stores_radicado_from_the_scraped_document(db_session, test_engine, monkeypatch):
     celery_app.conf.task_always_eager = True
@@ -1874,11 +1905,11 @@ def test_build_bulk_download_zip_fails_when_every_document_fails_to_download(db_
 
     # Ambos documentos apuntan a claves que nunca se subieron — download_file
     # fallará para los dos, dejando `downloaded` vacío.
-    repository.insert_document(
+    doc1 = repository.insert_document(
         db_session, doc_id="doc-missing-1", source_id=source.id, title="Missing 1", review_status="useful",
         storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/no-existe-1.pdf",
     )
-    repository.insert_document(
+    doc2 = repository.insert_document(
         db_session, doc_id="doc-missing-2", source_id=source.id, title="Missing 2", review_status="useful",
         storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/no-existe-2.pdf",
     )
@@ -1891,7 +1922,45 @@ def test_build_bulk_download_zip_fails_when_every_document_fails_to_download(db_
     try:
         refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
         assert refreshed.status == "failed"
-        assert refreshed.error_message == "No se pudo leer ninguno de los 2 documentos útiles"
+        # Regresión (incidente doc 39905, 2026-08-21): el mensaje debe nombrar
+        # los documentos que fallaron, no solo el conteo — para no tener que
+        # investigar desde cero cuál fue la próxima vez que esto pase.
+        assert refreshed.error_message == (
+            f"No se pudo leer ninguno de los 2 documentos útiles: {doc1.id} (Missing 1); {doc2.id} (Missing 2)"
+        )
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_truncates_the_failed_document_list_beyond_ten(db_session, test_engine, monkeypatch):
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    docs = [
+        repository.insert_document(
+            db_session, doc_id=f"doc-missing-{i}", source_id=source.id, title=f"Missing {i}", review_status="useful",
+            storage_bucket=TEST_S3_BUCKET, storage_key=f"JEP/2026-06-01/Auto/no-existe-{i}.pdf",
+        )
+        for i in range(12)
+    ]
+
+    bulk_download = repository.create_bulk_download(db_session)
+
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "failed"
+        detalle = "; ".join(f"{d.id} (Missing {i})" for i, d in enumerate(docs[:10]))
+        assert refreshed.error_message == f"No se pudo leer ninguno de los 12 documentos útiles: {detalle}; y 2 más"
     finally:
         assertion_session.close()
 
@@ -2085,6 +2154,59 @@ def test_finalize_run_triggers_case_link_assembly(db_session, test_engine, monke
     assert calls == [run.id]
 
 
+def test_finalize_run_marks_completed_with_errors_when_some_sources_failed_but_not_all(db_session, test_engine, monkeypatch):
+    """Antes, cualquier fuente fallida marcaba el run entero como 'failed',
+    aunque 69 de 70 fuentes hubieran terminado bien — confuso para quien lo ve
+    en la lista. Un run con éxito parcial debe distinguirse tanto de un éxito
+    total ('completed') como de un fracaso total ('failed')."""
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    ok_source = repository.create_source(db_session, family_key="samai", name="Tribunal OK", family_params={})
+    bad_source = repository.create_source(db_session, family_key="samai", name="Tribunal Fallido", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    ok_run_source = repository.create_run_source(db_session, run_id=run.id, source_id=ok_source.id)
+    bad_run_source = repository.create_run_source(db_session, run_id=run.id, source_id=bad_source.id)
+    repository.set_run_source_status(db_session, ok_run_source.id, "completed")
+    repository.set_run_source_status(db_session, bad_run_source.id, "failed", error_message="boom")
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Case-link assembly is exercised separately (test_finalize_run_triggers_case_link_assembly);
+    # not mocking it here would run the real query against every samai document
+    # already in this DB, unrelated to what this test is checking.
+    monkeypatch.setattr("worker.tasks.repository.assemble_case_links_for_run", lambda db, run_id: 0)
+
+    tasks_module._finalize_run(run.id)
+
+    assertion_session = task_session_factory()
+    try:
+        assert repository.get_run(assertion_session, run.id).status == "completed_with_errors"
+    finally:
+        assertion_session.close()
+
+
+def test_finalize_run_marks_failed_only_when_every_source_failed(db_session, test_engine, monkeypatch):
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source1 = repository.create_source(db_session, family_key="samai", name="Tribunal A", family_params={})
+    source2 = repository.create_source(db_session, family_key="samai", name="Tribunal B", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source1 = repository.create_run_source(db_session, run_id=run.id, source_id=source1.id)
+    run_source2 = repository.create_run_source(db_session, run_id=run.id, source_id=source2.id)
+    repository.set_run_source_status(db_session, run_source1.id, "failed", error_message="boom 1")
+    repository.set_run_source_status(db_session, run_source2.id, "failed", error_message="boom 2")
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("worker.tasks.repository.assemble_case_links_for_run", lambda db, run_id: 0)
+
+    tasks_module._finalize_run(run.id)
+
+    assertion_session = task_session_factory()
+    try:
+        assert repository.get_run(assertion_session, run.id).status == "failed"
+    finally:
+        assertion_session.close()
+
+
 def test_finalize_run_still_completes_when_assembly_fails(db_session, test_engine, monkeypatch):
     repository.create_source_family(db_session, key="samai", display_name="SAMAI")
     source = repository.create_source(db_session, family_key="samai", name="Tribunal X", family_params={})
@@ -2102,4 +2224,7 @@ def test_finalize_run_still_completes_when_assembly_fails(db_session, test_engin
     tasks_module._finalize_run(run.id)
 
     assertion_session = task_session_factory()
-    assert repository.get_run(assertion_session, run.id).status == "completed"
+    try:
+        assert repository.get_run(assertion_session, run.id).status == "completed"
+    finally:
+        assertion_session.close()

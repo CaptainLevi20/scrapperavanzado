@@ -16,13 +16,14 @@ def test_reconcile_document_renames_when_the_stored_key_does_not_match(db_sessio
         storage_bucket="iurisync-test", storage_key="Rama Judicial/2026-08-06/Auto/placeholder.pdf",
     )
 
-    renamed = []
-    monkeypatch.setattr(storage_sync, "rename_object", lambda bucket, old_key, new_key: renamed.append((bucket, old_key, new_key)))
+    copied = []
+    monkeypatch.setattr(storage_sync, "copy_object", lambda bucket, old_key, new_key: copied.append((bucket, old_key, new_key)))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
     assert result is True
-    assert renamed == [(
+    assert copied == [(
         "iurisync-test",
         "Rama Judicial/2026-08-06/Auto/placeholder.pdf",
         "Rama Judicial/2026-08-06/Auto/T_SANT_68001_33_33_007_2025_00290_02.pdf",
@@ -39,7 +40,8 @@ def test_reconcile_document_does_nothing_when_the_stored_key_already_matches(db_
     )
 
     called = []
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: called.append(a))
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: called.append(a))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: called.append(a))
 
     result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
@@ -57,7 +59,7 @@ def test_reconcile_document_logs_and_returns_false_when_rename_fails(db_session,
     def _boom(bucket, old_key, new_key):
         raise RuntimeError("MinIO no disponible")
 
-    monkeypatch.setattr(storage_sync, "rename_object", _boom)
+    monkeypatch.setattr(storage_sync, "copy_object", _boom)
 
     result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
@@ -79,7 +81,8 @@ def test_reconcile_document_versions_renames_each_archived_version(db_session, m
     doc = repository.get_document(db_session, doc.id)
 
     renamed = []
-    monkeypatch.setattr(storage_sync, "rename_object", lambda bucket, old_key, new_key: renamed.append((old_key, new_key)))
+    monkeypatch.setattr(storage_sync, "copy_object", lambda bucket, old_key, new_key: renamed.append((old_key, new_key)))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     count = storage_sync.reconcile_document_versions(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
@@ -95,7 +98,8 @@ def test_reconcile_document_versions_returns_zero_when_document_has_no_history(d
         storage_bucket="iurisync-test", storage_key="carpeta/T-123-24.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debería llamarse")))
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debería llamarse")))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debería llamarse")))
 
     count = storage_sync.reconcile_document_versions(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
@@ -116,7 +120,7 @@ def test_reconcile_document_versions_logs_and_continues_when_rename_fails(db_ses
     def _boom(bucket, old_key, new_key):
         raise RuntimeError("MinIO no disponible")
 
-    monkeypatch.setattr(storage_sync, "rename_object", _boom)
+    monkeypatch.setattr(storage_sync, "copy_object", _boom)
 
     count = storage_sync.reconcile_document_versions(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
@@ -141,7 +145,8 @@ def test_reconcile_title_group_gives_full_date_to_every_sibling_when_there_are_t
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder2.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     result = storage_sync.reconcile_title_group(db_session, "rama_judicial", shared_title)
 
@@ -162,7 +167,8 @@ def test_reconcile_title_group_gives_year_only_when_there_is_a_single_document(d
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     result = storage_sync.reconcile_title_group(db_session, "rama_judicial", title)
 
@@ -192,7 +198,8 @@ def test_reconcile_all_covers_case_families_and_plain_families_together(db_sessi
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder-suelto.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     result = storage_sync.reconcile_all(db_session)
 
@@ -212,7 +219,8 @@ def test_reconcile_all_is_idempotent(db_session, monkeypatch):
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     storage_sync.reconcile_all(db_session)
     second = storage_sync.reconcile_all(db_session)
@@ -240,7 +248,8 @@ def test_reconcile_title_group_skips_sibling_documents_that_collide_on_the_same_
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder2.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     result = storage_sync.reconcile_title_group(db_session, "rama_judicial", shared_title)
 
@@ -282,7 +291,8 @@ def test_reconcile_title_group_skips_archived_versions_of_different_siblings_tha
         db_session, doc2.id, storage_bucket="iurisync-test", storage_key="carpeta/nueva2.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     storage_sync.reconcile_title_group(db_session, "rama_judicial", shared_title)
 
@@ -310,7 +320,8 @@ def test_reconcile_title_group_still_reconciles_non_colliding_group_normally(db_
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder2.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     result = storage_sync.reconcile_title_group(db_session, "rama_judicial", shared_title)
 
@@ -319,6 +330,72 @@ def test_reconcile_title_group_still_reconciles_non_colliding_group_normally(db_
     db_session.refresh(doc2)
     assert doc1.storage_key == "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260806.pdf"
     assert doc2.storage_key == "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260820.pdf"
+
+
+# --- Regresión: incidente doc 39905 (2026-08-21) — reconcile_document borraba
+# la clave vieja en MinIO ANTES de confirmar que la base ya apuntaba a la
+# nueva. Si la escritura en la base fallaba justo después del renombrado en
+# MinIO, storage_key se quedaba apuntando a una clave ya borrada — el
+# documento quedaba con un registro válido en la base pero sin archivo real
+# en el almacén (404 al intentar leerlo). ---
+
+
+def test_reconcile_document_does_not_delete_old_key_when_db_write_fails_after_copy(db_session, monkeypatch, caplog):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        storage_bucket="iurisync-test", storage_key="Rama Judicial/2026-08-06/Auto/placeholder.pdf",
+    )
+
+    copied = []
+    deleted = []
+    monkeypatch.setattr(storage_sync, "copy_object", lambda bucket, old_key, new_key: copied.append((bucket, old_key, new_key)))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda bucket, key: deleted.append((bucket, key)))
+
+    def _flaky_update(db, document_id, storage_key):
+        db.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr(storage_sync.repository, "update_document_storage_key", _flaky_update)
+
+    result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is False
+    # El archivo ya se copió a la clave nueva...
+    assert copied == [(
+        "iurisync-test",
+        "Rama Judicial/2026-08-06/Auto/placeholder.pdf",
+        "Rama Judicial/2026-08-06/Auto/T_SANT_68001_33_33_007_2025_00290_02.pdf",
+    )]
+    # ...pero la clave VIEJA nunca debe borrarse, porque la base nunca llegó a
+    # apuntar a la nueva — borrarla dejaría storage_key apuntando a un objeto
+    # que ya no existe (el incidente real que esto evita). Sí puede borrarse
+    # la copia nueva recién creada, como limpieza best-effort — eso no deja
+    # ninguna referencia rota, solo evita un duplicado huérfano.
+    assert ("iurisync-test", "Rama Judicial/2026-08-06/Auto/placeholder.pdf") not in deleted
+    db_session.refresh(doc)
+    assert doc.storage_key == "Rama Judicial/2026-08-06/Auto/placeholder.pdf"  # sin cambios
+
+
+def test_reconcile_document_only_deletes_old_key_after_db_write_succeeds(db_session, monkeypatch):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        storage_bucket="iurisync-test", storage_key="Rama Judicial/2026-08-06/Auto/placeholder.pdf",
+    )
+
+    calls = []
+    monkeypatch.setattr(storage_sync, "copy_object", lambda bucket, old_key, new_key: calls.append(("copy", old_key, new_key)))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda bucket, key: calls.append(("delete", key)))
+
+    result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is True
+    # Orden estricto: primero se copia, y solo se borra la clave vieja después
+    # (la base ya se actualizó en ese punto, ver siguiente assert).
+    assert [c[0] for c in calls] == ["copy", "delete"]
+    assert calls[1][1] == "Rama Judicial/2026-08-06/Auto/placeholder.pdf"
+    db_session.refresh(doc)
+    assert doc.storage_key == "Rama Judicial/2026-08-06/Auto/T_SANT_68001_33_33_007_2025_00290_02.pdf"
 
 
 # --- Finding 2: a DB-write failure must not poison the shared session ---
@@ -335,7 +412,8 @@ def test_reconcile_document_rolls_back_session_so_the_next_document_still_reconc
         storage_bucket="iurisync-test", storage_key="carpeta/placeholder2.pdf",
     )
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     original_update = repository.update_document_storage_key
 
@@ -381,7 +459,8 @@ def test_reconcile_document_versions_rolls_back_session_so_the_next_version_stil
     failing_version = next(v for v in all_versions if v.storage_key == "carpeta/v3.pdf")
     other_version = next(v for v in all_versions if v.storage_key == "carpeta/v1-viejo.pdf")
 
-    monkeypatch.setattr(storage_sync, "rename_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
 
     original_update = repository.update_document_version_storage_key
 
