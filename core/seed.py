@@ -52,6 +52,14 @@ _FAMILIES = {
         "Ministerio del Interior",
         "Normativa (decretos, resoluciones, circulares, leyes, directivas, acuerdos, conceptos, actos administrativos y legislativos) publicada por el Ministerio del Interior",
     ),
+    "mindeporte": (
+        "Ministerio del Deporte",
+        "Normativa (resoluciones, decretos, leyes, acuerdos, conpes, directivas, circulares) publicada por el Ministerio del Deporte",
+    ),
+    "minjusticia": (
+        "Ministerio de Justicia y del Derecho",
+        "Normativa (decretos, resoluciones, circulares) publicada por el Ministerio de Justicia y del Derecho",
+    ),
     "minenergia": (
         "Ministerio de Minas y Energía",
         "Normativa (decretos, resoluciones, circulares) publicada por el Ministerio de Minas y Energía",
@@ -138,6 +146,14 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="mininterior", name="Ministerio del Interior", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="mindeporte", name="Ministerio del Deporte", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="minjusticia", name="Ministerio de Justicia y del Derecho", family_params={}
     )
 
     repository.create_source_if_missing(
