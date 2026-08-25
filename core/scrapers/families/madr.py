@@ -135,6 +135,16 @@ class ScrapMADR(BaseScrapper):
             resto = _resto_tras_numero(data_title, numero) if numero_valido else data_title
             fecha = _parse_fecha(resto)
             if fecha is None:
+                # El título no siempre trae una fecha reconocible (p. ej.
+                # "ANEXO 7 CONTRATACIÓN EPSAGROS CONTINUIDAD VF", "RESOLUCIÓN
+                # NO.000230 2023"), pero el sitio suele traer el año en su
+                # propio atributo estructurado — confirmado con el sitio real
+                # que, cuando está presente, coincide con el año del título en
+                # los casos donde ambos existen.
+                data_year = (art.get("data-year") or "").strip()
+                if data_year.isdigit() and len(data_year) == 4:
+                    fecha = f"{data_year}-01-01"
+            if fecha is None:
                 if on_progress:
                     on_progress(f"[{self.source}] Aviso: no se pudo determinar fecha para «{data_title}», se omite")
                 continue

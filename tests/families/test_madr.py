@@ -286,7 +286,39 @@ def test_extraer_articulos_skips_article_without_any_parseable_date():
     ).replace(
         '<span itemprop="headline">DECRETO 0765 DEL 15 DE JULIO DEL 2026</span>',
         '<span itemprop="headline">DECRETO SIN FECHA RECONOCIBLE</span>',
-    )
+    ).replace('data-year="2026"', 'data-year=""')
+    scraper = ScrapMADR()
+    docs = scraper._extraer_articulos(html, "Decreto", "D", "2026-01-01", "2026-12-31")
+
+    assert docs == []
+
+
+def test_extraer_articulos_falls_back_to_data_year_when_title_has_no_parseable_date():
+    # Real ejemplo del sitio: "RESOLUCIÓN NO.000230 2023" — sin "de" antes del
+    # año, el patrón de fecha del título no lo reconoce, pero el sitio trae el
+    # año en su propio atributo data-year.
+    html = _ARTICULO_DECRETO_HTML.replace(
+        'data-title="DECRETO 0765 DEL 15 DE JULIO DEL 2026"',
+        'data-title="RESOLUCION NO.000230 2023"',
+    ).replace(
+        '<span itemprop="headline">DECRETO 0765 DEL 15 DE JULIO DEL 2026</span>',
+        '<span itemprop="headline">RESOLUCION NO.000230 2023</span>',
+    ).replace('data-year="2026"', 'data-year="2023"')
+    scraper = ScrapMADR()
+    docs = scraper._extraer_articulos(html, "Resolución", "R", "2023-01-01", "2023-12-31")
+
+    assert len(docs) == 1
+    assert docs[0].f_public == "2023-01-01"
+
+
+def test_extraer_articulos_ignores_data_year_when_not_a_clean_four_digit_value():
+    html = _ARTICULO_DECRETO_HTML.replace(
+        'data-title="DECRETO 0765 DEL 15 DE JULIO DEL 2026"',
+        'data-title="DECRETO SIN FECHA RECONOCIBLE"',
+    ).replace(
+        '<span itemprop="headline">DECRETO 0765 DEL 15 DE JULIO DEL 2026</span>',
+        '<span itemprop="headline">DECRETO SIN FECHA RECONOCIBLE</span>',
+    ).replace('data-year="2026"', 'data-year="null"')
     scraper = ScrapMADR()
     docs = scraper._extraer_articulos(html, "Decreto", "D", "2026-01-01", "2026-12-31")
 
