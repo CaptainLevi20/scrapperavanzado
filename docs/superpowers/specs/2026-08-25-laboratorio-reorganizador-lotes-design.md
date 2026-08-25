@@ -109,8 +109,10 @@ de uso para un `GET` público):
 - `POST /reorganize/analyze` — body `{ root_path: str }`. 404 si la ruta no
   existe o no es un directorio. Llama a `analyze_batch` y devuelve el
   `BatchAnalysis`.
-- `POST /reorganize/apply` — body `{ moves: list[{ current_path: str,
-  target_path: str }] }`. Llama a `apply_moves`, devuelve el `ApplyResult`.
+- `POST /reorganize/apply` — body `{ root_path: str, moves: list[{
+  current_path: str, target_path: str }] }`. 404 si `root_path` no existe o
+  no es un directorio (misma validación que `analyze`). Llama a
+  `apply_moves`, devuelve el `ApplyResult`.
 
 **`api/schemas.py`** — nuevos modelos:
 ```python
@@ -147,6 +149,7 @@ class ResolvedMove(BaseModel):
     target_path: str
 
 class ReorganizeApplyRequest(BaseModel):
+    root_path: str
     moves: list[ResolvedMove]
 
 class MoveResult(BaseModel):
@@ -189,7 +192,7 @@ reubica el contenido actual sin cambiar su lógica:
   pestaña activa (`useState<"rename" | "reorganize">`) que renderiza el
   panel correspondiente.
 - `frontend/src/api/reorganize.ts` — `analyzeReorganization(rootPath)` /
-  `applyReorganization(moves)`, usando `apiFetch` como el resto de
+  `applyReorganization(rootPath, moves)`, usando `apiFetch` como el resto de
   `frontend/src/api/*.ts`.
 
 `lib/formatter/` (la lógica de renombrado) no cambia — la sigue usando
