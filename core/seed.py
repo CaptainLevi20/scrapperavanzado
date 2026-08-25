@@ -60,6 +60,10 @@ _FAMILIES = {
         "Ministerio de Justicia y del Derecho",
         "Normativa (decretos, resoluciones, circulares) publicada por el Ministerio de Justicia y del Derecho",
     ),
+    "minenergia": (
+        "Ministerio de Minas y Energía",
+        "Normativa (decretos, resoluciones, circulares) publicada por el Ministerio de Minas y Energía",
+    ),
 }
 
 
@@ -150,6 +154,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="minjusticia", name="Ministerio de Justicia y del Derecho", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="minenergia", name="Ministerio de Minas y Energía", family_params={}
     )
 
 
