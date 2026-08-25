@@ -36,6 +36,7 @@ describe("computeProposedPath", () => {
   it("builds Tipo/Año/archivo (no entity segment) for a missing_year_folder entry with no entity", () => {
     const entry = makeException({
       kind: "missing_year_folder",
+      tipo: "Leyes",
       current_path: "Leyes/LEY_0042_2019.pdf",
       detected_entity: null,
       detected_year: null,
