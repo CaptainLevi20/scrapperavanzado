@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FormatterPage } from "./FormatterPage";
-import { fakeInputDirectory, fakeOutputDirectory } from "../lib/formatter/testFsFakes";
+import { RenamePanel } from "./RenamePanel";
+import { fakeInputDirectory, fakeOutputDirectory } from "../../lib/formatter/testFsFakes";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("FormatterPage", () => {
+describe("RenamePanel", () => {
   it("shows a ready summary and an enabled copy button when every file resolves cleanly", async () => {
     const inputRoot = fakeInputDirectory("Acuerdos Cali", {
       "ACUERDOS 1962": {
@@ -18,7 +18,7 @@ describe("FormatterPage", () => {
     });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(inputRoot));
 
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await userEvent.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     expect(await screen.findByText(/2 archivos listos/)).toBeInTheDocument();
@@ -34,7 +34,7 @@ describe("FormatterPage", () => {
     vi.stubGlobal("showDirectoryPicker", picker);
 
     const user = userEvent.setup();
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     expect(await screen.findByText(/sin número \(se copiarán con su nombre original\)/i)).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe("FormatterPage", () => {
     vi.stubGlobal("showDirectoryPicker", picker);
 
     const user = userEvent.setup();
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     await screen.findAllByText(/número duplicado/i);
@@ -97,7 +97,7 @@ describe("FormatterPage", () => {
     vi.stubGlobal("showDirectoryPicker", picker);
 
     const user = userEvent.setup();
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     await screen.findByText(/año no detectado/i);
@@ -125,7 +125,7 @@ describe("FormatterPage", () => {
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(sameRoot));
 
     const user = userEvent.setup();
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await user.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     await screen.findByText(/1 archivo listo/);
@@ -138,7 +138,7 @@ describe("FormatterPage", () => {
     const inputRoot = fakeInputDirectory("Resoluciones Bogota", { "2020": { "algo.pdf": "x" } });
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockResolvedValue(inputRoot));
 
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await userEvent.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     expect(await screen.findByText(/no se reconoce el tipo de documento o la ciudad/i)).toBeInTheDocument();
@@ -148,7 +148,7 @@ describe("FormatterPage", () => {
     const abortError = new DOMException("The user aborted a request.", "AbortError");
     vi.stubGlobal("showDirectoryPicker", vi.fn().mockRejectedValue(abortError));
 
-    render(<FormatterPage />);
+    render(<RenamePanel />);
     await userEvent.click(screen.getByRole("button", { name: /elegir carpeta de entrada/i }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: /elegir carpeta de entrada/i })).toBeInTheDocument());
@@ -156,7 +156,7 @@ describe("FormatterPage", () => {
   });
 
   it("shows the unsupported-browser message when showDirectoryPicker doesn't exist", () => {
-    render(<FormatterPage />);
+    render(<RenamePanel />);
 
     expect(screen.getByText(/necesita chrome o edge/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /elegir carpeta de entrada/i })).not.toBeInTheDocument();
