@@ -167,27 +167,27 @@ def apply_moves(root: Path, moves: list[ResolvedMove]) -> ApplyResult:
     for move in moves:
         source = root / move.current_path
         target = root / move.target_path
-        if not source.is_file():
-            results.append(
-                MoveResult(
-                    current_path=move.current_path,
-                    target_path=move.target_path,
-                    moved=False,
-                    skip_reason="El archivo de origen ya no existe",
-                )
-            )
-            continue
-        if target.exists():
-            results.append(
-                MoveResult(
-                    current_path=move.current_path,
-                    target_path=move.target_path,
-                    moved=False,
-                    skip_reason="El destino ya existe",
-                )
-            )
-            continue
         try:
+            if not source.is_file():
+                results.append(
+                    MoveResult(
+                        current_path=move.current_path,
+                        target_path=move.target_path,
+                        moved=False,
+                        skip_reason="El archivo de origen ya no existe",
+                    )
+                )
+                continue
+            if target.exists():
+                results.append(
+                    MoveResult(
+                        current_path=move.current_path,
+                        target_path=move.target_path,
+                        moved=False,
+                        skip_reason="El destino ya existe",
+                    )
+                )
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(target))
             results.append(
