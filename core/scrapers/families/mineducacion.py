@@ -1,5 +1,6 @@
 import datetime
 import re
+import time
 from typing import List, Optional
 from urllib.parse import urljoin
 
@@ -142,6 +143,25 @@ def _normalize_title(letra: str, numero: str, anio: str) -> str:
     return f"{letra}_MEN_{int(numero):04d}_{anio}"
 
 
+# Confirmado en producción (2026-08-25): una petición a este listado por año
+# devolvió 404 una sola vez, y el mismo URL respondió 200 con contenido
+# normal tres veces seguidas minutos después -- un fallo pasajero del sitio,
+# no una página realmente inexistente. Se reintenta también sobre 404 (no
+# solo sobre errores de red/5xx) por esa razón, específica de este listado.
+def _get_con_reintentos(session, url, timeout=60, intentos=3):
+    ultimo_error = None
+    for intento in range(intentos):
+        try:
+            resp = session.get(url, timeout=timeout)
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.RequestException as e:
+            ultimo_error = e
+            if intento < intentos - 1:
+                time.sleep(5)
+    raise ultimo_error
+
+
 def _elegir_adjunto(figuras):
     # Cada fila puede traer varios adjuntos (la norma misma + anexos: actas,
     # formatos, guías...). Se prefiere el primer adjunto en formato PDF, en
@@ -245,8 +265,7 @@ class ScrapMineducacion(BaseScrapper):
 
             url = _LISTADO_URL_TPL.format(anio=anio)
             try:
-                resp = session.get(url, timeout=60)
-                resp.raise_for_status()
+                resp = _get_con_reintentos(session, url)
             except Exception as e:
                 if on_progress:
                     on_progress(f"[{self.source}] Error consultando {anio}: {e}")
