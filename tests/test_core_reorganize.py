@@ -2,7 +2,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.reorganize import analyze_batch
+from core.reorganize import analyze_batch, apply_moves
+from api.schemas import ResolvedMove
 
 
 def _touch(path: Path, content: str = "contenido") -> None:
@@ -149,3 +150,46 @@ def test_tipo_with_no_subdirectories_at_all_reports_bare_files_as_extra_depth(tm
     assert result.total_files == 1
     assert _by_tipo(result, "ACTAS").total_files == 1
     assert _by_tipo(result, "ACTAS").exception_count == 0
+
+
+def test_apply_moves_moves_file_and_creates_missing_folders(tmp_path):
+    source = tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf"
+    _touch(source, content="contenido-original")
+
+    result = apply_moves(
+        tmp_path,
+        [ResolvedMove(current_path="DECRETOS/2022/D_MSPS_0017AJ_2022.pdf", target_path="DECRETOS/MSPS/2022/D_MSPS_0017AJ_2022.pdf")],
+    )
+
+    assert result.results[0].moved is True
+    assert result.results[0].skip_reason is None
+    assert not source.exists()
+    target = tmp_path / "DECRETOS" / "MSPS" / "2022" / "D_MSPS_0017AJ_2022.pdf"
+    assert target.read_text(encoding="utf-8") == "contenido-original"
+
+
+def test_apply_moves_skips_when_destination_already_exists(tmp_path):
+    source = tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf"
+    _touch(source, content="nuevo")
+    target = tmp_path / "DECRETOS" / "MSPS" / "2022" / "D_MSPS_0017AJ_2022.pdf"
+    _touch(target, content="ya-existia")
+
+    result = apply_moves(
+        tmp_path,
+        [ResolvedMove(current_path="DECRETOS/2022/D_MSPS_0017AJ_2022.pdf", target_path="DECRETOS/MSPS/2022/D_MSPS_0017AJ_2022.pdf")],
+    )
+
+    assert result.results[0].moved is False
+    assert result.results[0].skip_reason is not None
+    assert source.exists()
+    assert target.read_text(encoding="utf-8") == "ya-existia"
+
+
+def test_apply_moves_skips_when_source_is_missing(tmp_path):
+    result = apply_moves(
+        tmp_path,
+        [ResolvedMove(current_path="DECRETOS/2022/no-existe.pdf", target_path="DECRETOS/MSPS/2022/no-existe.pdf")],
+    )
+
+    assert result.results[0].moved is False
+    assert result.results[0].skip_reason is not None

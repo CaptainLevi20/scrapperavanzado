@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import re
+import shutil
 
 from api.schemas import (
     ApplyResult,
@@ -159,3 +160,43 @@ def analyze_batch(root: Path) -> BatchAnalysis:
         exceptions=exceptions,
         extra_depth=extra_depth,
     )
+
+
+def apply_moves(root: Path, moves: list[ResolvedMove]) -> ApplyResult:
+    results: list[MoveResult] = []
+    for move in moves:
+        source = root / move.current_path
+        target = root / move.target_path
+        if not source.is_file():
+            results.append(
+                MoveResult(
+                    current_path=move.current_path,
+                    target_path=move.target_path,
+                    moved=False,
+                    skip_reason="El archivo de origen ya no existe",
+                )
+            )
+            continue
+        if target.exists():
+            results.append(
+                MoveResult(
+                    current_path=move.current_path,
+                    target_path=move.target_path,
+                    moved=False,
+                    skip_reason="El destino ya existe",
+                )
+            )
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+            results.append(
+                MoveResult(current_path=move.current_path, target_path=move.target_path, moved=True, skip_reason=None)
+            )
+        except OSError as exc:
+            results.append(
+                MoveResult(
+                    current_path=move.current_path, target_path=move.target_path, moved=False, skip_reason=str(exc)
+                )
+            )
+    return ApplyResult(results=results)
