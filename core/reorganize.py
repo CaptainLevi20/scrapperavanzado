@@ -93,6 +93,8 @@ def analyze_batch(root: Path) -> BatchAnalysis:
         file_children = sorted(c for c in tipo_dir.iterdir() if c.is_file())
         year_like = [c for c in dir_children if _is_year_name(c.name)]
         entity_like = [c for c in dir_children if not _is_year_name(c.name)]
+        # When both lists are empty (zero subdirectories), tie-break to con_entidad=True.
+        # This avoids guessing sin_entidad and risking a proposed_path missing the Entidad segment.
         con_entidad = len(entity_like) >= len(year_like)
 
         tipo_total = 0

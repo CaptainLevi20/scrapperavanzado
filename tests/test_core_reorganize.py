@@ -134,3 +134,18 @@ def test_bare_file_directly_under_con_entidad_tipo_is_extra_depth(tmp_path):
     assert len(result.extra_depth) == 1
     assert result.extra_depth[0].current_path == "CIRCULAR/stray.pdf"
     assert result.total_files == 2
+
+
+def test_tipo_with_no_subdirectories_at_all_reports_bare_files_as_extra_depth(tmp_path):
+    _touch(tmp_path / "ACTAS" / "ACTA_0001_2020.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.extra_depth) == 1
+    entry = result.extra_depth[0]
+    assert entry.tipo == "ACTAS"
+    assert entry.current_path == "ACTAS/ACTA_0001_2020.pdf"
+    assert result.total_files == 1
+    assert _by_tipo(result, "ACTAS").total_files == 1
+    assert _by_tipo(result, "ACTAS").exception_count == 0
