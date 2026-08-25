@@ -380,13 +380,20 @@ def test_scrap_fetches_one_page_per_year_in_range():
 
 
 @responses.activate
-def test_scrap_continues_past_a_failing_year():
+def test_scrap_continues_past_a_failing_year(monkeypatch):
+    import core.scrapers.families.mineducacion as mineducacion
+
+    monkeypatch.setattr(mineducacion.time, "sleep", lambda *_a, **_k: None)
+
     html_2026 = _pagina(
         _recuadro(
             "Resolución 020664 del 4 de agosto de 2026",
             _figura("articles-2.pdf", "Resolución 020664 del 4 de agosto de 2026"),
         )
     )
+    # Registrado una sola vez: la petición fallida se reintenta (ver
+    # _get_con_reintentos) y `responses` sigue devolviendo este mismo 500 en
+    # cada reintento -- este año agota los 3 intentos y se descarta.
     responses.add(
         responses.GET,
         "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2025/",
@@ -404,6 +411,40 @@ def test_scrap_continues_past_a_failing_year():
 
     assert {d.title for d in docs} == {"R_MEN_20664_2026"}
     assert any("Error" in m and "2025" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_recovers_from_a_transient_404_on_retry(monkeypatch):
+    # Regresión del caso real de producción (2026-08-25): el listado de 2026
+    # devolvió 404 una sola vez y luego respondió con normalidad -- debe
+    # reintentarse en vez de descartar el año entero por un fallo pasajero.
+    import core.scrapers.families.mineducacion as mineducacion
+
+    monkeypatch.setattr(mineducacion.time, "sleep", lambda *_a, **_k: None)
+
+    html_2026 = _pagina(
+        _recuadro(
+            "Resolución 020664 del 4 de agosto de 2026",
+            _figura("articles-2.pdf", "Resolución 020664 del 4 de agosto de 2026"),
+        )
+    )
+    responses.add(
+        responses.GET,
+        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2026/",
+        status=404,
+    )
+    responses.add(
+        responses.GET,
+        "https://www.mineducacion.gov.co/portal/Normatividad/Ultimas-publicaciones;anos-normatividad/2026/",
+        body=html_2026,
+    )
+
+    progreso = []
+    scraper = ScrapMineducacion()
+    docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
+
+    assert {d.title for d in docs} == {"R_MEN_20664_2026"}
+    assert not any("Error" in m for m in progreso)
 
 
 @responses.activate
