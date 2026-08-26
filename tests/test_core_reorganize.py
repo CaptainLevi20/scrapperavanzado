@@ -333,6 +333,24 @@ def test_mixta_and_conjun_are_recognized_as_document_type_not_entity(tmp_path):
     assert result.folder_renames == []
 
 
+def test_guia_and_anexo_are_recognized_as_document_type_not_entity(tmp_path):
+    # Reported real case: CONCEPTO/DAFP/2025/CTO_GUIA_DAFP_0000002_2025.pdf
+    # — "GUIA" ("guía") describes a document, not an entity; the real
+    # entity ("DAFP") is the token right after it. "ANEXO" ("annex") is
+    # the same shape, found while checking the batch for this pattern.
+    # Without this both were wrongly flagged as entity_mismatch, proposing
+    # to move files already correctly filed under their real entity into a
+    # bogus "GUIA"/"ANEXO" folder that doesn't exist anywhere in the real
+    # batch.
+    _touch(tmp_path / "CONCEPTO" / "DAFP" / "2025" / "CTO_GUIA_DAFP_0000002_2025.pdf")
+    _touch(tmp_path / "RESOLUCIONES" / "MADS" / "2025" / "R_ANEXO_MADS_0924_2025.docx")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+
+
 def test_conbog_is_always_normalized_to_concbog_even_on_a_tied_vote(tmp_path):
     # Reported real case: ACUERDOS/CONBOG had exactly 4 files, split 2-2
     # between "CONBOG" (agreeing with the folder) and "CONCBOG" — an exact
