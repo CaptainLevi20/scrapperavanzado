@@ -34,6 +34,7 @@ _ENTITY_ALIASES = {
     "SHACIENDABOG": "SDHBOG",
     "MEN": "ME",
     "CONBOG": "CONCBOG",
+    "SHDBOG": "SDHBOG",
 }
 
 # Folder-name corrections confirmed by the user directly, for isolated

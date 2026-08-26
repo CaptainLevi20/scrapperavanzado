@@ -163,7 +163,11 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    2 a favor de cada nombre — un empate real que el voto por mayoría no
    puede resolver solo; el usuario confirmó que `CONCBOG` es el correcto,
    y el alias convierte ese empate en una mayoría unánime, con lo que la
-   carpeta completa se renombra en un solo movimiento).
+   carpeta completa se renombra en un solo movimiento); y `SHDBOG` →
+   `SDHBOG` (typo de letras invertidas — "D" y "H" cambiadas de lugar —
+   en 2 archivos que ya estaban bien puestos en su carpeta `SDHBOG`; sin
+   el alias, el sistema proponía sacarlos de ahí para crear una carpeta
+   nueva `SHDBOG` que no existe en ningún otro lado del lote).
 
    **Renombres de carpeta confirmados para casos de un solo archivo.** El
    voto por mayoría (arriba) nunca puede dispararse en una carpeta con un

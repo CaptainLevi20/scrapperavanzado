@@ -298,6 +298,21 @@ def test_men_filename_token_is_recognized_as_me_and_causes_no_exception(tmp_path
     assert result.folder_renames == []
 
 
+def test_shdbog_filename_token_is_recognized_as_sdhbog_and_causes_no_exception(tmp_path):
+    # Reported real case: CONCEPTO/SDHBOG/2022/CTO_SHDBOG_2022IE063609_2022.pdf
+    # — "SHDBOG" is a letter-transposition typo of "SDHBOG" (D and H
+    # swapped). The file already sits in the correct "SDHBOG" folder;
+    # without the alias it was wrongly flagged as an entity_mismatch
+    # proposing to move it OUT of its correct folder into a bogus new
+    # "SHDBOG" folder that doesn't exist anywhere in the real batch.
+    _touch(tmp_path / "CONCEPTO" / "SDHBOG" / "2022" / "CTO_SHDBOG_2022IE063609_2022.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+
+
 def test_conbog_is_always_normalized_to_concbog_even_on_a_tied_vote(tmp_path):
     # Reported real case: ACUERDOS/CONBOG had exactly 4 files, split 2-2
     # between "CONBOG" (agreeing with the folder) and "CONCBOG" — an exact
