@@ -17,6 +17,7 @@ describe("reorganize API", () => {
           tipos: [],
           exceptions: [],
           extra_depth: [],
+          extra_depth_total: 0,
         });
       })
     );

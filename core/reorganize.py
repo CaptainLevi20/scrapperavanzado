@@ -33,7 +33,10 @@ def _detect_year_from_filename(filename: str) -> Optional[int]:
 
 def _detect_entity_from_filename(filename: str) -> Optional[str]:
     parts = Path(filename).stem.split("_")
-    return parts[1] if len(parts) >= 3 else None
+    if len(parts) < 3:
+        return None
+    entity = parts[1]
+    return None if _is_year_name(entity) else entity
 
 
 def _relpath(root: Path, path: Path) -> str:
@@ -82,11 +85,21 @@ def _missing_year_exception(root: Path, tipo: str, entity: Optional[str], file: 
     )
 
 
+EXTRA_DEPTH_LIMIT = 500
+
+
 def analyze_batch(root: Path) -> BatchAnalysis:
     tipos: list[TipoSummary] = []
     exceptions: list[ReorganizeException] = []
     extra_depth: list[ExtraDepthEntry] = []
     total_files = 0
+
+    # Files sitting directly in root (outside any Tipo folder) don't fit the
+    # audit rule at all, but they must not silently vanish from the count —
+    # same principle as the extra_depth handling below for deeper nesting.
+    for p in sorted(f for f in root.iterdir() if f.is_file()):
+        extra_depth.append(ExtraDepthEntry(tipo="", current_path=_relpath(root, p)))
+        total_files += 1
 
     for tipo_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         tipo = tipo_dir.name
@@ -94,9 +107,19 @@ def analyze_batch(root: Path) -> BatchAnalysis:
         file_children = sorted(c for c in tipo_dir.iterdir() if c.is_file())
         year_like = [c for c in dir_children if _is_year_name(c.name)]
         entity_like = [c for c in dir_children if not _is_year_name(c.name)]
-        # When both lists are empty (zero subdirectories), tie-break to con_entidad=True.
-        # This avoids guessing sin_entidad and risking a proposed_path missing the Entidad segment.
-        con_entidad = len(entity_like) >= len(year_like)
+        if len(entity_like) == 0 and len(year_like) == 0:
+            # Zero subdirectories: no structural evidence either way. Tie-break to
+            # con_entidad=True — this avoids guessing sin_entidad and risking a
+            # proposed_path silently missing the Entidad segment for every file.
+            con_entidad = True
+        else:
+            # Otherwise require a strict majority. A tie here (both nonzero) means
+            # real ambiguity — e.g. a sin_entidad Tipo whose year folders happen to
+            # be outnumbered-or-equal by unrelated non-year folders (backups, temp
+            # dirs) — and resolving it to con_entidad would misclassify every
+            # correctly-placed file under a year folder as a missing_entity_folder
+            # exception. Defer to sin_entidad instead.
+            con_entidad = len(entity_like) > len(year_like)
 
         tipo_total = 0
         tipo_exceptions = 0
@@ -158,16 +181,30 @@ def analyze_batch(root: Path) -> BatchAnalysis:
         total_files=total_files,
         tipos=tipos,
         exceptions=exceptions,
-        extra_depth=extra_depth,
+        extra_depth=extra_depth[:EXTRA_DEPTH_LIMIT],
+        extra_depth_total=len(extra_depth),
     )
 
 
 def apply_moves(root: Path, moves: list[ResolvedMove]) -> ApplyResult:
     results: list[MoveResult] = []
+    root_resolved = root.resolve()
     for move in moves:
         source = root / move.current_path
         target = root / move.target_path
         try:
+            if not source.resolve().is_relative_to(root_resolved) or not target.resolve().is_relative_to(
+                root_resolved
+            ):
+                results.append(
+                    MoveResult(
+                        current_path=move.current_path,
+                        target_path=move.target_path,
+                        moved=False,
+                        skip_reason="La ruta está fuera de la carpeta raíz",
+                    )
+                )
+                continue
             if not source.is_file():
                 results.append(
                     MoveResult(

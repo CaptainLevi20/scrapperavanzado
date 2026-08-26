@@ -43,4 +43,33 @@ describe("computeProposedPath", () => {
     });
     expect(computeProposedPath(entry, { entity: "", year: "2019" })).toBe("Leyes/2019/LEY_0042_2019.pdf");
   });
+
+  it("returns null for a missing_year_folder entry under a con_entidad Tipo when entity is blank", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      tipo: "RESOLUCIONES",
+      current_path: "RESOLUCIONES/PGN/R_PGN_0158.docx",
+      detected_entity: "PGN",
+      detected_year: null,
+    });
+    expect(computeProposedPath(entry, { entity: "", year: "2019" })).toBeNull();
+  });
+
+  it("rejects an entity containing a path separator or a parent-directory reference", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "../..", year: "2022" })).toBeNull();
+    expect(computeProposedPath(entry, { entity: "MSPS/../etc", year: "2022" })).toBeNull();
+    expect(computeProposedPath(entry, { entity: "MSPS\\etc", year: "2022" })).toBeNull();
+  });
+
+  it("rejects a year outside the plausible 1800-2099 range", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "0000" })).toBeNull();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "3450" })).toBeNull();
+  });
+
+  it("accepts a boundary year matching the backend's YEAR_RE", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "1899" })).toBe("DECRETOS/MSPS/1899/D_MSPS_0017AJ_2022.pdf");
+  });
 });

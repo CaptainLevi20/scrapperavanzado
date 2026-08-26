@@ -30,13 +30,25 @@ def test_analyze_returns_404_for_a_path_that_does_not_exist(api_client, admin_au
     assert response.status_code == 404
 
 
+def test_apply_returns_404_for_a_path_that_does_not_exist(api_client, admin_auth_header, tmp_path):
+    response = api_client.post(
+        "/reorganize/apply",
+        json={"root_path": str(tmp_path / "no-existe"), "moves": []},
+        headers=admin_auth_header,
+    )
+    assert response.status_code == 404
+
+
 def test_analyze_happy_path(api_client, admin_auth_header, tmp_path):
     _touch(tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf")
-    # An empty sibling entity-folder is required so analyze_batch's con_entidad
+    # Two empty sibling entity-folders are required so analyze_batch's con_entidad
     # tie-break (entity-like dirs vs year-like dirs) resolves DECRETOS as an
-    # entity-organized tipo — otherwise, with only a year folder present, it is
-    # read as sin_entidad and the file is treated as already correctly placed.
+    # entity-organized tipo. A single entity-folder would only tie 1-vs-1 against
+    # the "2022" year folder, and the tie-break now requires a strict majority of
+    # entity-like dirs (a bare tie between nonzero counts resolves to sin_entidad
+    # instead) — otherwise the file would be read as already correctly placed.
     (tmp_path / "DECRETOS" / "PGN").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "DECRETOS" / "OTRO").mkdir(parents=True, exist_ok=True)
 
     response = api_client.post("/reorganize/analyze", json={"root_path": str(tmp_path)}, headers=admin_auth_header)
 

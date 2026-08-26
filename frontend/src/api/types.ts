@@ -176,6 +176,7 @@ export interface BatchAnalysis {
   tipos: TipoSummary[];
   exceptions: ReorganizeException[];
   extra_depth: ExtraDepthEntry[];
+  extra_depth_total: number;
 }
 
 export interface ResolvedMove {

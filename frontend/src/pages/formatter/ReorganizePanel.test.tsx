@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
@@ -27,6 +27,7 @@ describe("ReorganizePanel", () => {
             },
           ],
           extra_depth: [],
+          extra_depth_total: 0,
         })
       )
     );
@@ -39,6 +40,10 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText("DECRETOS/2022/D_MSPS_0017AJ_2022.pdf")).toBeInTheDocument();
     expect(screen.getByLabelText("Año para DECRETOS/2022/D_MSPS_0017AJ_2022.pdf")).toHaveValue("2022");
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    const tipoSummaryTable = screen.getAllByRole("table")[0];
+    expect(within(tipoSummaryTable).getByText("DECRETOS")).toBeInTheDocument();
+    expect(within(tipoSummaryTable).getAllByText("1")).toHaveLength(2);
 
     await user.type(screen.getByLabelText("Entidad para DECRETOS/2022/D_MSPS_0017AJ_2022.pdf"), "MSPS");
 
@@ -55,6 +60,7 @@ describe("ReorganizePanel", () => {
           tipos: [],
           exceptions: [],
           extra_depth: [{ tipo: "Gacetas", current_path: "Gacetas/GC/1992/AC/AC_0001_1992.pdf" }],
+          extra_depth_total: 1,
         })
       )
     );
@@ -87,11 +93,15 @@ describe("ReorganizePanel", () => {
             },
           ],
           extra_depth: [],
+          extra_depth_total: 0,
         })
       ),
       http.post(`${BASE_URL}/reorganize/apply`, async ({ request }) => {
         const body = (await request.json()) as { root_path: string; moves: { current_path: string; target_path: string }[] };
-        expect(body.root_path).toBe("D:\\LOTE 2");
+        // Intentionally the analyzed root ("D:/LOTE 2", from the mocked
+        // analyze response above), not the raw textbox value the user typed
+        // ("D:\LOTE 2") — see handleApply's fix for the root-path bug.
+        expect(body.root_path).toBe("D:/LOTE 2");
         expect(body.moves).toEqual([
           {
             current_path: "RESOLUCIONES/SGCANDINA/RSG2058.docx",

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ApiError } from "../../api/client";
 import { analyzeReorganization, applyReorganization } from "../../api/reorganize";
 import type { ApplyResult, BatchAnalysis, ReorganizeException, ResolvedMove } from "../../api/types";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -29,8 +30,8 @@ export function ReorganizePanel() {
     try {
       const analysis = await analyzeReorganization(rootPath);
       setState({ step: "loaded", analysis, corrections: new Map() });
-    } catch {
-      setState({ step: "error", message: "No se pudo analizar la carpeta." });
+    } catch (error) {
+      setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo analizar la carpeta." });
     }
   }
 
@@ -54,10 +55,13 @@ export function ReorganizePanel() {
     }
     setState({ step: "applying" });
     try {
-      const result = await applyReorganization(rootPath, moves);
+      // Send the root that was actually analyzed (and that these moves were
+      // computed against), not the live textbox value — the admin may have
+      // edited the path after analyzing but before applying.
+      const result = await applyReorganization(state.analysis.root_path, moves);
       setState({ step: "applied", result });
-    } catch {
-      setState({ step: "error", message: "No se pudo aplicar la reorganización." });
+    } catch (error) {
+      setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo aplicar la reorganización." });
     }
   }
 
@@ -84,12 +88,40 @@ export function ReorganizePanel() {
       {state.step === "loading" && <p className="text-sm text-muted-foreground">Analizando…</p>}
       {state.step === "applying" && <p className="text-sm text-muted-foreground">Aplicando…</p>}
 
-      {state.step === "applied" && (
-        <p className="text-sm text-muted-foreground">
-          {state.result.results.filter((r) => r.moved).length} archivo(s) movido(s),{" "}
-          {state.result.results.filter((r) => !r.moved).length} omitido(s).
-        </p>
-      )}
+      {state.step === "applied" &&
+        (() => {
+          const skipped = state.result.results.filter((r) => !r.moved);
+          return (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {state.result.results.filter((r) => r.moved).length} archivo(s) movido(s), {skipped.length} omitido(s).
+              </p>
+
+              {skipped.length > 0 && (
+                <div className={TABLE_SHELL}>
+                  <div className={TABLE_SCROLL}>
+                    <table className={TABLE}>
+                      <thead>
+                        <tr className={THEAD_ROW}>
+                          <th className={TH}>Ruta actual</th>
+                          <th className={TH}>Motivo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {skipped.map((r) => (
+                          <tr key={r.current_path} className={TBODY_ROW}>
+                            <td className={TD}>{r.current_path}</td>
+                            <td className={TD}>{r.skip_reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {state.step === "loaded" &&
         (() => {
@@ -105,8 +137,36 @@ export function ReorganizePanel() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {analysis.total_files} archivo(s) analizados, {analysis.exceptions.length} excepción(es),{" "}
-                {analysis.extra_depth.length} carpeta(s) con profundidad extra (informativo).
+                {analysis.extra_depth_total} archivo(s) con profundidad extra (informativo).
+                {analysis.extra_depth_total > analysis.extra_depth.length
+                  ? ` (mostrando los primeros ${analysis.extra_depth.length}).`
+                  : ""}
               </p>
+
+              {analysis.tipos.length > 0 && (
+                <div className={TABLE_SHELL}>
+                  <div className={TABLE_SCROLL}>
+                    <table className={TABLE}>
+                      <thead>
+                        <tr className={THEAD_ROW}>
+                          <th className={TH}>Tipo</th>
+                          <th className={TH}>Archivos totales</th>
+                          <th className={TH}>Excepciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analysis.tipos.map((tipoSummary) => (
+                          <tr key={tipoSummary.tipo} className={TBODY_ROW}>
+                            <td className={TD}>{tipoSummary.tipo}</td>
+                            <td className={TD}>{tipoSummary.total_files}</td>
+                            <td className={TD}>{tipoSummary.exception_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {rows.length > 0 && (
                 <div className={TABLE_SHELL}>

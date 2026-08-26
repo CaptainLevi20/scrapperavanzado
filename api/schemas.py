@@ -275,6 +275,7 @@ class BatchAnalysis(BaseModel):
     tipos: list[TipoSummary]
     exceptions: list[ReorganizeException]
     extra_depth: list[ExtraDepthEntry]
+    extra_depth_total: int
 
 
 class ResolvedMove(BaseModel):
