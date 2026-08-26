@@ -50,8 +50,15 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
 1. **Clasificar el Tipo.** Se miran sus subcarpetas directas: si son todas
    años (patrón `1[89]\d{2}|20\d{2}`) el Tipo es `sin_entidad` (como
    `Leyes`); si son códigos de entidad, el Tipo es `con_entidad` (como
-   `DECRETOS`, `RESOLUCIONES`). La clasificación es por mayoría — un Tipo
-   `con_entidad` puede tener alguna carpeta de año colada entre las de
+   `DECRETOS`, `RESOLUCIONES`). La clasificación es por **mayoría estricta**
+   de carpetas tipo-entidad sobre carpetas tipo-año — un empate entre ambos
+   conteos (siendo los dos mayores a cero) se resuelve a `sin_entidad`, para
+   no arriesgar clasificar como `con_entidad` un Tipo que en realidad es
+   `sin_entidad` con un par de carpetas sueltas (backups, temporales). La
+   única excepción es cuando el Tipo no tiene subcarpetas en absoluto (cero y
+   cero): ahí no hay evidencia estructural y se resuelve a `con_entidad`, para
+   no arriesgar una `proposed_path` que le falte el segmento de Entidad. Un
+   Tipo `con_entidad` puede tener alguna carpeta de año colada entre las de
    entidad, y eso es precisamente una excepción a resolver (ver abajo).
 2. **Tipo `con_entidad`:** cada archivo debe vivir en `Entidad/Año/archivo`.
    Dos formas de excepción:
@@ -93,14 +100,24 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
   excepciones), la lista de excepciones (`ReorganizeException`), y la lista
   de casos informativos de profundidad extra (`ExtraDepthEntry`) — nunca
   la lista completa de archivos ya bien ubicados (evita mandar 53 mil filas
-  al frontend que no aportarían nada).
+  al frontend que no aportarían nada). `extra_depth` en sí también se
+  recorta a los primeros `EXTRA_DEPTH_LIMIT` (500) por la misma razón —
+  Tipos como `Gacetas` o `CIRCULAR` pueden acumular miles de archivos bajo
+  un mismo nivel extra — pero el conteo real completo siempre viaja en
+  `extra_depth_total`, así nunca se pierde silenciosamente cuántos hay.
+  Los archivos sueltos directamente bajo `root` (sin carpeta de Tipo) se
+  reportan igual en `extra_depth` (con `tipo=""`) en vez de excluirse del
+  conteo.
 - `apply_moves(moves: list[ResolvedMove]) -> ApplyResult`: por cada
-  movimiento, valida que el origen exista y el destino **no** exista ya
-  (nunca sobrescribe), crea las carpetas destino que falten
-  (`Path.mkdir(parents=True, exist_ok=True)`) y mueve el archivo
-  (`shutil.move` — casi instantáneo al ser mismo volumen). Devuelve, por
-  archivo, si se movió o se saltó y por qué (mismo patrón
-  `copiedCount`/`skippedCount` que ya usa `copy.ts` del Formateador).
+  movimiento, valida que el origen y el destino resuelvan dentro de `root`
+  (se salta con `skip_reason` si no — protege contra un `current_path` o
+  `target_path` con `..` o una ruta absoluta que se saliera de la carpeta),
+  que el origen exista y el destino **no** exista ya (nunca sobrescribe),
+  crea las carpetas destino que falten (`Path.mkdir(parents=True,
+  exist_ok=True)`) y mueve el archivo (`shutil.move` — casi instantáneo al
+  ser mismo volumen). Devuelve, por archivo, si se movió o se saltó y por
+  qué (mismo patrón `copiedCount`/`skippedCount` que ya usa `copy.ts` del
+  Formateador).
 
 **`api/routers/reorganize.py`** (nuevo router, protegido con
 `require_admin` a nivel de router — a diferencia de `sources.py`, aquí
@@ -142,7 +159,8 @@ class BatchAnalysis(BaseModel):
     total_files: int
     tipos: list[TipoSummary]
     exceptions: list[ReorganizeException]
-    extra_depth: list[ExtraDepthEntry]
+    extra_depth: list[ExtraDepthEntry]  # recortado a EXTRA_DEPTH_LIMIT (500)
+    extra_depth_total: int  # conteo real, sin recortar
 
 class ResolvedMove(BaseModel):
     current_path: str
