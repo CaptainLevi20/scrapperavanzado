@@ -97,15 +97,14 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    distintas, y una carpeta hermana existente bloquea la sugerencia sin
    importar la diferencia de mayúsculas en su nombre.
 
-   A diferencia de las otras dos, `entity_mismatch`/`year_mismatch` pueden
-   ser un falso positivo genuino — la carpeta y el nombre pueden referirse
-   al mismo valor con grafías distintas (ej. `CMAGUACHICA` en la carpeta vs
-   `CAGUACHICA` en el nombre), y mover el archivo fragmentaría una entidad
-   que en realidad ya estaba bien consolidada. Por eso, y solo para estas
-   dos, la UI ofrece un botón "Dejar así" por fila que la excluye del lote a
-   aplicar sin bloquear las demás filas (`missing_entity_folder`/
-   `missing_year_folder` siempre representan un archivo genuinamente
-   incompleto, así que no tiene sentido "dejarlos así").
+   `entity_mismatch`/`year_mismatch` en particular pueden ser un falso
+   positivo genuino — la carpeta y el nombre pueden referirse al mismo
+   valor con grafías distintas (ej. `CMAGUACHICA` en la carpeta vs
+   `CAGUACHICA` en el nombre, o `SDH`/`SHACIENDABOG`/`SDHBOG` — ver alias
+   más abajo), y mover el archivo fragmentaría una entidad que en realidad
+   ya estaba bien consolidada. Ver "Modelo de aprobación" más abajo para
+   cómo la UI maneja esto (y por qué termina aplicando por igual a todas
+   las excepciones, no solo a estas dos).
 
    **Sugerencia de renombrar carpeta en vez de mover archivo por archivo.**
    Cuando los archivos ya estructurados de una carpeta de Entidad resuelven,
@@ -131,7 +130,8 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
      por sí solos para bloquear al candidato ganador, a diferencia de una
      regla que exigiera unanimidad entre todo lo que discrepa.
    - Al menos 2 archivos lo confirman (un solo archivo es exactamente el
-     caso `entity_mismatch` normal, con su propio "Dejar así").
+     caso `entity_mismatch` normal, requiriendo su propia aprobación como
+     cualquier otra excepción).
    - La entidad sugerida no coincide con ninguna carpeta hermana que ya
      exista bajo ese Tipo (evita ofrecer lo que en realidad sería una fusión
      de carpetas, no un renombrado — eso queda fuera de alcance, igual que
@@ -174,8 +174,9 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    sí se renombra, esos archivos "conjuntos" se mueven igual (la carpeta se
    mueve completa), simplemente no cuentan para decidir si renombrar.
 
-   Como con `entity_mismatch`/`year_mismatch`, es editable (el nombre de
-   entidad sugerido) y tiene su propio "Dejar así" — puede ser un falso
+   Como con `entity_mismatch`/`year_mismatch`, el nombre de entidad
+   sugerido es editable, y la fila requiere aprobación explícita antes de
+   aplicarse (ver "Modelo de aprobación" abajo) — puede ser un falso
    positivo si el patrón de nombres coincide por casualidad.
 
 **Archivos ignorados por completo:** basura generada por el sistema
@@ -217,6 +218,22 @@ sentido.
    ruta propuesta es `Tipo/[Entidad/]Año/nombre-original-del-archivo` — esta
    herramienta reorganiza carpetas, no renombra archivos (eso ya lo hace el
    Formateador; no se duplica esa responsabilidad aquí).
+
+**Modelo de aprobación.** Ninguna fila se incluye en "Aplicar" por
+default — cada una (`missing_entity_folder`, `missing_year_folder`,
+`entity_mismatch`, `year_mismatch`, y cada sugerencia de renombrar
+carpeta) necesita un clic explícito en "Aprobar" antes de contar. El botón
+alterna a "Deshacer" una vez aprobada (quita la aprobación, no aplica
+nada). "Aplicar" se habilita solo cuando hay al menos una fila aprobada y
+todas las filas aprobadas tienen sus campos resueltos (Entidad/Año, o el
+nombre de entidad nuevo en una carpeta) — una fila sin aprobar nunca
+bloquea nada, esté completa o no. Al aplicar, solo se envían las filas
+aprobadas; el resto queda intacto para revisarlas después, sin tener que
+re-analizar. Este modelo es deliberadamente "opt-in" (no hay un botón para
+aprobar todo de una vez) — decisión explícita del usuario tras ver que el
+modelo anterior ("todo se aplica salvo lo que descartes con 'Dejar así'")
+no daba suficiente control fila por fila, sobre todo en lotes con cientos
+de excepciones.
 
 ## Backend
 
@@ -361,13 +378,14 @@ reubica el contenido actual sin cambiar su lógica:
 - `frontend/src/pages/formatter/ReorganizePanel.tsx` — nuevo. Un input de
   texto para la ruta + botón "Analizar" → tabla de sugerencias de renombrar
   carpeta (Tipo, carpeta actual, entidad nueva editable, archivos
-  afectados, carpeta propuesta, "Dejar así") + tabla de excepciones (Tipo,
-  ruta actual, entidad detectada editable, año detectado/sugerido editable,
-  ruta propuesta, "Dejar así" para `entity_mismatch`/`year_mismatch`) +
-  botón "Aplicar" único para ambas tablas (deshabilitado hasta que todas
-  las filas activas —no descartadas con "Dejar así"— tengan sus campos
-  resueltos, mismo criterio `canCopy` que ya usa el Formateador). Los casos
-  de profundidad extra solo se cuentan en el resumen de arriba
+  afectados, carpeta propuesta, "Aprobar"/"Deshacer") + tabla de
+  excepciones (Tipo, ruta actual, entidad detectada editable, año
+  detectado/sugerido editable, ruta propuesta, "Aprobar"/"Deshacer" — en
+  todas las filas, no solo `entity_mismatch`/`year_mismatch`, ver "Modelo
+  de aprobación" arriba) + botón "Aplicar" único para ambas tablas
+  (deshabilitado hasta que haya al menos una fila aprobada y todas las
+  aprobadas tengan sus campos resueltos). Los casos de profundidad extra
+  solo se cuentan en el resumen de arriba
   (`extra_depth_total`) — nunca se listan uno por uno en pantalla, ya que
   son puramente informativos y nunca se tocan (a diferencia de las otras
   dos tablas, no cambian según lo que el admin haga).

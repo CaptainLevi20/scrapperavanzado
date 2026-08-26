@@ -23,7 +23,9 @@ type ReorganizeState =
       analysis: BatchAnalysis;
       corrections: Map<string, Correction>;
       folderRenameCorrections: Map<string, string>;
-      dismissed: Set<string>;
+      // Opt-in: a row only counts toward Aplicar once explicitly approved —
+      // there is no "everything applies unless you opt out" default.
+      approved: Set<string>;
     }
   | { step: "applying" }
   | { step: "applied"; result: ApplyResult };
@@ -46,7 +48,7 @@ export function ReorganizePanel() {
         analysis,
         corrections: new Map(),
         folderRenameCorrections: new Map(),
-        dismissed: new Set(),
+        approved: new Set(),
       });
     } catch (error) {
       setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo analizar la carpeta." });
@@ -70,29 +72,29 @@ export function ReorganizePanel() {
     setState({ ...state, folderRenameCorrections });
   }
 
-  function handleToggleDismissed(currentPath: string) {
+  function handleToggleApproved(currentPath: string) {
     if (state.step !== "loaded") return;
-    const dismissed = new Set(state.dismissed);
-    if (dismissed.has(currentPath)) {
-      dismissed.delete(currentPath);
+    const approved = new Set(state.approved);
+    if (approved.has(currentPath)) {
+      approved.delete(currentPath);
     } else {
-      dismissed.add(currentPath);
+      approved.add(currentPath);
     }
-    setState({ ...state, dismissed });
+    setState({ ...state, approved });
   }
 
   async function handleApply() {
     if (state.step !== "loaded") return;
     const moves: ResolvedMove[] = [];
     for (const entry of state.analysis.exceptions) {
-      if (state.dismissed.has(entry.current_path)) continue;
+      if (!state.approved.has(entry.current_path)) continue;
       const correction = state.corrections.get(entry.current_path) ?? initialCorrection(entry);
       const target = computeProposedPath(entry, correction);
       if (target) moves.push({ current_path: entry.current_path, target_path: target });
     }
     const folderRenames: ResolvedFolderRename[] = [];
     for (const fr of state.analysis.folder_renames) {
-      if (state.dismissed.has(fr.current_path)) continue;
+      if (!state.approved.has(fr.current_path)) continue;
       const entityName = state.folderRenameCorrections.get(fr.current_path) ?? fr.suggested_entity;
       const target = computeFolderRenameTarget(fr.tipo, entityName);
       if (target) folderRenames.push({ current_path: fr.current_path, target_path: target });
@@ -195,23 +197,23 @@ export function ReorganizePanel() {
 
       {state.step === "loaded" &&
         (() => {
-          const { analysis, corrections, folderRenameCorrections, dismissed } = state;
+          const { analysis, corrections, folderRenameCorrections, approved } = state;
           const rows = analysis.exceptions.map((entry) => {
             const correction = corrections.get(entry.current_path) ?? initialCorrection(entry);
             const proposedPath = computeProposedPath(entry, correction);
-            return { entry, correction, proposedPath, isDismissed: dismissed.has(entry.current_path) };
+            return { entry, correction, proposedPath, isApproved: approved.has(entry.current_path) };
           });
           const renameRows = analysis.folder_renames.map((fr) => {
             const entityName = folderRenameCorrections.get(fr.current_path) ?? fr.suggested_entity;
             const proposedPath = computeFolderRenameTarget(fr.tipo, entityName);
-            return { fr, entityName, proposedPath, isDismissed: dismissed.has(fr.current_path) };
+            return { fr, entityName, proposedPath, isApproved: approved.has(fr.current_path) };
           });
-          const activeRows = rows.filter((row) => !row.isDismissed);
-          const activeRenameRows = renameRows.filter((row) => !row.isDismissed);
+          const approvedRows = rows.filter((row) => row.isApproved);
+          const approvedRenameRows = renameRows.filter((row) => row.isApproved);
           const canApply =
-            activeRows.length + activeRenameRows.length > 0 &&
-            activeRows.every((row) => row.proposedPath !== null) &&
-            activeRenameRows.every((row) => row.proposedPath !== null);
+            approvedRows.length + approvedRenameRows.length > 0 &&
+            approvedRows.every((row) => row.proposedPath !== null) &&
+            approvedRenameRows.every((row) => row.proposedPath !== null);
 
           return (
             <div className="space-y-4">
@@ -264,8 +266,8 @@ export function ReorganizePanel() {
                           </tr>
                         </thead>
                         <tbody>
-                          {renameRows.map(({ fr, entityName, proposedPath, isDismissed }) => (
-                            <tr key={fr.current_path} className={`${TBODY_ROW} ${isDismissed ? "opacity-50" : ""}`}>
+                          {renameRows.map(({ fr, entityName, proposedPath, isApproved }) => (
+                            <tr key={fr.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
                               <td className={TD}>{fr.tipo}</td>
                               <td className={TD}>{fr.current_path}</td>
                               <td className={TD}>
@@ -273,20 +275,19 @@ export function ReorganizePanel() {
                                   aria-label={`Nueva entidad para ${fr.current_path}`}
                                   value={entityName}
                                   onChange={(event) => handleFolderRenameChange(fr.current_path, event.target.value)}
-                                  disabled={isDismissed}
                                   className="w-28"
                                 />
                               </td>
                               <td className={TD}>{fr.file_count}</td>
-                              <td className={TD}>{isDismissed ? "No se renombra" : (proposedPath ?? "—")}</td>
+                              <td className={TD}>{proposedPath ?? "—"}</td>
                               <td className={TD}>
                                 <Button
                                   type="button"
-                                  variant="outline"
+                                  variant={isApproved ? "secondary" : "outline"}
                                   size="xs"
-                                  onClick={() => handleToggleDismissed(fr.current_path)}
+                                  onClick={() => handleToggleApproved(fr.current_path)}
                                 >
-                                  {isDismissed ? "Deshacer" : "Dejar así"}
+                                  {isApproved ? "Deshacer" : "Aprobar"}
                                 </Button>
                               </td>
                             </tr>
@@ -313,8 +314,8 @@ export function ReorganizePanel() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map(({ entry, correction, proposedPath, isDismissed }) => (
-                          <tr key={entry.current_path} className={`${TBODY_ROW} ${isDismissed ? "opacity-50" : ""}`}>
+                        {rows.map(({ entry, correction, proposedPath, isApproved }) => (
+                          <tr key={entry.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
                             <td className={TD}>{entry.tipo}</td>
                             <td className={TD}>{entry.current_path}</td>
                             <td className={TD}>
@@ -324,7 +325,6 @@ export function ReorganizePanel() {
                                 onChange={(event) =>
                                   handleCorrectionChange(entry.current_path, "entity", event.target.value)
                                 }
-                                disabled={isDismissed}
                                 className="w-28"
                               />
                             </td>
@@ -335,27 +335,24 @@ export function ReorganizePanel() {
                                 onChange={(event) =>
                                   handleCorrectionChange(entry.current_path, "year", event.target.value)
                                 }
-                                disabled={isDismissed}
                                 className="w-24"
                               />
-                              {!isDismissed && entry.detected_year === null && (
+                              {entry.detected_year === null && (
                                 <p className="mt-1 text-xs text-destructive">
                                   Sin confirmar — revisa el documento
                                 </p>
                               )}
                             </td>
-                            <td className={TD}>{isDismissed ? "No se moverá" : (proposedPath ?? "—")}</td>
+                            <td className={TD}>{proposedPath ?? "—"}</td>
                             <td className={TD}>
-                              {(entry.kind === "entity_mismatch" || entry.kind === "year_mismatch") && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="xs"
-                                  onClick={() => handleToggleDismissed(entry.current_path)}
-                                >
-                                  {isDismissed ? "Deshacer" : "Dejar así"}
-                                </Button>
-                              )}
+                              <Button
+                                type="button"
+                                variant={isApproved ? "secondary" : "outline"}
+                                size="xs"
+                                onClick={() => handleToggleApproved(entry.current_path)}
+                              >
+                                {isApproved ? "Deshacer" : "Aprobar"}
+                              </Button>
                             </td>
                           </tr>
                         ))}

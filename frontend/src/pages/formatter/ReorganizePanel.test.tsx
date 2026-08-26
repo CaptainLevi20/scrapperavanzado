@@ -8,7 +8,7 @@ import { ReorganizePanel } from "./ReorganizePanel";
 const BASE_URL = "http://localhost:8000";
 
 describe("ReorganizePanel", () => {
-  it("analyzes a path and disables Aplicar until the missing entity is filled in", async () => {
+  it("keeps Aplicar disabled until a row is both filled in and explicitly approved", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -48,6 +48,10 @@ describe("ReorganizePanel", () => {
     expect(within(tipoSummaryTable).getByText("DECRETOS")).toBeInTheDocument();
     expect(within(tipoSummaryTable).getAllByText("1")).toHaveLength(2);
 
+    // Approving before the entity is filled in still leaves the row invalid.
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
     await user.type(screen.getByLabelText("Entidad para DECRETOS/2022/D_MSPS_0017AJ_2022.pdf"), "MSPS");
 
     expect(screen.getByText("DECRETOS/MSPS/2022/D_MSPS_0017AJ_2022.pdf")).toBeInTheDocument();
@@ -78,7 +82,7 @@ describe("ReorganizePanel", () => {
     expect(screen.queryByText("Gacetas/GC/1992/AC/AC_0001_1992.pdf")).not.toBeInTheDocument();
   });
 
-  it("pre-fills the year from the mtime hint and applies the resolved move", async () => {
+  it("pre-fills the year from the mtime hint and applies only after approval", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -134,17 +138,21 @@ describe("ReorganizePanel", () => {
     await screen.findByText("RESOLUCIONES/SGCANDINA/RSG2058.docx");
 
     expect(screen.getByLabelText("Año para RESOLUCIONES/SGCANDINA/RSG2058.docx")).toHaveValue("2022");
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
     // detected_year is null here — 2022 is only the file's mtime, not a
     // year read from its name — so the "unconfirmed" warning must show.
     expect(screen.getByText(/Sin confirmar/)).toBeInTheDocument();
+    // Filled in, but not yet approved — still can't apply.
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
 
     expect(await screen.findByText(/1 archivo\(s\) movido\(s\)/)).toBeInTheDocument();
   });
 
-  it("shows an entity_mismatch exception with the correct entity pre-filled, already confirmed (no warning)", async () => {
+  it("shows an entity_mismatch exception with the correct entity pre-filled, still requiring approval", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -181,10 +189,14 @@ describe("ReorganizePanel", () => {
     // detected_year came from the existing (correct) year folder, not a
     // guess — the mismatch is only about the entity, so no year warning.
     expect(screen.queryByText(/Sin confirmar/)).not.toBeInTheDocument();
+    // Already fully resolved, but not yet approved.
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
-  it("shows a year_mismatch exception with the correct year pre-filled and offers 'Dejar así' too", async () => {
+  it("toggles Aplicar on and off as a year_mismatch row is approved and un-approved", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -219,15 +231,16 @@ describe("ReorganizePanel", () => {
     expect(screen.getByLabelText("Año para ACUERDOS/MME/2014/A_MME_0031_2015.pdf")).toHaveValue("2015");
     expect(screen.getByText("ACUERDOS/MME/2015/A_MME_0031_2015.pdf")).toBeInTheDocument();
     expect(screen.queryByText(/Sin confirmar/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dejar así" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Dejar así" }));
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
 
-    expect(screen.getByText("No se moverá")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Deshacer" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
   });
 
-  it("lets an entity_mismatch row be dismissed ('Dejar así'), excluding it from the applied moves while the rest still apply", async () => {
+  it("applies only the rows explicitly approved, leaving un-approved ones out of the request", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -264,8 +277,7 @@ describe("ReorganizePanel", () => {
       ),
       http.post(`${BASE_URL}/reorganize/apply`, async ({ request }) => {
         const body = (await request.json()) as { moves: { current_path: string; target_path: string }[] };
-        // The dismissed CMAGUACHICA entry must never reach the backend as a
-        // move — only the still-active DECRETOS exception should.
+        // Only the approved DECRETOS exception should reach the backend.
         expect(body.moves).toEqual([
           {
             current_path: "DECRETOS/2022/D_MSPS_0017AJ_2022.pdf",
@@ -292,13 +304,14 @@ describe("ReorganizePanel", () => {
     await user.click(screen.getByRole("button", { name: "Analizar" }));
     await screen.findByText("ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf");
 
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+    // Nothing approved yet — Aplicar stays disabled even though both rows are valid.
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Dejar así" }));
+    const approveButtons = screen.getAllByRole("button", { name: "Aprobar" });
+    expect(approveButtons).toHaveLength(2);
+    // Approve only the DECRETOS row (second one, per the exceptions order above).
+    await user.click(approveButtons[1]);
 
-    expect(screen.getByText("No se moverá")).toBeInTheDocument();
-    expect(screen.getByLabelText("Entidad para ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf")).toBeDisabled();
-    // The DECRETOS exception is still fully resolved and active, so Aplicar stays enabled.
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
@@ -306,45 +319,7 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText(/1 archivo\(s\) movido\(s\)/)).toBeInTheDocument();
   });
 
-  it("disables Aplicar when the only exception is dismissed, and re-enables it on Deshacer", async () => {
-    server.use(
-      http.post(`${BASE_URL}/reorganize/analyze`, () =>
-        HttpResponse.json({
-          root_path: "D:/LOTE 2",
-          total_files: 1,
-          tipos: [{ tipo: "ACUERDOS", total_files: 1, exception_count: 1 }],
-          exceptions: [
-            {
-              tipo: "ACUERDOS",
-              kind: "entity_mismatch",
-              current_path: "ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
-              detected_entity: "CAGUACHICA",
-              detected_year: 2015,
-              mtime_year_hint: null,
-              proposed_path: "ACUERDOS/CAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
-            },
-          ],
-          extra_depth: [],
-          extra_depth_total: 0,
-          folder_renames: [],
-        })
-      )
-    );
-    const user = userEvent.setup();
-    render(<ReorganizePanel />);
-
-    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
-    await user.click(screen.getByRole("button", { name: "Analizar" }));
-    await screen.findByText("ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf");
-
-    await user.click(screen.getByRole("button", { name: "Dejar así" }));
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Deshacer" }));
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
-  });
-
-  it("shows a folder-rename suggestion, editable, and applies it alongside file moves", async () => {
+  it("shows a folder-rename suggestion, editable, and applies it only after approval", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -390,6 +365,9 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText("ACUERDOS/CMARAUCA")).toBeInTheDocument();
     expect(screen.getByLabelText("Nueva entidad para ACUERDOS/CMARAUCA")).toHaveValue("CARAUCA");
     expect(screen.getByText("ACUERDOS/CARAUCA")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
@@ -397,7 +375,7 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText(/1 carpeta\(s\) renombrada\(s\)/)).toBeInTheDocument();
   });
 
-  it("lets a folder-rename suggestion be dismissed ('Dejar así') without blocking other rows", async () => {
+  it("toggles Aplicar on and off as a folder-rename suggestion is approved and un-approved", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -427,13 +405,12 @@ describe("ReorganizePanel", () => {
     await user.click(screen.getByRole("button", { name: "Analizar" }));
     await screen.findByText("ACUERDOS/CMARAUCA");
 
-    await user.click(screen.getByRole("button", { name: "Dejar así" }));
-
-    expect(screen.getByText("No se renombra")).toBeInTheDocument();
-    expect(screen.getByLabelText("Nueva entidad para ACUERDOS/CMARAUCA")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Deshacer" }));
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Deshacer" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
   });
 });
