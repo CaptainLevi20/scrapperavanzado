@@ -249,6 +249,15 @@ sentido.
      confiable para comparar contra una carpeta, así que todos resuelven a
      "no se puede determinar" en vez de arriesgarse a proponer una carpeta
      basura.
+
+     Por la misma razón, un puñado de palabras conocidas (`_NON_ENTITY_TOKENS`
+     en el código: `MIXTA`, `CONJUN`) tampoco cuentan como entidad aunque sean
+     puramente alfabéticas — describen el TIPO de circular (una circular
+     conjunta o mixta con otra entidad), no una entidad distinta. Caso real:
+     `CIRCULAR/PGN/2024/C_MIXTA_PGN_0009_2024.pdf` — la entidad real (`PGN`)
+     ya está en la carpeta correcta, "MIXTA" solo describe el documento; sin
+     esta excepción, el sistema proponía sacar el archivo de PGN para crear
+     una carpeta "MIXTA" que no existe en ningún otro lado del lote.
    Si el nombre no calza con ese patrón (como `RSG2058.docx`, sin año ni
    entidad codificados), no se puede resolver automáticamente.
 5. **No resuelto automáticamente → revisión manual.** Se marca la excepción

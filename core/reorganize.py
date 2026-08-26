@@ -37,6 +37,19 @@ _ENTITY_ALIASES = {
     "SHDBOG": "SDHBOG",
 }
 
+# Words that describe the KIND of circular (issued jointly with, or mixing,
+# other entities), not a different entity — they land in the same filename
+# position as a real entity code but never mean "move this file", they just
+# describe the document. Reported real case: CIRCULAR/PGN/2024/
+# C_MIXTA_PGN_0009_2024.pdf — "MIXTA" ("circular mixta") isn't an entity at
+# all, "PGN" (a few tokens later) is; without this, every one of these was
+# wrongly flagged as entity_mismatch, proposing a bogus "MIXTA"/"CONJUN"
+# folder that doesn't exist anywhere in the real batch. Same rationale as
+# the digit check below: none of these are a value worth comparing against
+# a folder name, so they resolve to "can't determine" and the file is left
+# exactly where it already is.
+_NON_ENTITY_TOKENS = {"MIXTA", "CONJUN"}
+
 # Folder-name corrections confirmed by the user directly, for isolated
 # single-file (or few-file) entity folders where the usual majority-vote
 # rename can never fire — there's only ever one filename to "vote", so it
@@ -99,6 +112,8 @@ def _detect_entity_from_filename(filename: str) -> Optional[str]:
     # value worth comparing against a folder name, so all of them resolve
     # to "can't determine" rather than risk proposing a garbage folder.
     if any(ch.isdigit() for ch in entity):
+        return None
+    if entity.upper() in _NON_ENTITY_TOKENS:
         return None
     return _ENTITY_ALIASES.get(entity.upper(), entity)
 

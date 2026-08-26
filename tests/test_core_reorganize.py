@@ -313,6 +313,26 @@ def test_shdbog_filename_token_is_recognized_as_sdhbog_and_causes_no_exception(t
     assert result.folder_renames == []
 
 
+def test_mixta_and_conjun_are_recognized_as_document_type_not_entity(tmp_path):
+    # Reported real case: CIRCULAR/PGN/2024/C_MIXTA_PGN_0009_2024.pdf and
+    # CIRCULAR/PGN/2025/C_CONJUN_PGN_0001_2025.pdf — "MIXTA" ("circular
+    # mixta") and "CONJUN" ("circular conjunta") describe the KIND of
+    # circular, not a different entity; the real entity ("PGN") lands a
+    # few tokens later, or is absent entirely for a bare "C_MIXTA_0010_
+    # 2024.pdf". Without this they were wrongly flagged as entity_mismatch,
+    # proposing to move files already correctly filed under PGN into a
+    # bogus "MIXTA"/"CONJUN" folder that doesn't exist anywhere in the
+    # real batch.
+    _touch(tmp_path / "CIRCULAR" / "PGN" / "2024" / "C_MIXTA_0010_2024.pdf")
+    _touch(tmp_path / "CIRCULAR" / "PGN" / "2024" / "C_MIXTA_PGN_0009_2024.pdf")
+    _touch(tmp_path / "CIRCULAR" / "PGN" / "2025" / "C_CONJUN_PGN_0001_2025.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+
+
 def test_conbog_is_always_normalized_to_concbog_even_on_a_tied_vote(tmp_path):
     # Reported real case: ACUERDOS/CONBOG had exactly 4 files, split 2-2
     # between "CONBOG" (agreeing with the folder) and "CONCBOG" — an exact
