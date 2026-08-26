@@ -12,7 +12,7 @@ type ReorganizeState =
   | { step: "idle" }
   | { step: "loading" }
   | { step: "error"; message: string }
-  | { step: "loaded"; analysis: BatchAnalysis; corrections: Map<string, Correction> }
+  | { step: "loaded"; analysis: BatchAnalysis; corrections: Map<string, Correction>; dismissed: Set<string> }
   | { step: "applying" }
   | { step: "applied"; result: ApplyResult };
 
@@ -29,7 +29,7 @@ export function ReorganizePanel() {
     setState({ step: "loading" });
     try {
       const analysis = await analyzeReorganization(rootPath);
-      setState({ step: "loaded", analysis, corrections: new Map() });
+      setState({ step: "loaded", analysis, corrections: new Map(), dismissed: new Set() });
     } catch (error) {
       setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo analizar la carpeta." });
     }
@@ -45,10 +45,22 @@ export function ReorganizePanel() {
     setState({ ...state, corrections });
   }
 
+  function handleToggleDismissed(currentPath: string) {
+    if (state.step !== "loaded") return;
+    const dismissed = new Set(state.dismissed);
+    if (dismissed.has(currentPath)) {
+      dismissed.delete(currentPath);
+    } else {
+      dismissed.add(currentPath);
+    }
+    setState({ ...state, dismissed });
+  }
+
   async function handleApply() {
     if (state.step !== "loaded") return;
     const moves: ResolvedMove[] = [];
     for (const entry of state.analysis.exceptions) {
+      if (state.dismissed.has(entry.current_path)) continue;
       const correction = state.corrections.get(entry.current_path) ?? initialCorrection(entry);
       const target = computeProposedPath(entry, correction);
       if (target) moves.push({ current_path: entry.current_path, target_path: target });
@@ -125,13 +137,14 @@ export function ReorganizePanel() {
 
       {state.step === "loaded" &&
         (() => {
-          const { analysis, corrections } = state;
+          const { analysis, corrections, dismissed } = state;
           const rows = analysis.exceptions.map((entry) => {
             const correction = corrections.get(entry.current_path) ?? initialCorrection(entry);
             const proposedPath = computeProposedPath(entry, correction);
-            return { entry, correction, proposedPath };
+            return { entry, correction, proposedPath, isDismissed: dismissed.has(entry.current_path) };
           });
-          const canApply = rows.length > 0 && rows.every((row) => row.proposedPath !== null);
+          const activeRows = rows.filter((row) => !row.isDismissed);
+          const canApply = activeRows.length > 0 && activeRows.every((row) => row.proposedPath !== null);
 
           return (
             <div className="space-y-4">
@@ -179,11 +192,12 @@ export function ReorganizePanel() {
                           <th className={TH}>Entidad</th>
                           <th className={TH}>Año</th>
                           <th className={TH}>Ruta propuesta</th>
+                          <th className={TH}></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map(({ entry, correction, proposedPath }) => (
-                          <tr key={entry.current_path} className={TBODY_ROW}>
+                        {rows.map(({ entry, correction, proposedPath, isDismissed }) => (
+                          <tr key={entry.current_path} className={`${TBODY_ROW} ${isDismissed ? "opacity-50" : ""}`}>
                             <td className={TD}>{entry.tipo}</td>
                             <td className={TD}>{entry.current_path}</td>
                             <td className={TD}>
@@ -193,6 +207,7 @@ export function ReorganizePanel() {
                                 onChange={(event) =>
                                   handleCorrectionChange(entry.current_path, "entity", event.target.value)
                                 }
+                                disabled={isDismissed}
                                 className="w-28"
                               />
                             </td>
@@ -203,15 +218,28 @@ export function ReorganizePanel() {
                                 onChange={(event) =>
                                   handleCorrectionChange(entry.current_path, "year", event.target.value)
                                 }
+                                disabled={isDismissed}
                                 className="w-24"
                               />
-                              {entry.detected_year === null && (
+                              {!isDismissed && entry.detected_year === null && (
                                 <p className="mt-1 text-xs text-destructive">
                                   Sin confirmar — revisa el documento
                                 </p>
                               )}
                             </td>
-                            <td className={TD}>{proposedPath ?? "—"}</td>
+                            <td className={TD}>{isDismissed ? "No se moverá" : (proposedPath ?? "—")}</td>
+                            <td className={TD}>
+                              {entry.kind === "entity_mismatch" && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="xs"
+                                  onClick={() => handleToggleDismissed(entry.current_path)}
+                                >
+                                  {isDismissed ? "Deshacer" : "Dejar así"}
+                                </Button>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

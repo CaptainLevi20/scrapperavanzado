@@ -76,6 +76,15 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
      entidad reconocible y esa entidad es distinta de la carpeta actual —
      un nombre que no sigue el patrón no puede probar que la carpeta esté
      mal, así que se deja como bien ubicado (mismo principio del punto 4).
+     A diferencia de las otras dos excepciones, esta puede ser un falso
+     positivo genuino — la carpeta y el nombre pueden referirse a la misma
+     entidad con grafías distintas (ej. `CMAGUACHICA` en la carpeta vs
+     `CAGUACHICA` en el nombre), y mover el archivo fragmentaría una
+     entidad que en realidad ya estaba bien consolidada. Por eso, y solo
+     para este tipo de excepción, la UI ofrece un botón "Dejar así" por
+     fila que la excluye del lote a aplicar sin bloquear las demás filas
+     (las otras dos excepciones siempre representan un archivo
+     genuinamente incompleto, así que no tiene sentido "dejarlas así").
 3. **Tipo `sin_entidad`:** cada archivo debe vivir en `Año/archivo` directo
    bajo el Tipo. No se detectó ningún caso de excepción de este tipo en el
    lote de referencia, pero si un archivo apareciera directo bajo el Tipo
