@@ -41,6 +41,7 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText(/1 resuelta\(s\) automáticamente/)).toBeInTheDocument();
     // Fully resolved from the filename, no manual review table shown for it.
     expect(screen.queryByText(/Requieren tu revisión/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Ningún archivo requiere tu aprobación/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
@@ -141,7 +142,8 @@ describe("ReorganizePanel", () => {
     await user.click(screen.getByRole("button", { name: "Analizar" }));
 
     expect(await screen.findByText("ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf")).toBeInTheDocument();
-    expect(screen.getByText(/Requieren tu revisión/)).toBeInTheDocument();
+    expect(screen.getByText(/Requieren tu revisión \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/1 archivo\(s\) requieren tu aprobación/)).toBeInTheDocument();
     expect(screen.queryByText(/resuelta\(s\) automáticamente/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
 

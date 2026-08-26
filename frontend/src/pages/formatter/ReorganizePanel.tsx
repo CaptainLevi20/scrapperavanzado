@@ -237,6 +237,11 @@ export function ReorganizePanel() {
                 {renameRows.length > 0 ? " (aprobadas automáticamente)" : ""},{" "}
                 {analysis.extra_depth_total} archivo(s) con profundidad extra (informativo, no se modifican).
               </p>
+              <p className="text-sm font-medium text-foreground">
+                {reviewRows.length > 0
+                  ? `${reviewRows.length} archivo(s) requieren tu aprobación.`
+                  : "Ningún archivo requiere tu aprobación — todo lo demás se resolvió solo."}
+              </p>
 
               {analysis.tipos.length > 0 && (
                 <div className={TABLE_SHELL}>
@@ -266,7 +271,7 @@ export function ReorganizePanel() {
               {reviewRows.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-foreground">
-                    Requieren tu revisión (la carpeta y el nombre del archivo no coinciden)
+                    Requieren tu revisión ({reviewRows.length}) — la carpeta y el nombre del archivo no coinciden
                   </p>
                   <div className={TABLE_SHELL}>
                     <div className={TABLE_SCROLL}>
