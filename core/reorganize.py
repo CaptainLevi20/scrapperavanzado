@@ -32,6 +32,7 @@ _IGNORED_FILENAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
 # Keys are matched case-insensitively (see _detect_entity_from_filename).
 _ENTITY_ALIASES = {
     "SHACIENDABOG": "SDHBOG",
+    "MEN": "ME",
 }
 
 

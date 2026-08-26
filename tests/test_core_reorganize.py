@@ -283,6 +283,21 @@ def test_shaciendabog_is_always_normalized_to_sdhbog(tmp_path):
     assert fr.file_count == 2
 
 
+def test_men_filename_token_is_recognized_as_me_and_causes_no_exception(tmp_path):
+    # Reported real case: CIRCULAR/ME/2025/C_MEN_0026_2025.pdf — "MEN" isn't
+    # a real entity, it's an old abbreviation for "ME" (Ministerio de
+    # Educación). The file already sits in the correct "ME" folder; without
+    # the alias it would be wrongly flagged as an entity_mismatch proposing
+    # a bogus "MEN" folder that doesn't exist anywhere in the real batch.
+    _touch(tmp_path / "CIRCULAR" / "ME" / "2025" / "C_MEN_0026_2025.pdf")
+    _touch(tmp_path / "CIRCULAR" / "ME" / "2025" / "C_MEN_0027_2025.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+
+
 def test_folder_rename_groups_case_variants_of_the_same_alternate_entity(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_carauca_200_2017.pdf")

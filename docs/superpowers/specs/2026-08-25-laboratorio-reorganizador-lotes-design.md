@@ -155,8 +155,10 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    pueda inferir sola. Se resuelven en `_detect_entity_from_filename` antes
    de cualquier comparación, en una tabla pequeña (`_ENTITY_ALIASES`)
    editada directamente en el código cuando se confirme un caso nuevo (sin
-   UI — herramienta de un solo desarrollador). Caso real:
-   `SHACIENDABOG` → `SDHBOG`.
+   UI — herramienta de un solo desarrollador). Casos reales:
+   `SHACIENDABOG` → `SDHBOG`, y `MEN` → `ME` (Ministerio de Educación;
+   "MEN" no es una carpeta real en ningún caso del lote, solo aparece en el
+   nombre de archivo — los archivos ya estaban bien puestos en `ME`).
 
    Al extraer la entidad del nombre del archivo, un espacio de más justo
    después del guion bajo (ej. `CTO_ CTCP_...` en vez de `CTO_CTCP_...`,
