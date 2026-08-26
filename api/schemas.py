@@ -269,6 +269,15 @@ class ExtraDepthEntry(BaseModel):
     current_path: str
 
 
+class FolderRenameSuggestion(BaseModel):
+    tipo: str
+    current_entity: str
+    suggested_entity: str
+    current_path: str
+    proposed_path: str
+    file_count: int
+
+
 class BatchAnalysis(BaseModel):
     root_path: str
     total_files: int
@@ -276,6 +285,7 @@ class BatchAnalysis(BaseModel):
     exceptions: list[ReorganizeException]
     extra_depth: list[ExtraDepthEntry]
     extra_depth_total: int
+    folder_renames: list[FolderRenameSuggestion]
 
 
 class ResolvedMove(BaseModel):
@@ -283,9 +293,15 @@ class ResolvedMove(BaseModel):
     target_path: str
 
 
+class ResolvedFolderRename(BaseModel):
+    current_path: str
+    target_path: str
+
+
 class ReorganizeApplyRequest(BaseModel):
     root_path: str
     moves: list[ResolvedMove]
+    folder_renames: list[ResolvedFolderRename] = []
 
 
 class MoveResult(BaseModel):
@@ -295,5 +311,13 @@ class MoveResult(BaseModel):
     skip_reason: Optional[str] = None
 
 
+class FolderRenameOutcome(BaseModel):
+    current_path: str
+    target_path: str
+    renamed: bool
+    skip_reason: Optional[str] = None
+
+
 class ApplyResult(BaseModel):
     results: list[MoveResult]
+    folder_rename_results: list[FolderRenameOutcome] = []

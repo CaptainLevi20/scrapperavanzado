@@ -174,6 +174,15 @@ export interface ExtraDepthEntry {
   current_path: string;
 }
 
+export interface FolderRenameSuggestion {
+  tipo: string;
+  current_entity: string;
+  suggested_entity: string;
+  current_path: string;
+  proposed_path: string;
+  file_count: number;
+}
+
 export interface BatchAnalysis {
   root_path: string;
   total_files: number;
@@ -181,9 +190,15 @@ export interface BatchAnalysis {
   exceptions: ReorganizeException[];
   extra_depth: ExtraDepthEntry[];
   extra_depth_total: number;
+  folder_renames: FolderRenameSuggestion[];
 }
 
 export interface ResolvedMove {
+  current_path: string;
+  target_path: string;
+}
+
+export interface ResolvedFolderRename {
   current_path: string;
   target_path: string;
 }
@@ -195,6 +210,14 @@ export interface MoveResult {
   skip_reason: string | null;
 }
 
+export interface FolderRenameOutcome {
+  current_path: string;
+  target_path: string;
+  renamed: boolean;
+  skip_reason: string | null;
+}
+
 export interface ApplyResult {
   results: MoveResult[];
+  folder_rename_results: FolderRenameOutcome[];
 }

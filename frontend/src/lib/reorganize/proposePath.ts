@@ -26,3 +26,10 @@ export function computeProposedPath(entry: ReorganizeException, correction: Corr
   const filename = filenameOf(entry.current_path);
   return entity ? `${entry.tipo}/${entity}/${year}/${filename}` : `${entry.tipo}/${year}/${filename}`;
 }
+
+export function computeFolderRenameTarget(tipo: string, entityName: string): string | null {
+  const entity = entityName.trim();
+  if (!entity) return null;
+  if (/[\\/]/.test(entity) || entity.includes("..")) return null;
+  return `${tipo}/${entity}`;
+}

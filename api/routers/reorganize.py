@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import require_admin
 from api.schemas import ApplyResult, BatchAnalysis, ReorganizeAnalyzeRequest, ReorganizeApplyRequest
-from core.reorganize import analyze_batch, apply_moves
+from core.reorganize import analyze_batch, apply_folder_renames, apply_moves
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -23,4 +23,9 @@ def post_reorganize_analyze(payload: ReorganizeAnalyzeRequest):
 
 @router.post("/reorganize/apply", response_model=ApplyResult)
 def post_reorganize_apply(payload: ReorganizeApplyRequest):
-    return apply_moves(_require_directory(payload.root_path), payload.moves)
+    root = _require_directory(payload.root_path)
+    # Folder renames first: a queued file move that targets a not-yet-renamed
+    # folder needs that folder to exist by the time it runs.
+    folder_rename_results = apply_folder_renames(root, payload.folder_renames)
+    move_result = apply_moves(root, payload.moves)
+    return ApplyResult(results=move_result.results, folder_rename_results=folder_rename_results)

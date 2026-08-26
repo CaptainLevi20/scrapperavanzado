@@ -95,6 +95,33 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    aplicar sin bloquear las demás filas (`missing_entity_folder`/
    `missing_year_folder` siempre representan un archivo genuinamente
    incompleto, así que no tiene sentido "dejarlos así").
+
+   **Sugerencia de renombrar carpeta en vez de mover archivo por archivo.**
+   Cuando TODOS los archivos ya estructurados de una carpeta de Entidad
+   resuelven, desde su nombre, a la MISMA entidad distinta de la carpeta
+   actual (mínimo 2 archivos, y ninguno coincide con el nombre actual de la
+   carpeta), la corrección real no es mover cada archivo — es que la carpeta
+   entera tiene el nombre equivocado. En ese caso se reporta una única
+   `FolderRenameSuggestion` (`{tipo, current_entity, suggested_entity,
+   current_path, proposed_path, file_count}`) en vez de N excepciones
+   `entity_mismatch`. Condiciones para activarla, todas conservadoras a
+   propósito:
+   - Ningún archivo de la carpeta coincide con el nombre actual (evidencia
+     mixta = ambigüedad real, se deja para revisión archivo por archivo).
+   - Todos los archivos que sí discrepan coinciden entre sí en una única
+     entidad alternativa (si hay dos entidades distintas propuestas, es
+     ambiguo, no se sugiere nada).
+   - Al menos 2 archivos lo confirman (un solo archivo es exactamente el
+     caso `entity_mismatch` normal, con su propio "Dejar así").
+   - La entidad sugerida no coincide con ninguna carpeta hermana que ya
+     exista bajo ese Tipo (evita ofrecer lo que en realidad sería una fusión
+     de carpetas, no un renombrado — eso queda fuera de alcance, igual que
+     fusionar carpetas de Tipo).
+
+   Como con `entity_mismatch`/`year_mismatch`, es editable (el nombre de
+   entidad sugerido) y tiene su propio "Dejar así" — puede ser un falso
+   positivo si el patrón de nombres coincide por casualidad.
+
 **Archivos ignorados por completo:** basura generada por el sistema
 operativo (`Thumbs.db`, `desktop.ini`, `.DS_Store`, sin distinguir
 mayúsculas/minúsculas) nunca entra a ningún conteo, tabla de excepciones ni
@@ -151,7 +178,8 @@ sentido.
   `extra_depth_total`, así nunca se pierde silenciosamente cuántos hay.
   Los archivos sueltos directamente bajo `root` (sin carpeta de Tipo) se
   reportan igual en `extra_depth` (con `tipo=""`) en vez de excluirse del
-  conteo.
+  conteo. También devuelve `folder_renames: list[FolderRenameSuggestion]`
+  cuando aplica (ver la regla de auditoría, punto 2).
 - `apply_moves(moves: list[ResolvedMove]) -> ApplyResult`: por cada
   movimiento, valida que el origen y el destino resuelvan dentro de `root`
   (se salta con `skip_reason` si no — protege contra un `current_path` o
@@ -162,6 +190,12 @@ sentido.
   ser mismo volumen). Devuelve, por archivo, si se movió o se saltó y por
   qué (mismo patrón `copiedCount`/`skippedCount` que ya usa `copy.ts` del
   Formateador).
+- `apply_folder_renames(root: Path, renames: list[ResolvedFolderRename]) ->
+  list[FolderRenameOutcome]`: mismas protecciones que `apply_moves`
+  (contención dentro de `root`, origen debe existir, destino **no** debe
+  existir ya, un fallo por carpeta nunca aborta el resto) pero mueve la
+  carpeta completa de una vez (`shutil.move` sobre un directorio) en vez de
+  archivo por archivo.
 
 **`api/routers/reorganize.py`** (nuevo router, protegido con
 `require_admin` a nivel de router — a diferencia de `sources.py`, aquí
@@ -171,9 +205,12 @@ de uso para un `GET` público):
   existe o no es un directorio. Llama a `analyze_batch` y devuelve el
   `BatchAnalysis`.
 - `POST /reorganize/apply` — body `{ root_path: str, moves: list[{
-  current_path: str, target_path: str }] }`. 404 si `root_path` no existe o
-  no es un directorio (misma validación que `analyze`). Llama a
-  `apply_moves`, devuelve el `ApplyResult`.
+  current_path: str, target_path: str }], folder_renames: list[{
+  current_path: str, target_path: str }] = [] }`. 404 si `root_path` no
+  existe o no es un directorio (misma validación que `analyze`). Llama
+  primero a `apply_folder_renames` (una carpeta destino de un `move` en
+  cola necesita existir para cuando ese move corra) y luego a
+  `apply_moves`, combina ambos en el `ApplyResult`.
 
 **`api/schemas.py`** — nuevos modelos:
 ```python
@@ -198,6 +235,14 @@ class ExtraDepthEntry(BaseModel):
     tipo: str
     current_path: str
 
+class FolderRenameSuggestion(BaseModel):
+    tipo: str
+    current_entity: str
+    suggested_entity: str
+    current_path: str
+    proposed_path: str
+    file_count: int
+
 class BatchAnalysis(BaseModel):
     root_path: str
     total_files: int
@@ -205,14 +250,20 @@ class BatchAnalysis(BaseModel):
     exceptions: list[ReorganizeException]
     extra_depth: list[ExtraDepthEntry]  # recortado a EXTRA_DEPTH_LIMIT (500)
     extra_depth_total: int  # conteo real, sin recortar
+    folder_renames: list[FolderRenameSuggestion]
 
 class ResolvedMove(BaseModel):
+    current_path: str
+    target_path: str
+
+class ResolvedFolderRename(BaseModel):
     current_path: str
     target_path: str
 
 class ReorganizeApplyRequest(BaseModel):
     root_path: str
     moves: list[ResolvedMove]
+    folder_renames: list[ResolvedFolderRename] = []
 
 class MoveResult(BaseModel):
     current_path: str
@@ -220,17 +271,25 @@ class MoveResult(BaseModel):
     moved: bool
     skip_reason: Optional[str] = None
 
+class FolderRenameOutcome(BaseModel):
+    current_path: str
+    target_path: str
+    renamed: bool
+    skip_reason: Optional[str] = None
+
 class ApplyResult(BaseModel):
     results: list[MoveResult]
+    folder_rename_results: list[FolderRenameOutcome] = []
 ```
 
 `api/main.py` agrega `app.include_router(reorganize.router)`.
 
 Todos los campos `*_path` de `ReorganizeException`, `ExtraDepthEntry`,
-`ResolvedMove` y `MoveResult` son **rutas relativas a `root_path`** (con
-`/` como separador, independiente del SO), no rutas absolutas de disco — el
-frontend nunca necesita conocer ni reconstruir la ruta absoluta, solo la
-reenvía tal cual la recibió.
+`FolderRenameSuggestion`, `ResolvedMove`, `ResolvedFolderRename`,
+`MoveResult` y `FolderRenameOutcome` son **rutas relativas a `root_path`**
+(con `/` como separador, independiente del SO), no rutas absolutas de
+disco — el frontend nunca necesita conocer ni reconstruir la ruta
+absoluta, solo la reenvía tal cual la recibió.
 
 ## Frontend
 
@@ -244,18 +303,26 @@ reubica el contenido actual sin cambiar su lógica:
   comportamiento, mismos tests, solo cambia la ubicación del archivo y el
   nombre del componente).
 - `frontend/src/pages/formatter/ReorganizePanel.tsx` — nuevo. Un input de
-  texto para la ruta + botón "Analizar" → tabla de excepciones (Tipo,
+  texto para la ruta + botón "Analizar" → tabla de sugerencias de renombrar
+  carpeta (Tipo, carpeta actual, entidad nueva editable, archivos
+  afectados, carpeta propuesta, "Dejar así") + tabla de excepciones (Tipo,
   ruta actual, entidad detectada editable, año detectado/sugerido editable,
-  ruta propuesta) + sección aparte de solo lectura para los casos de
-  profundidad extra (informativos, sin acción) + botón "Aplicar" (deshabilitado
-  hasta que todas las excepciones tengan entidad/año resueltos, mismo
-  criterio `canCopy` que ya usa el Formateador).
+  ruta propuesta, "Dejar así" para `entity_mismatch`/`year_mismatch`) +
+  sección aparte de solo lectura para los casos de profundidad extra
+  (informativos, sin acción) + botón "Aplicar" único para ambas tablas
+  (deshabilitado hasta que todas las filas activas —no descartadas con
+  "Dejar así"— tengan sus campos resueltos, mismo criterio `canCopy` que ya
+  usa el Formateador).
 - `frontend/src/pages/FormatterPage.tsx` — pasa a ser el shell con estado de
   pestaña activa (`useState<"rename" | "reorganize">`) que renderiza el
   panel correspondiente.
 - `frontend/src/api/reorganize.ts` — `analyzeReorganization(rootPath)` /
-  `applyReorganization(rootPath, moves)`, usando `apiFetch` como el resto de
-  `frontend/src/api/*.ts`.
+  `applyReorganization(rootPath, moves, folderRenames)`, usando `apiFetch`
+  como el resto de `frontend/src/api/*.ts`.
+- `frontend/src/lib/reorganize/proposePath.ts` — `computeProposedPath`
+  (excepciones archivo por archivo) y `computeFolderRenameTarget(tipo,
+  entityName)` (sugerencias de renombrar carpeta), ambas puras y editables
+  — nunca autoritativas.
 
 `lib/formatter/` (la lógica de renombrado) no cambia — la sigue usando
 `RenamePanel.tsx` exactamente igual que hoy.
@@ -266,10 +333,11 @@ reubica el contenido actual sin cambiar su lógica:
   ("La ruta no existe o no es una carpeta").
 - Usuario sin `is_admin` → `403` (mismo comportamiento que
   `require_admin` en `sources.py`).
-- En `apply`, un movimiento cuyo destino ya existe se salta (no
-  sobrescribe) y se reporta con `skip_reason`; un error de I/O al mover
-  (permiso denegado, archivo bloqueado) también se salta y se reporta —
-  nunca aborta el resto del lote de movimientos por un solo fallo.
+- En `apply`, un movimiento (de archivo o de renombrado de carpeta) cuyo
+  destino ya existe se salta (no sobrescribe) y se reporta con
+  `skip_reason`; un error de I/O al mover (permiso denegado, archivo
+  bloqueado) también se salta y se reporta — nunca aborta el resto del
+  lote por un solo fallo.
 
 ## Pruebas
 

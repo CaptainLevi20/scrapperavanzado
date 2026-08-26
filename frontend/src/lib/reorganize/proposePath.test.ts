@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReorganizeException } from "../../api/types";
-import { computeProposedPath } from "./proposePath";
+import { computeFolderRenameTarget, computeProposedPath } from "./proposePath";
 
 function makeException(overrides: Partial<ReorganizeException> = {}): ReorganizeException {
   return {
@@ -71,5 +71,22 @@ describe("computeProposedPath", () => {
   it("accepts a boundary year matching the backend's YEAR_RE", () => {
     const entry = makeException();
     expect(computeProposedPath(entry, { entity: "MSPS", year: "1899" })).toBe("DECRETOS/MSPS/1899/D_MSPS_0017AJ_2022.pdf");
+  });
+});
+
+describe("computeFolderRenameTarget", () => {
+  it("builds Tipo/NuevaEntidad", () => {
+    expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA")).toBe("ACUERDOS/CARAUCA");
+  });
+
+  it("returns null when the entity is blank", () => {
+    expect(computeFolderRenameTarget("ACUERDOS", "")).toBeNull();
+    expect(computeFolderRenameTarget("ACUERDOS", "   ")).toBeNull();
+  });
+
+  it("rejects an entity containing a path separator or a parent-directory reference", () => {
+    expect(computeFolderRenameTarget("ACUERDOS", "../..")).toBeNull();
+    expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA/../etc")).toBeNull();
+    expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA\\etc")).toBeNull();
   });
 });

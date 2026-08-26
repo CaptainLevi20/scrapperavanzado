@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import core.reorganize as reorganize_module
-from core.reorganize import analyze_batch, apply_moves
-from api.schemas import ResolvedMove
+from core.reorganize import analyze_batch, apply_folder_renames, apply_moves
+from api.schemas import ResolvedFolderRename, ResolvedMove
 
 
 def _touch(path: Path, content: str = "contenido") -> None:
@@ -107,6 +107,71 @@ def test_no_entity_mismatch_when_filename_cant_be_parsed(tmp_path):
     assert result.exceptions == []
     assert _by_tipo(result, "ACUERDOS").total_files == 1
     assert _by_tipo(result, "ACUERDOS").exception_count == 0
+
+
+def test_folder_rename_suggested_when_all_files_agree_on_a_different_entity(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_CARAUCA_200_2017.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.tipo == "ACUERDOS"
+    assert fr.current_entity == "CMARAUCA"
+    assert fr.suggested_entity == "CARAUCA"
+    assert fr.current_path == "ACUERDOS/CMARAUCA"
+    assert fr.proposed_path == "ACUERDOS/CARAUCA"
+    assert fr.file_count == 2
+    assert _by_tipo(result, "ACUERDOS").total_files == 2
+    assert _by_tipo(result, "ACUERDOS").exception_count == 2
+
+
+def test_no_folder_rename_suggested_for_a_single_mismatched_file(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.folder_renames == []
+    assert len(result.exceptions) == 1
+    assert result.exceptions[0].kind == "entity_mismatch"
+    assert result.exceptions[0].proposed_path == "ACUERDOS/CARAUCA/2016/A_CARAUCA_100_2016.pdf"
+
+
+def test_no_folder_rename_when_some_files_still_agree_with_the_folder(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_CMARAUCA_200_2017.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.folder_renames == []
+    assert len(result.exceptions) == 1
+    assert result.exceptions[0].current_path == "ACUERDOS/CMARAUCA/2016/A_CARAUCA_100_2016.pdf"
+    assert result.exceptions[0].kind == "entity_mismatch"
+
+
+def test_no_folder_rename_when_files_disagree_with_each_other(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_OTRAENT_200_2017.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.folder_renames == []
+    assert len(result.exceptions) == 2
+    assert {e.detected_entity for e in result.exceptions} == {"CARAUCA", "OTRAENT"}
+
+
+def test_no_folder_rename_when_the_target_folder_already_exists(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_CARAUCA_200_2017.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CARAUCA" / "2019" / "A_CARAUCA_300_2019.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.folder_renames == []
+    assert len(result.exceptions) == 2
+    assert all(e.kind == "entity_mismatch" for e in result.exceptions)
 
 
 def test_year_mismatch_detected_when_filename_disagrees_with_folder(tmp_path):
@@ -467,3 +532,56 @@ def test_detected_entity_rejects_a_purely_numeric_second_token(tmp_path):
     exc = next(e for e in result.exceptions if e.current_path.endswith("D_0114_2022.pdf"))
     assert exc.detected_entity is None
     assert exc.proposed_path is None
+
+
+def test_apply_folder_renames_moves_the_whole_directory(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf", content="uno")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_CARAUCA_200_2017.pdf", content="dos")
+
+    results = apply_folder_renames(
+        tmp_path, [ResolvedFolderRename(current_path="ACUERDOS/CMARAUCA", target_path="ACUERDOS/CARAUCA")]
+    )
+
+    assert results[0].renamed is True
+    assert results[0].skip_reason is None
+    assert not (tmp_path / "ACUERDOS" / "CMARAUCA").exists()
+    assert (tmp_path / "ACUERDOS" / "CARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf").read_text() == "uno"
+    assert (tmp_path / "ACUERDOS" / "CARAUCA" / "2017" / "A_CARAUCA_200_2017.pdf").read_text() == "dos"
+
+
+def test_apply_folder_renames_skips_when_the_target_already_exists(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf", content="nuevo")
+    _touch(tmp_path / "ACUERDOS" / "CARAUCA" / "2019" / "A_CARAUCA_300_2019.pdf", content="ya-existia")
+
+    results = apply_folder_renames(
+        tmp_path, [ResolvedFolderRename(current_path="ACUERDOS/CMARAUCA", target_path="ACUERDOS/CARAUCA")]
+    )
+
+    assert results[0].renamed is False
+    assert results[0].skip_reason is not None
+    assert (tmp_path / "ACUERDOS" / "CMARAUCA").exists()
+    assert (tmp_path / "ACUERDOS" / "CARAUCA" / "2019" / "A_CARAUCA_300_2019.pdf").read_text() == "ya-existia"
+
+
+def test_apply_folder_renames_skips_when_the_source_no_longer_exists(tmp_path):
+    (tmp_path / "ACUERDOS").mkdir(parents=True, exist_ok=True)
+
+    results = apply_folder_renames(
+        tmp_path, [ResolvedFolderRename(current_path="ACUERDOS/NO-EXISTE", target_path="ACUERDOS/CARAUCA")]
+    )
+
+    assert results[0].renamed is False
+    assert results[0].skip_reason is not None
+
+
+def test_apply_folder_renames_skips_a_target_outside_the_root(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+
+    results = apply_folder_renames(
+        tmp_path, [ResolvedFolderRename(current_path="ACUERDOS/CMARAUCA", target_path="../outside")]
+    )
+
+    assert results[0].renamed is False
+    assert results[0].skip_reason is not None
+    assert (tmp_path / "ACUERDOS" / "CMARAUCA").exists()
+    assert not (tmp_path.parent / "outside").exists()

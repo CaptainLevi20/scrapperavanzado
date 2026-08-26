@@ -8,8 +8,11 @@ from api.schemas import (
     ApplyResult,
     BatchAnalysis,
     ExtraDepthEntry,
+    FolderRenameOutcome,
+    FolderRenameSuggestion,
     MoveResult,
     ReorganizeException,
+    ResolvedFolderRename,
     ResolvedMove,
     TipoSummary,
 )
@@ -130,6 +133,7 @@ def analyze_batch(root: Path) -> BatchAnalysis:
     tipos: list[TipoSummary] = []
     exceptions: list[ReorganizeException] = []
     extra_depth: list[ExtraDepthEntry] = []
+    folder_renames: list[FolderRenameSuggestion] = []
     total_files = 0
 
     # Files sitting directly in root (outside any Tipo folder) don't fit the
@@ -185,6 +189,13 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                             tipo_total += _collect_extra_depth(root, tipo, f, extra_depth)
                 else:
                     entity = child.name
+                    # Bare files (missing_year) and non-year dirs (extra_depth) are
+                    # unaffected by a possible folder rename below — handled directly.
+                    # Files already at Entidad/Año/archivo are collected first: if
+                    # ALL of them consistently resolve to the same DIFFERENT entity,
+                    # the real fix isn't moving each file individually, it's renaming
+                    # the whole Entidad folder once (see below).
+                    year_files: list[tuple[int, Path]] = []
                     for ec in sorted(child.iterdir()):
                         if ec.is_file():
                             if _is_ignored_file(ec.name):
@@ -199,34 +210,72 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                                     if _is_ignored_file(f.name):
                                         continue
                                     tipo_total += 1
-                                    # The file already sits at Tipo/Entidad/Año — structurally
-                                    # complete — but either folder might be wrong (a catch-all
-                                    # "ARCHIVO" bucket, or a file filed under the wrong year)
-                                    # while the filename encodes the real values. Only flag
-                                    # when the filename resolves to something DIFFERENT from
-                                    # the folder; an unparseable filename can't prove the
-                                    # folder wrong, so it stays as-is. Entity takes priority
-                                    # when both are wrong — the corrected year still rides
-                                    # along on that same proposed move, rather than raising
-                                    # two separate exceptions for one file.
-                                    correct_entity = _detect_entity_from_filename(f.name)
-                                    correct_year = _detect_year_from_filename(f.name)
-                                    entity_wrong = correct_entity is not None and correct_entity != entity
-                                    year_wrong = correct_year is not None and correct_year != year
-                                    if entity_wrong:
-                                        tipo_exceptions += 1
-                                        exceptions.append(
-                                            _entity_mismatch_exception(
-                                                root, tipo, correct_entity, correct_year if year_wrong else year, f
-                                            )
-                                        )
-                                    elif year_wrong:
-                                        tipo_exceptions += 1
-                                        exceptions.append(_year_mismatch_exception(root, tipo, entity, correct_year, f))
+                                    year_files.append((year, f))
                                 else:
                                     tipo_total += _collect_extra_depth(root, tipo, f, extra_depth)
                         else:
                             tipo_total += _collect_extra_depth(root, tipo, ec, extra_depth)
+
+                    resolved = [
+                        (year, f, _detect_entity_from_filename(f.name), _detect_year_from_filename(f.name))
+                        for year, f in year_files
+                    ]
+                    # Evidence FOR keeping the current folder name at all disqualifies a
+                    # whole-folder rename — a mixed folder (some files agree, some don't)
+                    # is genuine ambiguity, left to per-file review instead of guessing.
+                    agrees_with_folder = any(ce == entity for _, _, ce, _ in resolved if ce is not None)
+                    disagreeing = {ce for _, _, ce, _ in resolved if ce is not None and ce != entity}
+                    suggested_entity = next(iter(disagreeing)) if len(disagreeing) == 1 else None
+                    mismatched = [(y, f) for y, f, ce, _ in resolved if ce == suggested_entity]
+                    sibling_names = {d.name for d in dir_children}
+
+                    if (
+                        not agrees_with_folder
+                        and suggested_entity is not None
+                        # Require at least 2 agreeing files — a single file's typo is
+                        # exactly what per-file entity_mismatch already handles, and a
+                        # whole-folder rename shouldn't rest on one data point.
+                        and len(mismatched) >= 2
+                        # Never propose renaming onto a folder that already exists —
+                        # that would be a merge, not a rename, and deserves its own
+                        # explicit review rather than being silently offered here.
+                        and suggested_entity not in sibling_names
+                    ):
+                        tipo_exceptions += len(mismatched)
+                        folder_renames.append(
+                            FolderRenameSuggestion(
+                                tipo=tipo,
+                                current_entity=entity,
+                                suggested_entity=suggested_entity,
+                                current_path=_relpath(root, child),
+                                proposed_path=f"{tipo}/{suggested_entity}",
+                                file_count=len(mismatched),
+                            )
+                        )
+                    else:
+                        for year, f, correct_entity, correct_year in resolved:
+                            # The file already sits at Tipo/Entidad/Año — structurally
+                            # complete — but either folder might be wrong (a catch-all
+                            # "ARCHIVO" bucket, or a file filed under the wrong year)
+                            # while the filename encodes the real values. Only flag
+                            # when the filename resolves to something DIFFERENT from
+                            # the folder; an unparseable filename can't prove the
+                            # folder wrong, so it stays as-is. Entity takes priority
+                            # when both are wrong — the corrected year still rides
+                            # along on that same proposed move, rather than raising
+                            # two separate exceptions for one file.
+                            entity_wrong = correct_entity is not None and correct_entity != entity
+                            year_wrong = correct_year is not None and correct_year != year
+                            if entity_wrong:
+                                tipo_exceptions += 1
+                                exceptions.append(
+                                    _entity_mismatch_exception(
+                                        root, tipo, correct_entity, correct_year if year_wrong else year, f
+                                    )
+                                )
+                            elif year_wrong:
+                                tipo_exceptions += 1
+                                exceptions.append(_year_mismatch_exception(root, tipo, entity, correct_year, f))
         else:
             for child in dir_children:
                 if _is_year_name(child.name):
@@ -254,6 +303,7 @@ def analyze_batch(root: Path) -> BatchAnalysis:
         exceptions=exceptions,
         extra_depth=extra_depth[:EXTRA_DEPTH_LIMIT],
         extra_depth_total=len(extra_depth),
+        folder_renames=folder_renames,
     )
 
 
@@ -308,3 +358,58 @@ def apply_moves(root: Path, moves: list[ResolvedMove]) -> ApplyResult:
                 )
             )
     return ApplyResult(results=results)
+
+
+def apply_folder_renames(root: Path, renames: list[ResolvedFolderRename]) -> list[FolderRenameOutcome]:
+    results: list[FolderRenameOutcome] = []
+    root_resolved = root.resolve()
+    for rename in renames:
+        source = root / rename.current_path
+        target = root / rename.target_path
+        try:
+            if not source.resolve().is_relative_to(root_resolved) or not target.resolve().is_relative_to(
+                root_resolved
+            ):
+                results.append(
+                    FolderRenameOutcome(
+                        current_path=rename.current_path,
+                        target_path=rename.target_path,
+                        renamed=False,
+                        skip_reason="La ruta está fuera de la carpeta raíz",
+                    )
+                )
+                continue
+            if not source.is_dir():
+                results.append(
+                    FolderRenameOutcome(
+                        current_path=rename.current_path,
+                        target_path=rename.target_path,
+                        renamed=False,
+                        skip_reason="La carpeta de origen ya no existe",
+                    )
+                )
+                continue
+            if target.exists():
+                results.append(
+                    FolderRenameOutcome(
+                        current_path=rename.current_path,
+                        target_path=rename.target_path,
+                        renamed=False,
+                        skip_reason="El destino ya existe",
+                    )
+                )
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+            results.append(
+                FolderRenameOutcome(
+                    current_path=rename.current_path, target_path=rename.target_path, renamed=True, skip_reason=None
+                )
+            )
+        except OSError as exc:
+            results.append(
+                FolderRenameOutcome(
+                    current_path=rename.current_path, target_path=rename.target_path, renamed=False, skip_reason=str(exc)
+                )
+            )
+    return results

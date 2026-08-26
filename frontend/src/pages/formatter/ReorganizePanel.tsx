@@ -1,18 +1,30 @@
 import { useState } from "react";
 import { ApiError } from "../../api/client";
 import { analyzeReorganization, applyReorganization } from "../../api/reorganize";
-import type { ApplyResult, BatchAnalysis, ReorganizeException, ResolvedMove } from "../../api/types";
+import type {
+  ApplyResult,
+  BatchAnalysis,
+  ReorganizeException,
+  ResolvedFolderRename,
+  ResolvedMove,
+} from "../../api/types";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { computeProposedPath, type Correction } from "../../lib/reorganize/proposePath";
+import { computeFolderRenameTarget, computeProposedPath, type Correction } from "../../lib/reorganize/proposePath";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../../lib/tableStyles";
 
 type ReorganizeState =
   | { step: "idle" }
   | { step: "loading" }
   | { step: "error"; message: string }
-  | { step: "loaded"; analysis: BatchAnalysis; corrections: Map<string, Correction>; dismissed: Set<string> }
+  | {
+      step: "loaded";
+      analysis: BatchAnalysis;
+      corrections: Map<string, Correction>;
+      folderRenameCorrections: Map<string, string>;
+      dismissed: Set<string>;
+    }
   | { step: "applying" }
   | { step: "applied"; result: ApplyResult };
 
@@ -29,7 +41,13 @@ export function ReorganizePanel() {
     setState({ step: "loading" });
     try {
       const analysis = await analyzeReorganization(rootPath);
-      setState({ step: "loaded", analysis, corrections: new Map(), dismissed: new Set() });
+      setState({
+        step: "loaded",
+        analysis,
+        corrections: new Map(),
+        folderRenameCorrections: new Map(),
+        dismissed: new Set(),
+      });
     } catch (error) {
       setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo analizar la carpeta." });
     }
@@ -43,6 +61,13 @@ export function ReorganizePanel() {
     const current = corrections.get(currentPath) ?? initialCorrection(entry);
     corrections.set(currentPath, { ...current, [field]: value });
     setState({ ...state, corrections });
+  }
+
+  function handleFolderRenameChange(currentPath: string, value: string) {
+    if (state.step !== "loaded") return;
+    const folderRenameCorrections = new Map(state.folderRenameCorrections);
+    folderRenameCorrections.set(currentPath, value);
+    setState({ ...state, folderRenameCorrections });
   }
 
   function handleToggleDismissed(currentPath: string) {
@@ -65,12 +90,19 @@ export function ReorganizePanel() {
       const target = computeProposedPath(entry, correction);
       if (target) moves.push({ current_path: entry.current_path, target_path: target });
     }
+    const folderRenames: ResolvedFolderRename[] = [];
+    for (const fr of state.analysis.folder_renames) {
+      if (state.dismissed.has(fr.current_path)) continue;
+      const entityName = state.folderRenameCorrections.get(fr.current_path) ?? fr.suggested_entity;
+      const target = computeFolderRenameTarget(fr.tipo, entityName);
+      if (target) folderRenames.push({ current_path: fr.current_path, target_path: target });
+    }
     setState({ step: "applying" });
     try {
       // Send the root that was actually analyzed (and that these moves were
       // computed against), not the live textbox value — the admin may have
       // edited the path after analyzing but before applying.
-      const result = await applyReorganization(state.analysis.root_path, moves);
+      const result = await applyReorganization(state.analysis.root_path, moves, folderRenames);
       setState({ step: "applied", result });
     } catch (error) {
       setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo aplicar la reorganización." });
@@ -103,11 +135,37 @@ export function ReorganizePanel() {
       {state.step === "applied" &&
         (() => {
           const skipped = state.result.results.filter((r) => !r.moved);
+          const skippedRenames = state.result.folder_rename_results.filter((r) => !r.renamed);
           return (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
+                {state.result.folder_rename_results.filter((r) => r.renamed).length} carpeta(s) renombrada(s),{" "}
+                {skippedRenames.length} carpeta(s) omitida(s).{" "}
                 {state.result.results.filter((r) => r.moved).length} archivo(s) movido(s), {skipped.length} omitido(s).
               </p>
+
+              {skippedRenames.length > 0 && (
+                <div className={TABLE_SHELL}>
+                  <div className={TABLE_SCROLL}>
+                    <table className={TABLE}>
+                      <thead>
+                        <tr className={THEAD_ROW}>
+                          <th className={TH}>Carpeta actual</th>
+                          <th className={TH}>Motivo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {skippedRenames.map((r) => (
+                          <tr key={r.current_path} className={TBODY_ROW}>
+                            <td className={TD}>{r.current_path}</td>
+                            <td className={TD}>{r.skip_reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {skipped.length > 0 && (
                 <div className={TABLE_SHELL}>
@@ -137,14 +195,23 @@ export function ReorganizePanel() {
 
       {state.step === "loaded" &&
         (() => {
-          const { analysis, corrections, dismissed } = state;
+          const { analysis, corrections, folderRenameCorrections, dismissed } = state;
           const rows = analysis.exceptions.map((entry) => {
             const correction = corrections.get(entry.current_path) ?? initialCorrection(entry);
             const proposedPath = computeProposedPath(entry, correction);
             return { entry, correction, proposedPath, isDismissed: dismissed.has(entry.current_path) };
           });
+          const renameRows = analysis.folder_renames.map((fr) => {
+            const entityName = folderRenameCorrections.get(fr.current_path) ?? fr.suggested_entity;
+            const proposedPath = computeFolderRenameTarget(fr.tipo, entityName);
+            return { fr, entityName, proposedPath, isDismissed: dismissed.has(fr.current_path) };
+          });
           const activeRows = rows.filter((row) => !row.isDismissed);
-          const canApply = activeRows.length > 0 && activeRows.every((row) => row.proposedPath !== null);
+          const activeRenameRows = renameRows.filter((row) => !row.isDismissed);
+          const canApply =
+            activeRows.length + activeRenameRows.length > 0 &&
+            activeRows.every((row) => row.proposedPath !== null) &&
+            activeRenameRows.every((row) => row.proposedPath !== null);
 
           return (
             <div className="space-y-4">
@@ -177,6 +244,59 @@ export function ReorganizePanel() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {renameRows.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Carpetas para renombrar (todos sus archivos coinciden en otra entidad)
+                  </p>
+                  <div className={TABLE_SHELL}>
+                    <div className={TABLE_SCROLL}>
+                      <table className={TABLE}>
+                        <thead>
+                          <tr className={THEAD_ROW}>
+                            <th className={TH}>Tipo</th>
+                            <th className={TH}>Carpeta actual</th>
+                            <th className={TH}>Nueva entidad</th>
+                            <th className={TH}>Archivos afectados</th>
+                            <th className={TH}>Carpeta propuesta</th>
+                            <th className={TH}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {renameRows.map(({ fr, entityName, proposedPath, isDismissed }) => (
+                            <tr key={fr.current_path} className={`${TBODY_ROW} ${isDismissed ? "opacity-50" : ""}`}>
+                              <td className={TD}>{fr.tipo}</td>
+                              <td className={TD}>{fr.current_path}</td>
+                              <td className={TD}>
+                                <Input
+                                  aria-label={`Nueva entidad para ${fr.current_path}`}
+                                  value={entityName}
+                                  onChange={(event) => handleFolderRenameChange(fr.current_path, event.target.value)}
+                                  disabled={isDismissed}
+                                  className="w-28"
+                                />
+                              </td>
+                              <td className={TD}>{fr.file_count}</td>
+                              <td className={TD}>{isDismissed ? "No se renombra" : (proposedPath ?? "—")}</td>
+                              <td className={TD}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="xs"
+                                  onClick={() => handleToggleDismissed(fr.current_path)}
+                                >
+                                  {isDismissed ? "Deshacer" : "Dejar así"}
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

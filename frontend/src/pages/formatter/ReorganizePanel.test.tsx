@@ -28,6 +28,7 @@ describe("ReorganizePanel", () => {
           ],
           extra_depth: [],
           extra_depth_total: 0,
+          folder_renames: [],
         })
       )
     );
@@ -63,6 +64,7 @@ describe("ReorganizePanel", () => {
           exceptions: [],
           extra_depth: [{ tipo: "Gacetas", current_path: "Gacetas/GC/1992/AC/AC_0001_1992.pdf" }],
           extra_depth_total: 1,
+          folder_renames: [],
         })
       )
     );
@@ -96,6 +98,7 @@ describe("ReorganizePanel", () => {
           ],
           extra_depth: [],
           extra_depth_total: 0,
+          folder_renames: [],
         })
       ),
       http.post(`${BASE_URL}/reorganize/apply`, async ({ request }) => {
@@ -119,6 +122,7 @@ describe("ReorganizePanel", () => {
               skip_reason: null,
             },
           ],
+          folder_rename_results: [],
         });
       })
     );
@@ -160,6 +164,7 @@ describe("ReorganizePanel", () => {
           ],
           extra_depth: [],
           extra_depth_total: 0,
+          folder_renames: [],
         })
       )
     );
@@ -199,6 +204,7 @@ describe("ReorganizePanel", () => {
           ],
           extra_depth: [],
           extra_depth_total: 0,
+          folder_renames: [],
         })
       )
     );
@@ -253,6 +259,7 @@ describe("ReorganizePanel", () => {
           ],
           extra_depth: [],
           extra_depth_total: 0,
+          folder_renames: [],
         })
       ),
       http.post(`${BASE_URL}/reorganize/apply`, async ({ request }) => {
@@ -274,6 +281,7 @@ describe("ReorganizePanel", () => {
               skip_reason: null,
             },
           ],
+          folder_rename_results: [],
         });
       })
     );
@@ -318,6 +326,7 @@ describe("ReorganizePanel", () => {
           ],
           extra_depth: [],
           extra_depth_total: 0,
+          folder_renames: [],
         })
       )
     );
@@ -329,6 +338,99 @@ describe("ReorganizePanel", () => {
     await screen.findByText("ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf");
 
     await user.click(screen.getByRole("button", { name: "Dejar así" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Deshacer" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+  });
+
+  it("shows a folder-rename suggestion, editable, and applies it alongside file moves", async () => {
+    server.use(
+      http.post(`${BASE_URL}/reorganize/analyze`, () =>
+        HttpResponse.json({
+          root_path: "D:/LOTE 2",
+          total_files: 2,
+          tipos: [{ tipo: "ACUERDOS", total_files: 2, exception_count: 2 }],
+          exceptions: [],
+          extra_depth: [],
+          extra_depth_total: 0,
+          folder_renames: [
+            {
+              tipo: "ACUERDOS",
+              current_entity: "CMARAUCA",
+              suggested_entity: "CARAUCA",
+              current_path: "ACUERDOS/CMARAUCA",
+              proposed_path: "ACUERDOS/CARAUCA",
+              file_count: 2,
+            },
+          ],
+        })
+      ),
+      http.post(`${BASE_URL}/reorganize/apply`, async ({ request }) => {
+        const body = (await request.json()) as {
+          moves: unknown[];
+          folder_renames: { current_path: string; target_path: string }[];
+        };
+        expect(body.moves).toEqual([]);
+        expect(body.folder_renames).toEqual([{ current_path: "ACUERDOS/CMARAUCA", target_path: "ACUERDOS/CARAUCA" }]);
+        return HttpResponse.json({
+          results: [],
+          folder_rename_results: [
+            { current_path: "ACUERDOS/CMARAUCA", target_path: "ACUERDOS/CARAUCA", renamed: true, skip_reason: null },
+          ],
+        });
+      })
+    );
+    const user = userEvent.setup();
+    render(<ReorganizePanel />);
+
+    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
+    await user.click(screen.getByRole("button", { name: "Analizar" }));
+
+    expect(await screen.findByText("ACUERDOS/CMARAUCA")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nueva entidad para ACUERDOS/CMARAUCA")).toHaveValue("CARAUCA");
+    expect(screen.getByText("ACUERDOS/CARAUCA")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Aplicar" }));
+
+    expect(await screen.findByText(/1 carpeta\(s\) renombrada\(s\)/)).toBeInTheDocument();
+  });
+
+  it("lets a folder-rename suggestion be dismissed ('Dejar así') without blocking other rows", async () => {
+    server.use(
+      http.post(`${BASE_URL}/reorganize/analyze`, () =>
+        HttpResponse.json({
+          root_path: "D:/LOTE 2",
+          total_files: 2,
+          tipos: [{ tipo: "ACUERDOS", total_files: 2, exception_count: 2 }],
+          exceptions: [],
+          extra_depth: [],
+          extra_depth_total: 0,
+          folder_renames: [
+            {
+              tipo: "ACUERDOS",
+              current_entity: "CMARAUCA",
+              suggested_entity: "CARAUCA",
+              current_path: "ACUERDOS/CMARAUCA",
+              proposed_path: "ACUERDOS/CARAUCA",
+              file_count: 2,
+            },
+          ],
+        })
+      )
+    );
+    const user = userEvent.setup();
+    render(<ReorganizePanel />);
+
+    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
+    await user.click(screen.getByRole("button", { name: "Analizar" }));
+    await screen.findByText("ACUERDOS/CMARAUCA");
+
+    await user.click(screen.getByRole("button", { name: "Dejar así" }));
+
+    expect(screen.getByText("No se renombra")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nueva entidad para ACUERDOS/CMARAUCA")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Deshacer" }));
