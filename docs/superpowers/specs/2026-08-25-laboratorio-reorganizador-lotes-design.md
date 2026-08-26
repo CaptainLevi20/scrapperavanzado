@@ -262,9 +262,48 @@ sentido.
      "MIXTA"/"GUIA" que no existe en ningún otro lado del lote. `ANEXO` se
      encontró revisando el lote completo en busca de esta misma forma, no
      fue reportado por separado.
-   Si el nombre no calza con ese patrón (como `RSG2058.docx`, sin año ni
-   entidad codificados), no se puede resolver automáticamente.
-5. **No resuelto automáticamente → revisión manual.** Se marca la excepción
+   Si el nombre no calza con ese patrón, el año no puede resolverse desde el
+   nombre — pero eso no es necesariamente el final: ver el punto siguiente.
+5. **Cuando el nombre no trae año: leerlo del contenido del documento.**
+   Caso real: `RESOLUCIONES/SGCANDINA` y `DECISIONES/CAN` tienen 226
+   archivos nombrados solo por su número secuencial (`RSG2058.docx`,
+   `DEC922.pdf` — sin año en el nombre en absoluto). Antes de caer a la
+   fecha de modificación del archivo (que no es confiable: un archivo cuya
+   resolución real es de 2012 puede tener fecha de modificación de 2024,
+   simplemente porque se agregó al archivo recientemente — confirmado con
+   un caso real del lote), `core/document_dates.py` (`extract_confirmed_year`)
+   abre el documento (`.docx`, `.pdf`, `.rtf`; `.doc` — formato binario
+   antiguo — no tiene librería disponible y queda sin resolver) y busca la
+   fecha real que estos documentos oficiales siempre imprimen en dos
+   lugares:
+   - Cerca del inicio: la línea "Gaceta Oficial No `<n>`[, Lima,] `<día>`
+     de `<mes>` de `<año>`" (SGCANDINA), o la fecha del boletín cuando el
+     PDF agrupa varias Decisiones ("LIMA, `<día>` DE `<mes>` DE `<año>`").
+     Reutiliza el parser de fechas ya probado en `core/fecha_es.py`
+     (`parse_fecha_providencia_es`), acotado a una ventana cerca del
+     inicio del texto — sin acotar, encontraría la fecha de OTRA
+     resolución citada más abajo en la sección "VISTOS".
+   - El cierre formal: "Dada en la ciudad de Lima, ... a los `<día>` días
+     del mes de `<mes>` del año `<año>`" — el año siempre en palabras
+     ("dos mil diecinueve"), nunca en dígitos, así que esto necesita su
+     propio parser de números en español (acotado a los años 1990-2035,
+     acepta también la forma en tres palabras "veinte y dos" además de la
+     compuesta "veintidós"). La búsqueda se ancla primero en la frase
+     "Dada/Dado en la ciudad de" y solo busca el año dentro de una ventana
+     corta después de eso — sin ese anclaje, una frase no relacionada como
+     "dentro del año en curso" en el cuerpo del documento se confundiría
+     con la fecha real.
+
+   Cuando ambas señales aparecen, deben coincidir — si no coinciden (caso
+   real encontrado: un boletín de la Gaceta Oficial fechado 2025 en su
+   cabecera, pero el cierre de una Decisión específica dentro del mismo PDF
+   leía 2026, aparentemente un error de tipeo del documento original), el
+   año queda sin confirmar en vez de adivinar cuál de las dos es la
+   correcta. Verificado contra el lote real: 217 de 226 archivos (96%)
+   quedan confirmados así, con cero casos de conflicto resueltos
+   incorrectamente; los 9 restantes (7 archivos `.doc`, 1 PDF escaneado sin
+   texto, 1 caso de conflicto real) siguen cayendo al punto siguiente.
+6. **No resuelto automáticamente → revisión manual.** Se marca la excepción
    con el dato faltante en blanco, y como sugerencia editable (nunca
    autoritativa — la fecha de un archivo puede no reflejar la fecha real del
    acto administrativo) se ofrece el año de última modificación del archivo
@@ -272,7 +311,7 @@ sentido.
    confianza del nombre del archivo, la UI marca el campo con un aviso
    ("Sin confirmar — revisa el documento") siempre que `detected_year` sea
    `None` — el admin debe verificar contra el documento antes de aplicar.
-6. **Ruta propuesta.** Una vez resueltos tipo, entidad (si aplica) y año, la
+7. **Ruta propuesta.** Una vez resueltos tipo, entidad (si aplica) y año, la
    ruta propuesta es `Tipo/[Entidad/]Año/nombre-original-del-archivo` — esta
    herramienta reorganiza carpetas, no renombra archivos (eso ya lo hace el
    Formateador; no se duplica esa responsabilidad aquí).

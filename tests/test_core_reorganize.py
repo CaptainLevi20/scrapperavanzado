@@ -3,6 +3,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+import docx
+
 import core.reorganize as reorganize_module
 from core.reorganize import analyze_batch, apply_folder_renames, apply_moves
 from api.schemas import ResolvedFolderRename, ResolvedMove
@@ -11,6 +13,14 @@ from api.schemas import ResolvedFolderRename, ResolvedMove
 def _touch(path: Path, content: str = "contenido") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _touch_docx(path: Path, paragraphs: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = docx.Document()
+    for text in paragraphs:
+        doc.add_paragraph(text)
+    doc.save(str(path))
 
 
 def _by_tipo(result, tipo):
@@ -390,6 +400,49 @@ def test_confirmed_single_file_folder_rename_bypasses_the_two_file_minimum(tmp_p
     assert fr.current_entity == "CODIRUMED"
     assert fr.suggested_entity == "CONDIRUDEMED"
     assert fr.file_count == 1
+
+
+def test_missing_year_folder_resolves_from_document_content_when_filename_has_no_year(tmp_path):
+    # Reported real case: RESOLUCIONES/SGCANDINA has 226 files named only
+    # by their sequential instrument number ("RSG2058.docx") — no year in
+    # the filename at all, so mtime was the only signal before, and mtime
+    # is not authoritative (a resolution really issued in 2012 can carry
+    # today's mtime just because the file was recently added to the
+    # archive). The document's own closing signature block ("Dada en la
+    # ciudad de Lima... del año dos mil diecinueve") is authoritative.
+    _touch_docx(
+        tmp_path / "RESOLUCIONES" / "SGCANDINA" / "RSG2058.docx",
+        [
+            "RESOLUCIÓN N° 2058",
+            "Precios de Referencia del Sistema Andino de Franjas de Precios",
+            "Dada en la ciudad de Lima, Perú, a los veintitrés días del mes de abril del año dos mil diecinueve.",
+        ],
+    )
+
+    result = analyze_batch(tmp_path)
+
+    assert len(result.exceptions) == 1
+    exc = result.exceptions[0]
+    assert exc.kind == "missing_year_folder"
+    assert exc.detected_year == 2019
+    assert exc.mtime_year_hint is None
+    assert exc.proposed_path == "RESOLUCIONES/SGCANDINA/2019/RSG2058.docx"
+
+
+def test_missing_year_folder_falls_back_to_mtime_when_document_content_is_ambiguous(tmp_path):
+    # No recognizable date in the content at all (unlike the case above) —
+    # must fall back to the existing, unconfirmed mtime-guess behavior
+    # rather than leaving the exception with nothing at all.
+    doc_path = tmp_path / "RESOLUCIONES" / "SGCANDINA" / "RSG9999.docx"
+    _touch_docx(doc_path, ["RESOLUCIÓN N° 9999", "Texto sin ninguna fecha reconocible."])
+
+    result = analyze_batch(tmp_path)
+
+    assert len(result.exceptions) == 1
+    exc = result.exceptions[0]
+    assert exc.detected_year is None
+    assert exc.mtime_year_hint is not None
+    assert exc.proposed_path is None
 
 
 def test_folder_rename_groups_case_variants_of_the_same_alternate_entity(tmp_path):

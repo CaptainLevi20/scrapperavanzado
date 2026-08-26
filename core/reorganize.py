@@ -17,6 +17,7 @@ from api.schemas import (
     ResolvedMove,
     TipoSummary,
 )
+from core.document_dates import extract_confirmed_year
 
 YEAR_RE = re.compile(r"^(?:1[89]\d{2}|20\d{2})$")
 
@@ -173,6 +174,17 @@ def _year_mismatch_exception(root: Path, tipo: str, entity: str, correct_year: i
 
 def _missing_year_exception(root: Path, tipo: str, entity: Optional[str], file: Path) -> ReorganizeException:
     year = _detect_year_from_filename(file.name)
+    if year is None:
+        # The filename itself encodes no year (real case: CAN "Decisiones"
+        # and SGCANDINA "Resoluciones", named only by their sequential
+        # instrument number, e.g. "RSG2367.docx") — these official
+        # documents reliably print their own real date inside the content
+        # itself, which is authoritative unlike mtime (confirmed on real
+        # data: a 2012 resolution carried a 2024 mtime, since the file was
+        # only recently added to the archive).
+        content_year = extract_confirmed_year(file)
+        if content_year is not None and YEAR_RE.match(str(content_year)):
+            year = content_year
     mtime_hint = None
     if year is None:
         mtime_hint = datetime.fromtimestamp(file.stat().st_mtime, tz=timezone.utc).year
