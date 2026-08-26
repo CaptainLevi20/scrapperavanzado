@@ -113,7 +113,13 @@ sentido.
    - El **año**: el token de 4 dígitos que matchea el patrón de año, típicamente
      el último segmento antes de la extensión.
    - La **entidad**: el segundo token separado por `_` (después del código
-     de tipo), cuando aplica.
+     de tipo), cuando aplica — pero solo si ese token no es puramente
+     numérico. Algunas series de documentos (ej. Gacetas: `GC_0114_1992.pdf`)
+     siguen un patrón más corto `CODIGO_NUMERO_AÑO` (3 tokens, sin entidad
+     codificada), y en ese caso el segundo token es el número del documento,
+     no una entidad — un código de entidad real siempre tiene letras
+     (`MSPS`, `PGN`, `AGN`, `GC`...), así que un token todo-numérico ahí
+     nunca se toma como entidad.
    Si el nombre no calza con ese patrón (como `RSG2058.docx`, sin año ni
    entidad codificados), no se puede resolver automáticamente.
 5. **No resuelto automáticamente → revisión manual.** Se marca la excepción

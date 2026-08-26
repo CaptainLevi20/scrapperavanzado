@@ -442,3 +442,28 @@ def test_detected_entity_rejects_a_year_looking_token(tmp_path):
     exc = next(e for e in result.exceptions if e.current_path.endswith("D_2020_0001_2022.pdf"))
     assert exc.detected_entity is None
     assert exc.proposed_path is None
+
+
+def test_no_entity_mismatch_for_the_shorter_codigo_numero_ano_naming_convention(tmp_path):
+    # Gacetas' own naming convention is CODIGO_NUMERO_AÑO (3 parts, no
+    # entity segment) — not the general TIPOCODE_ENTIDAD_NUMERO_AÑO (4
+    # parts). "0114" here is the gaceta's own number, not an entity code.
+    _touch(tmp_path / "Gacetas" / "GC" / "1992" / "GC_0114_1992.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert _by_tipo(result, "Gacetas").total_files == 1
+    assert _by_tipo(result, "Gacetas").exception_count == 0
+
+
+def test_detected_entity_rejects_a_purely_numeric_second_token(tmp_path):
+    _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "D_PGN_0001_2019.pdf")
+    _touch(tmp_path / "DECRETOS" / "2022" / "D_0114_2022.pdf")
+    (tmp_path / "DECRETOS" / "OTRO").mkdir(parents=True, exist_ok=True)
+
+    result = analyze_batch(tmp_path)
+
+    exc = next(e for e in result.exceptions if e.current_path.endswith("D_0114_2022.pdf"))
+    assert exc.detected_entity is None
+    assert exc.proposed_path is None

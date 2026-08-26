@@ -44,7 +44,13 @@ def _detect_entity_from_filename(filename: str) -> Optional[str]:
     if len(parts) < 3:
         return None
     entity = parts[1]
-    return None if _is_year_name(entity) else entity
+    # A real entity code is always at least partly alphabetic (MSPS, PGN,
+    # AGN, GC...) — a purely numeric second token means the filename
+    # actually follows the shorter CODIGO_NUMERO_AÑO convention (no entity
+    # segment at all, e.g. Gacetas' GC_0114_1992.pdf), and what looked like
+    # "parts[1]" is really the document number, not an entity. isdigit()
+    # also covers a year mistakenly landing in that position.
+    return None if entity.isdigit() else entity
 
 
 def _relpath(root: Path, path: Path) -> str:
