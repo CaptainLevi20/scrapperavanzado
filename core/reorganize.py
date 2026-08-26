@@ -66,8 +66,7 @@ def _missing_entity_exception(root: Path, tipo: str, year: int, file: Path) -> R
     )
 
 
-def _entity_mismatch_exception(root: Path, tipo: str, folder_entity: str, year: int, file: Path) -> ReorganizeException:
-    correct_entity = _detect_entity_from_filename(file.name)
+def _entity_mismatch_exception(root: Path, tipo: str, correct_entity: str, year: int, file: Path) -> ReorganizeException:
     return ReorganizeException(
         tipo=tipo,
         kind="entity_mismatch",
@@ -76,6 +75,18 @@ def _entity_mismatch_exception(root: Path, tipo: str, folder_entity: str, year: 
         detected_year=year,
         mtime_year_hint=None,
         proposed_path=f"{tipo}/{correct_entity}/{year}/{file.name}",
+    )
+
+
+def _year_mismatch_exception(root: Path, tipo: str, entity: str, correct_year: int, file: Path) -> ReorganizeException:
+    return ReorganizeException(
+        tipo=tipo,
+        kind="year_mismatch",
+        current_path=_relpath(root, file),
+        detected_entity=entity,
+        detected_year=correct_year,
+        mtime_year_hint=None,
+        proposed_path=f"{tipo}/{entity}/{correct_year}/{file.name}",
     )
 
 
@@ -169,17 +180,29 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                                 if f.is_file():
                                     tipo_total += 1
                                     # The file already sits at Tipo/Entidad/Año — structurally
-                                    # complete — but the Entidad folder itself might be wrong
-                                    # (e.g. a catch-all "ARCHIVO" bucket) while the filename
-                                    # encodes the real one. Only flag when the filename
-                                    # resolves to a DIFFERENT entity; an unparseable filename
-                                    # can't prove the folder wrong, so it stays as-is.
+                                    # complete — but either folder might be wrong (a catch-all
+                                    # "ARCHIVO" bucket, or a file filed under the wrong year)
+                                    # while the filename encodes the real values. Only flag
+                                    # when the filename resolves to something DIFFERENT from
+                                    # the folder; an unparseable filename can't prove the
+                                    # folder wrong, so it stays as-is. Entity takes priority
+                                    # when both are wrong — the corrected year still rides
+                                    # along on that same proposed move, rather than raising
+                                    # two separate exceptions for one file.
                                     correct_entity = _detect_entity_from_filename(f.name)
-                                    if correct_entity is not None and correct_entity != entity:
+                                    correct_year = _detect_year_from_filename(f.name)
+                                    entity_wrong = correct_entity is not None and correct_entity != entity
+                                    year_wrong = correct_year is not None and correct_year != year
+                                    if entity_wrong:
                                         tipo_exceptions += 1
                                         exceptions.append(
-                                            _entity_mismatch_exception(root, tipo, entity, year, f)
+                                            _entity_mismatch_exception(
+                                                root, tipo, correct_entity, correct_year if year_wrong else year, f
+                                            )
                                         )
+                                    elif year_wrong:
+                                        tipo_exceptions += 1
+                                        exceptions.append(_year_mismatch_exception(root, tipo, entity, correct_year, f))
                                 else:
                                     tipo_total += _collect_extra_depth(root, tipo, f, extra_depth)
                         else:

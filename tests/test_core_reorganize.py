@@ -69,6 +69,56 @@ def test_no_entity_mismatch_when_filename_cant_be_parsed(tmp_path):
     assert _by_tipo(result, "ACUERDOS").exception_count == 0
 
 
+def test_year_mismatch_detected_when_filename_disagrees_with_folder(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "MME" / "2014" / "A_MME_0031_2015.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert len(result.exceptions) == 1
+    exc = result.exceptions[0]
+    assert exc.tipo == "ACUERDOS"
+    assert exc.kind == "year_mismatch"
+    assert exc.current_path == "ACUERDOS/MME/2014/A_MME_0031_2015.pdf"
+    assert exc.detected_entity == "MME"
+    assert exc.detected_year == 2015
+    assert exc.proposed_path == "ACUERDOS/MME/2015/A_MME_0031_2015.pdf"
+    assert _by_tipo(result, "ACUERDOS").exception_count == 1
+    assert result.total_files == 1
+
+
+def test_no_year_mismatch_when_filename_agrees_with_folder(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "MME" / "2015" / "A_MME_0031_2015.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert _by_tipo(result, "ACUERDOS").total_files == 1
+    assert _by_tipo(result, "ACUERDOS").exception_count == 0
+
+
+def test_no_year_mismatch_when_filename_year_cant_be_parsed(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "MME" / "2014" / "documento-suelto.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert _by_tipo(result, "ACUERDOS").total_files == 1
+    assert _by_tipo(result, "ACUERDOS").exception_count == 0
+
+
+def test_entity_mismatch_still_corrects_the_year_when_both_are_wrong(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "ARCHIVO" / "2014" / "A_AGN_0015_2015.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert len(result.exceptions) == 1
+    exc = result.exceptions[0]
+    assert exc.kind == "entity_mismatch"
+    assert exc.detected_entity == "AGN"
+    assert exc.detected_year == 2015
+    assert exc.proposed_path == "ACUERDOS/AGN/2015/A_AGN_0015_2015.pdf"
+
+
 def test_missing_entity_folder_resolved_from_filename(tmp_path):
     _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "D_PGN_0001_2019.pdf")
     _touch(tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf")

@@ -179,6 +179,48 @@ describe("ReorganizePanel", () => {
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
+  it("shows a year_mismatch exception with the correct year pre-filled and offers 'Dejar así' too", async () => {
+    server.use(
+      http.post(`${BASE_URL}/reorganize/analyze`, () =>
+        HttpResponse.json({
+          root_path: "D:/LOTE 2",
+          total_files: 1,
+          tipos: [{ tipo: "ACUERDOS", total_files: 1, exception_count: 1 }],
+          exceptions: [
+            {
+              tipo: "ACUERDOS",
+              kind: "year_mismatch",
+              current_path: "ACUERDOS/MME/2014/A_MME_0031_2015.pdf",
+              detected_entity: "MME",
+              detected_year: 2015,
+              mtime_year_hint: null,
+              proposed_path: "ACUERDOS/MME/2015/A_MME_0031_2015.pdf",
+            },
+          ],
+          extra_depth: [],
+          extra_depth_total: 0,
+        })
+      )
+    );
+    const user = userEvent.setup();
+    render(<ReorganizePanel />);
+
+    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
+    await user.click(screen.getByRole("button", { name: "Analizar" }));
+
+    expect(await screen.findByText("ACUERDOS/MME/2014/A_MME_0031_2015.pdf")).toBeInTheDocument();
+    expect(screen.getByLabelText("Entidad para ACUERDOS/MME/2014/A_MME_0031_2015.pdf")).toHaveValue("MME");
+    expect(screen.getByLabelText("Año para ACUERDOS/MME/2014/A_MME_0031_2015.pdf")).toHaveValue("2015");
+    expect(screen.getByText("ACUERDOS/MME/2015/A_MME_0031_2015.pdf")).toBeInTheDocument();
+    expect(screen.queryByText(/Sin confirmar/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dejar así" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Dejar así" }));
+
+    expect(screen.getByText("No se moverá")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+  });
+
   it("lets an entity_mismatch row be dismissed ('Dejar así'), excluding it from the applied moves while the rest still apply", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>

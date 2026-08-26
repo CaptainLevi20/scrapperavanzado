@@ -256,7 +256,7 @@ class TipoSummary(BaseModel):
 
 class ReorganizeException(BaseModel):
     tipo: str
-    kind: Literal["missing_entity_folder", "missing_year_folder", "entity_mismatch"]
+    kind: Literal["missing_entity_folder", "missing_year_folder", "entity_mismatch", "year_mismatch"]
     current_path: str
     detected_entity: Optional[str] = None
     detected_year: Optional[int] = None

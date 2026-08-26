@@ -229,7 +229,7 @@ export function ReorganizePanel() {
                             </td>
                             <td className={TD}>{isDismissed ? "No se moverá" : (proposedPath ?? "—")}</td>
                             <td className={TD}>
-                              {entry.kind === "entity_mismatch" && (
+                              {(entry.kind === "entity_mismatch" || entry.kind === "year_mismatch") && (
                                 <Button
                                   type="button"
                                   variant="outline"

@@ -61,7 +61,7 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    Tipo `con_entidad` puede tener alguna carpeta de año colada entre las de
    entidad, y eso es precisamente una excepción a resolver (ver abajo).
 2. **Tipo `con_entidad`:** cada archivo debe vivir en `Entidad/Año/archivo`.
-   Tres formas de excepción:
+   Cuatro formas de excepción:
    - `missing_entity_folder`: el archivo está en `Tipo/Año/archivo` (la
      carpeta de año cuelga directo del Tipo). Ej.:
      `DECRETOS\2022\D_MSPS_0017AJ_2022.pdf`.
@@ -72,19 +72,29 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
      con la carpeta de Entidad donde vive — típicamente porque esa carpeta
      es en realidad un cajón de miscelánea (ej. `ACUERDOS\ARCHIVO\2003\
      A_AGN_0015_2003.pdf`, donde "ARCHIVO" no es una entidad real y el
-     nombre dice `AGN`). Solo se marca cuando el nombre sí resuelve a una
-     entidad reconocible y esa entidad es distinta de la carpeta actual —
-     un nombre que no sigue el patrón no puede probar que la carpeta esté
-     mal, así que se deja como bien ubicado (mismo principio del punto 4).
-     A diferencia de las otras dos excepciones, esta puede ser un falso
-     positivo genuino — la carpeta y el nombre pueden referirse a la misma
-     entidad con grafías distintas (ej. `CMAGUACHICA` en la carpeta vs
-     `CAGUACHICA` en el nombre), y mover el archivo fragmentaría una
-     entidad que en realidad ya estaba bien consolidada. Por eso, y solo
-     para este tipo de excepción, la UI ofrece un botón "Dejar así" por
-     fila que la excluye del lote a aplicar sin bloquear las demás filas
-     (las otras dos excepciones siempre representan un archivo
-     genuinamente incompleto, así que no tiene sentido "dejarlas así").
+     nombre dice `AGN`).
+   - `year_mismatch`: mismo caso pero con el Año — el archivo ya está en
+     `Tipo/Entidad/Año/archivo`, pero el año del nombre no coincide con la
+     carpeta de año donde vive (ej. `ACUERDOS\MME\2014\A_MME_0031_2015.pdf`,
+     archivado bajo 2014 pero el nombre dice 2015).
+
+   Para ambas: solo se marca cuando el nombre sí resuelve a un valor
+   reconocible y ese valor es distinto de la carpeta actual — un nombre que
+   no sigue el patrón no puede probar que la carpeta esté mal, así que se
+   deja como bien ubicado (mismo principio del punto 4). Si un archivo tiene
+   AMBOS mal (Entidad y Año), se reporta una sola excepción `entity_mismatch`
+   que ya trae el Año corregido también — nunca dos excepciones separadas
+   para el mismo archivo.
+
+   A diferencia de las otras dos, `entity_mismatch`/`year_mismatch` pueden
+   ser un falso positivo genuino — la carpeta y el nombre pueden referirse
+   al mismo valor con grafías distintas (ej. `CMAGUACHICA` en la carpeta vs
+   `CAGUACHICA` en el nombre), y mover el archivo fragmentaría una entidad
+   que en realidad ya estaba bien consolidada. Por eso, y solo para estas
+   dos, la UI ofrece un botón "Dejar así" por fila que la excluye del lote a
+   aplicar sin bloquear las demás filas (`missing_entity_folder`/
+   `missing_year_folder` siempre representan un archivo genuinamente
+   incompleto, así que no tiene sentido "dejarlos así").
 3. **Tipo `sin_entidad`:** cada archivo debe vivir en `Año/archivo` directo
    bajo el Tipo. No se detectó ningún caso de excepción de este tipo en el
    lote de referencia, pero si un archivo apareciera directo bajo el Tipo
@@ -159,7 +169,7 @@ class ReorganizeAnalyzeRequest(BaseModel):
 
 class ReorganizeException(BaseModel):
     tipo: str
-    kind: Literal["missing_entity_folder", "missing_year_folder", "entity_mismatch"]
+    kind: Literal["missing_entity_folder", "missing_year_folder", "entity_mismatch", "year_mismatch"]
     current_path: str
     detected_entity: Optional[str] = None
     detected_year: Optional[int] = None
@@ -268,6 +278,9 @@ reubica el contenido actual sin cambiar su lógica:
   la del nombre del archivo se detecta como `entity_mismatch`, con
   `detected_entity` resuelto desde el nombre. Si el nombre no se puede
   resolver, o si coincide con la carpeta, no produce ninguna excepción.
+- Mismo caso pero con el Año se detecta como `year_mismatch`. Si ambos
+  (Entidad y Año) están mal, se reporta una sola excepción `entity_mismatch`
+  con el Año ya corregido también.
 - `apply_moves` mueve el archivo y crea las carpetas destino que faltan.
 - `apply_moves` no sobrescribe un destino que ya existe (se salta con
   `skip_reason`).
