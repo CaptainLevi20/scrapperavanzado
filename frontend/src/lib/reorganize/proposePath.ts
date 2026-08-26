@@ -39,19 +39,36 @@ export function computeFolderRenameTarget(tipo: string, entityName: string): str
   return `${tipo}/${entity}`;
 }
 
+// A confirmed, narrow pattern: a folder literally named "CM" + a city (e.g.
+// "CMAGUACHICA") where the file names just "C" + that same city (e.g.
+// "CAGUACHICA" — the "M" dropped). Verified against the real batch across
+// 13 different city folders under ACUERDOS, all consistent — a systematic
+// naming convention gap, not coincidental typos. Doesn't fire for a city
+// whose own name starts with "M" (Medellín, Mocoa, Montería all correctly
+// keep "CM" in both the folder and the filename, so they never mismatch in
+// the first place — this pattern only ever sees the cases where they do).
+function isConfirmedCmToCPattern(entry: ReorganizeException): boolean {
+  if (entry.detected_entity === null) return false;
+  const currentEntity = entry.current_path.split("/")[1];
+  if (!currentEntity || currentEntity.slice(0, 2).toUpperCase() !== "CM") return false;
+  const expected = currentEntity.slice(0, 1) + currentEntity.slice(2);
+  return expected.toUpperCase() === entry.detected_entity.toUpperCase();
+}
+
 // Whether a file's own exception can be resolved without a human decision.
-// entity_mismatch never qualifies — the folder and the filename actively
-// disagree, which is a judgment call about which one is right, not just a
-// gap to fill in. For the other kinds: the year must come from the
-// filename itself, never the mtime fallback (that's explicitly not
-// authoritative), AND the exception's own detected values must resolve to
-// a complete, valid path on their own — reusing computeProposedPath
-// against initialCorrection is what actually proves nothing is left
-// blank (e.g. a missing_entity_folder whose entity couldn't be read from
-// the filename still needs a human to type one in, even though its year
-// is known from the folder it's already sitting in).
+// entity_mismatch only ever qualifies via the one confirmed pattern above —
+// otherwise the folder and the filename actively disagree, which is a
+// judgment call about which one is right, not just a gap to fill in. For
+// the other kinds: the year must come from the filename itself, never the
+// mtime fallback (that's explicitly not authoritative), AND the
+// exception's own detected values must resolve to a complete, valid path
+// on their own — reusing computeProposedPath against initialCorrection is
+// what actually proves nothing is left blank (e.g. a missing_entity_folder
+// whose entity couldn't be read from the filename still needs a human to
+// type one in, even though its year is known from the folder it's already
+// sitting in).
 export function isConfidentException(entry: ReorganizeException): boolean {
-  if (entry.kind === "entity_mismatch") return false;
+  if (entry.kind === "entity_mismatch") return isConfirmedCmToCPattern(entry);
   if (entry.detected_year === null) return false;
   return computeProposedPath(entry, initialCorrection(entry)) !== null;
 }

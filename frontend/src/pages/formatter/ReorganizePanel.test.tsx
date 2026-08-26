@@ -149,6 +149,76 @@ describe("ReorganizePanel", () => {
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
+  it("auto-approves the confirmed CM-prefix entity_mismatch pattern (e.g. CMAGUACHICA -> CAGUACHICA)", async () => {
+    server.use(
+      http.post(`${BASE_URL}/reorganize/analyze`, () =>
+        HttpResponse.json({
+          root_path: "D:/LOTE 2",
+          total_files: 1,
+          tipos: [{ tipo: "ACUERDOS", total_files: 1, exception_count: 1 }],
+          exceptions: [
+            {
+              tipo: "ACUERDOS",
+              kind: "entity_mismatch",
+              current_path: "ACUERDOS/CMAGUACHICA/2022/A_CAGUACHICA_0011_2022.pdf",
+              detected_entity: "CAGUACHICA",
+              detected_year: 2022,
+              mtime_year_hint: null,
+              proposed_path: "ACUERDOS/CAGUACHICA/2022/A_CAGUACHICA_0011_2022.pdf",
+            },
+          ],
+          extra_depth: [],
+          extra_depth_total: 0,
+          folder_renames: [],
+        })
+      )
+    );
+    const user = userEvent.setup();
+    render(<ReorganizePanel />);
+
+    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
+    await user.click(screen.getByRole("button", { name: "Analizar" }));
+
+    expect(await screen.findByText(/1 resuelta\(s\) automáticamente/)).toBeInTheDocument();
+    expect(screen.queryByText(/Requieren tu revisión/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+  });
+
+  it("does NOT auto-approve an ordinary entity_mismatch that doesn't match the CM-prefix pattern", async () => {
+    server.use(
+      http.post(`${BASE_URL}/reorganize/analyze`, () =>
+        HttpResponse.json({
+          root_path: "D:/LOTE 2",
+          total_files: 1,
+          tipos: [{ tipo: "ACUERDOS", total_files: 1, exception_count: 1 }],
+          exceptions: [
+            {
+              tipo: "ACUERDOS",
+              kind: "entity_mismatch",
+              current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+              detected_entity: "AGN",
+              detected_year: 2003,
+              mtime_year_hint: null,
+              proposed_path: "ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf",
+            },
+          ],
+          extra_depth: [],
+          extra_depth_total: 0,
+          folder_renames: [],
+        })
+      )
+    );
+    const user = userEvent.setup();
+    render(<ReorganizePanel />);
+
+    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
+    await user.click(screen.getByRole("button", { name: "Analizar" }));
+
+    await screen.findByText("ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf");
+    expect(screen.queryByText(/resuelta\(s\) automáticamente/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+  });
+
   it("counts extra-depth files in the summary only, without listing them", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
@@ -187,11 +257,11 @@ describe("ReorganizePanel", () => {
             {
               tipo: "ACUERDOS",
               kind: "entity_mismatch",
-              current_path: "ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
-              detected_entity: "CAGUACHICA",
-              detected_year: 2015,
+              current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+              detected_entity: "AGN",
+              detected_year: 2003,
               mtime_year_hint: null,
-              proposed_path: "ACUERDOS/CAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
+              proposed_path: "ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf",
             },
             {
               tipo: "DECRETOS",
@@ -215,8 +285,8 @@ describe("ReorganizePanel", () => {
         // the explicit approval below before it's included too.
         expect(body.moves).toEqual([
           {
-            current_path: "ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
-            target_path: "ACUERDOS/CAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
+            current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+            target_path: "ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf",
           },
           {
             current_path: "DECRETOS/2022/D_MSPS_0017AJ_2022.pdf",
@@ -226,8 +296,8 @@ describe("ReorganizePanel", () => {
         return HttpResponse.json({
           results: [
             {
-              current_path: "ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
-              target_path: "ACUERDOS/CAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf",
+              current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+              target_path: "ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf",
               moved: true,
               skip_reason: null,
             },
@@ -247,7 +317,7 @@ describe("ReorganizePanel", () => {
 
     await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
     await user.click(screen.getByRole("button", { name: "Analizar" }));
-    await screen.findByText("ACUERDOS/CMAGUACHICA/2015/A_CAGUACHICA_0003_2015.pdf");
+    await screen.findByText("ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf");
 
     // The DECRETOS row is auto-approved already; Aplicar is enabled with
     // just that, before touching the ACUERDOS row at all.

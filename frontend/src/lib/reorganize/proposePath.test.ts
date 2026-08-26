@@ -123,8 +123,52 @@ describe("isConfidentException", () => {
     expect(isConfidentException(entry)).toBe(false);
   });
 
-  it("is never confident for entity_mismatch, even with a resolved year", () => {
-    const entry = makeException({ kind: "entity_mismatch", detected_entity: "AGN", detected_year: 2003 });
+  it("is never confident for an ordinary entity_mismatch, even with a resolved year", () => {
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+      detected_entity: "AGN",
+      detected_year: 2003,
+    });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("is confident for the confirmed CM-prefix pattern (folder 'CM'+city, filename 'C'+city)", () => {
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/CMAGUACHICA/2022/A_CAGUACHICA_0011_2022.pdf",
+      detected_entity: "CAGUACHICA",
+      detected_year: 2022,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is NOT confident when the folder doesn't start with CM, even if it superficially looks similar", () => {
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/CIRCULAR/2022/A_IRCULAR_0011_2022.pdf",
+      detected_entity: "IRCULAR",
+      detected_year: 2022,
+    });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("never fires at all for a CM folder whose city name genuinely starts with M (e.g. CMEDELLIN)", () => {
+    // Medellín itself starts with M, so real files there say "CMEDELLIN" —
+    // matching the folder exactly. No mismatch, so no exception is ever
+    // raised for them in the first place (this isn't something
+    // isConfidentException needs to guard against; there's nothing to
+    // decide once entity_wrong is already false upstream).
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/CMEDELLIN/2022/A_CMEDELLIN_0011_2022.pdf",
+      detected_entity: "CMEDELLIN",
+      detected_year: 2022,
+    });
+    // Structurally this still matches the pattern function's shape (it's
+    // never even called for a real CMEDELLIN file since entity_wrong is
+    // false), but confirms the pattern check itself is a no-op when
+    // detected_entity already equals the current folder verbatim.
     expect(isConfidentException(entry)).toBe(false);
   });
 

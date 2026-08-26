@@ -266,7 +266,8 @@ excepción que cumple **ambas** condiciones:
 - No es `entity_mismatch` — esa clase siempre significa que la carpeta y
   el nombre del archivo discrepan activamente, lo cual es una decisión de
   criterio (¿cuál de los dos está mal?), no solo un dato faltante por
-  completar.
+  completar — **salvo** que coincida con el patrón confirmado que se
+  explica abajo.
 - Su propia `proposed_path`, calculada con los valores ya detectados (sin
   que el admin escriba nada), no es `null` — esto cubre a la vez que el
   año no venga de `mtime_year_hint` (adivinanza, nunca autoritativa) y que
@@ -275,10 +276,22 @@ excepción que cumple **ambas** condiciones:
 Bajo esta regla: `year_mismatch` siempre califica (el año, por construcción,
 siempre se lee del nombre del archivo, nunca es una adivinanza).
 `missing_entity_folder`/`missing_year_folder` califican solo cuando el dato
-que les faltaba se resolvió limpiamente. `entity_mismatch` y las
-sugerencias de renombrar carpeta (que mueven muchos archivos a la vez
-basándose en una mayoría inferida, no en un solo hecho confirmado) nunca
-se pre-aprueban.
+que les faltaba se resolvió limpiamente. `entity_mismatch` nunca califica
+por sí solo, y las sugerencias de renombrar carpeta (que mueven muchos
+archivos a la vez basándose en una mayoría inferida, no en un solo hecho
+confirmado) nunca se pre-aprueban.
+
+**Patrón confirmado: prefijo "CM" → "C".** Confirmado por el usuario
+después de verificar 16 carpetas `ACUERDOS/CM*`: en 13 de ellas, el nombre
+de archivo dice sistemáticamente lo mismo que la carpeta pero sin la "M"
+(`CMAGUACHICA` → `CAGUACHICA`, `CMARAUCA` → `CARAUCA`, etc.) — una
+convención de nombres real, no errores de tipeo aislados (las otras 3,
+`CMEDELLIN`/`CMOCOA`/`CMONTERIA`, no generan excepción porque ahí la "M"
+es parte real del nombre de la ciudad — Medellín, Mocoa, Montería — y ya
+coinciden). `isConfirmedCmToCPattern` en `proposePath.ts` reconoce este
+patrón específico (carpeta que empieza con "CM", nombre de archivo igual a
+la carpeta quitando esa segunda letra) y SOLO ese — un `entity_mismatch`
+que no encaja en él sigue exigiendo revisión manual como antes.
 
 En la interfaz, las filas pre-aprobadas quedan en una sección aparte y
 colapsada ("N resuelto(s) automáticamente"), con la misma fila completa
