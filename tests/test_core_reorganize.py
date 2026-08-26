@@ -298,6 +298,27 @@ def test_men_filename_token_is_recognized_as_me_and_causes_no_exception(tmp_path
     assert result.folder_renames == []
 
 
+def test_conbog_is_always_normalized_to_concbog_even_on_a_tied_vote(tmp_path):
+    # Reported real case: ACUERDOS/CONBOG had exactly 4 files, split 2-2
+    # between "CONBOG" (agreeing with the folder) and "CONCBOG" — an exact
+    # tie the majority-vote rule can't break on its own. The user confirmed
+    # "CONCBOG" is the correct name, so the alias forces every file (both
+    # groups) to resolve to it, turning the tie into a unanimous rename.
+    _touch(tmp_path / "ACUERDOS" / "CONBOG" / "1995" / "A_CONBOG_0024_1995.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CONBOG" / "2023" / "A_CONBOG_0897_2023.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CONBOG" / "2001" / "A_CONCBOG_0030_2001.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CONBOG" / "2008" / "A_CONCBOG_0341_2008.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.current_entity == "CONBOG"
+    assert fr.suggested_entity == "CONCBOG"
+    assert fr.file_count == 4
+
+
 def test_folder_rename_groups_case_variants_of_the_same_alternate_entity(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_carauca_200_2017.pdf")

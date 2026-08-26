@@ -33,6 +33,7 @@ _IGNORED_FILENAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
 _ENTITY_ALIASES = {
     "SHACIENDABOG": "SDHBOG",
     "MEN": "ME",
+    "CONBOG": "CONCBOG",
 }
 
 
