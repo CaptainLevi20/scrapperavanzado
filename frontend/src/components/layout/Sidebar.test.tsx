@@ -36,6 +36,25 @@ describe("Sidebar", () => {
     expect(await screen.findByText("ana")).toBeInTheDocument();
   });
 
+  it("hides the Laboratorio link for a non-admin user", async () => {
+    setStoredToken("existing-token");
+    server.use(http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "ana", is_admin: false })));
+
+    renderSidebar();
+
+    await screen.findByText("ana");
+    expect(screen.queryByText("Laboratorio")).not.toBeInTheDocument();
+  });
+
+  it("shows the Laboratorio link for an admin user", async () => {
+    setStoredToken("existing-token");
+    server.use(http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "ana", is_admin: true })));
+
+    renderSidebar();
+
+    expect(await screen.findByText("Laboratorio")).toBeInTheDocument();
+  });
+
   it("calls the backend logout endpoint before clearing the local session", async () => {
     setStoredToken("existing-token");
     let logoutCalled = false;
