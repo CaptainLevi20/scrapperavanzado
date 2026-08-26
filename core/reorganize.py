@@ -66,6 +66,19 @@ def _missing_entity_exception(root: Path, tipo: str, year: int, file: Path) -> R
     )
 
 
+def _entity_mismatch_exception(root: Path, tipo: str, folder_entity: str, year: int, file: Path) -> ReorganizeException:
+    correct_entity = _detect_entity_from_filename(file.name)
+    return ReorganizeException(
+        tipo=tipo,
+        kind="entity_mismatch",
+        current_path=_relpath(root, file),
+        detected_entity=correct_entity,
+        detected_year=year,
+        mtime_year_hint=None,
+        proposed_path=f"{tipo}/{correct_entity}/{year}/{file.name}",
+    )
+
+
 def _missing_year_exception(root: Path, tipo: str, entity: Optional[str], file: Path) -> ReorganizeException:
     year = _detect_year_from_filename(file.name)
     mtime_hint = None
@@ -151,9 +164,22 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                             tipo_exceptions += 1
                             exceptions.append(_missing_year_exception(root, tipo, entity, ec))
                         elif _is_year_name(ec.name):
+                            year = int(ec.name)
                             for f in sorted(ec.iterdir()):
                                 if f.is_file():
                                     tipo_total += 1
+                                    # The file already sits at Tipo/Entidad/Año — structurally
+                                    # complete — but the Entidad folder itself might be wrong
+                                    # (e.g. a catch-all "ARCHIVO" bucket) while the filename
+                                    # encodes the real one. Only flag when the filename
+                                    # resolves to a DIFFERENT entity; an unparseable filename
+                                    # can't prove the folder wrong, so it stays as-is.
+                                    correct_entity = _detect_entity_from_filename(f.name)
+                                    if correct_entity is not None and correct_entity != entity:
+                                        tipo_exceptions += 1
+                                        exceptions.append(
+                                            _entity_mismatch_exception(root, tipo, entity, year, f)
+                                        )
                                 else:
                                     tipo_total += _collect_extra_depth(root, tipo, f, extra_depth)
                         else:

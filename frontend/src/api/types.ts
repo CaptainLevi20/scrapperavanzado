@@ -153,7 +153,7 @@ export interface TipoSummary {
   exception_count: number;
 }
 
-export type ReorganizeExceptionKind = "missing_entity_folder" | "missing_year_folder";
+export type ReorganizeExceptionKind = "missing_entity_folder" | "missing_year_folder" | "entity_mismatch";
 
 export interface ReorganizeException {
   tipo: string;

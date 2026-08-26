@@ -60,6 +60,19 @@ def test_analyze_happy_path(api_client, admin_auth_header, tmp_path):
     assert body["exceptions"][0]["proposed_path"] == "DECRETOS/MSPS/2022/D_MSPS_0017AJ_2022.pdf"
 
 
+def test_analyze_detects_an_entity_mismatch(api_client, admin_auth_header, tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "ARCHIVO" / "2003" / "A_AGN_0015_2003.pdf")
+
+    response = api_client.post("/reorganize/analyze", json={"root_path": str(tmp_path)}, headers=admin_auth_header)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["exceptions"]) == 1
+    assert body["exceptions"][0]["kind"] == "entity_mismatch"
+    assert body["exceptions"][0]["detected_entity"] == "AGN"
+    assert body["exceptions"][0]["proposed_path"] == "ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf"
+
+
 def test_apply_happy_path_moves_the_file_on_disk(api_client, admin_auth_header, tmp_path):
     source = tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf"
     _touch(source)

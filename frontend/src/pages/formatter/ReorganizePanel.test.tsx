@@ -139,4 +139,43 @@ describe("ReorganizePanel", () => {
 
     expect(await screen.findByText(/1 archivo\(s\) movido\(s\)/)).toBeInTheDocument();
   });
+
+  it("shows an entity_mismatch exception with the correct entity pre-filled, already confirmed (no warning)", async () => {
+    server.use(
+      http.post(`${BASE_URL}/reorganize/analyze`, () =>
+        HttpResponse.json({
+          root_path: "D:/LOTE 2",
+          total_files: 1,
+          tipos: [{ tipo: "ACUERDOS", total_files: 1, exception_count: 1 }],
+          exceptions: [
+            {
+              tipo: "ACUERDOS",
+              kind: "entity_mismatch",
+              current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+              detected_entity: "AGN",
+              detected_year: 2003,
+              mtime_year_hint: null,
+              proposed_path: "ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf",
+            },
+          ],
+          extra_depth: [],
+          extra_depth_total: 0,
+        })
+      )
+    );
+    const user = userEvent.setup();
+    render(<ReorganizePanel />);
+
+    await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
+    await user.click(screen.getByRole("button", { name: "Analizar" }));
+
+    expect(await screen.findByText("ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf")).toBeInTheDocument();
+    expect(screen.getByLabelText("Entidad para ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf")).toHaveValue("AGN");
+    expect(screen.getByLabelText("Año para ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf")).toHaveValue("2003");
+    expect(screen.getByText("ACUERDOS/AGN/2003/A_AGN_0015_2003.pdf")).toBeInTheDocument();
+    // detected_year came from the existing (correct) year folder, not a
+    // guess — the mismatch is only about the entity, so no year warning.
+    expect(screen.queryByText(/Sin confirmar/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+  });
 });
