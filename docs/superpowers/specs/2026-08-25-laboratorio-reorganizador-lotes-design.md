@@ -377,15 +377,19 @@ reubica el contenido actual sin cambiar su lógica:
   nombre del componente).
 - `frontend/src/pages/formatter/ReorganizePanel.tsx` — nuevo. Un input de
   texto para la ruta + botón "Analizar" → tabla de sugerencias de renombrar
-  carpeta (Tipo, carpeta actual, entidad nueva editable, archivos
-  afectados, carpeta propuesta, "Aprobar"/"Deshacer") + tabla de
-  excepciones (Tipo, ruta actual, entidad detectada editable, año
-  detectado/sugerido editable, ruta propuesta, "Aprobar"/"Deshacer" — en
-  todas las filas, no solo `entity_mismatch`/`year_mismatch`, ver "Modelo
-  de aprobación" arriba) + botón "Aplicar" único para ambas tablas
-  (deshabilitado hasta que haya al menos una fila aprobada y todas las
-  aprobadas tengan sus campos resueltos). Los casos de profundidad extra
-  solo se cuentan en el resumen de arriba
+  carpeta ("Aprobar"/"Deshacer", Tipo, carpeta actual, entidad nueva
+  editable, archivos afectados, carpeta propuesta) + tabla de excepciones
+  ("Aprobar"/"Deshacer", Tipo, ruta actual, entidad detectada editable, año
+  detectado/sugerido editable, ruta propuesta — en todas las filas, no solo
+  `entity_mismatch`/`year_mismatch`, ver "Modelo de aprobación" arriba).
+  El botón "Aprobar"/"Deshacer" es la **primera** columna de cada tabla (no
+  la última) para que quede siempre visible sin scroll lateral, y las
+  columnas de ruta (potencialmente largas) ajustan el texto en varias
+  líneas (`max-w-xs break-words`) en vez de forzar la tabla más ancha que
+  la pantalla. + botón "Aplicar" único para ambas tablas (deshabilitado
+  hasta que haya al menos una fila aprobada y todas las aprobadas tengan
+  sus campos resueltos). Los casos de profundidad extra solo se cuentan en
+  el resumen de arriba
   (`extra_depth_total`) — nunca se listan uno por uno en pantalla, ya que
   son puramente informativos y nunca se tocan (a diferencia de las otras
   dos tablas, no cambian según lo que el admin haga).

@@ -14,6 +14,11 @@ import { Input } from "../../components/ui/input";
 import { computeFolderRenameTarget, computeProposedPath, type Correction } from "../../lib/reorganize/proposePath";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../../lib/tableStyles";
 
+// Full file/folder paths can be long — wrap them instead of letting them
+// force the table wider than the viewport, which would push the Aprobar
+// button out past a horizontal scrollbar.
+const TD_PATH = `${TD} max-w-xs break-words`;
+
 type ReorganizeState =
   | { step: "idle" }
   | { step: "loading" }
@@ -257,29 +262,17 @@ export function ReorganizePanel() {
                       <table className={TABLE}>
                         <thead>
                           <tr className={THEAD_ROW}>
+                            <th className={TH}></th>
                             <th className={TH}>Tipo</th>
                             <th className={TH}>Carpeta actual</th>
                             <th className={TH}>Nueva entidad</th>
                             <th className={TH}>Archivos afectados</th>
                             <th className={TH}>Carpeta propuesta</th>
-                            <th className={TH}></th>
                           </tr>
                         </thead>
                         <tbody>
                           {renameRows.map(({ fr, entityName, proposedPath, isApproved }) => (
                             <tr key={fr.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
-                              <td className={TD}>{fr.tipo}</td>
-                              <td className={TD}>{fr.current_path}</td>
-                              <td className={TD}>
-                                <Input
-                                  aria-label={`Nueva entidad para ${fr.current_path}`}
-                                  value={entityName}
-                                  onChange={(event) => handleFolderRenameChange(fr.current_path, event.target.value)}
-                                  className="w-28"
-                                />
-                              </td>
-                              <td className={TD}>{fr.file_count}</td>
-                              <td className={TD}>{proposedPath ?? "—"}</td>
                               <td className={TD}>
                                 <Button
                                   type="button"
@@ -290,6 +283,18 @@ export function ReorganizePanel() {
                                   {isApproved ? "Deshacer" : "Aprobar"}
                                 </Button>
                               </td>
+                              <td className={TD}>{fr.tipo}</td>
+                              <td className={TD_PATH}>{fr.current_path}</td>
+                              <td className={TD}>
+                                <Input
+                                  aria-label={`Nueva entidad para ${fr.current_path}`}
+                                  value={entityName}
+                                  onChange={(event) => handleFolderRenameChange(fr.current_path, event.target.value)}
+                                  className="w-28"
+                                />
+                              </td>
+                              <td className={TD}>{fr.file_count}</td>
+                              <td className={TD_PATH}>{proposedPath ?? "—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -305,19 +310,29 @@ export function ReorganizePanel() {
                     <table className={TABLE}>
                       <thead>
                         <tr className={THEAD_ROW}>
+                          <th className={TH}></th>
                           <th className={TH}>Tipo</th>
                           <th className={TH}>Ruta actual</th>
                           <th className={TH}>Entidad</th>
                           <th className={TH}>Año</th>
                           <th className={TH}>Ruta propuesta</th>
-                          <th className={TH}></th>
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map(({ entry, correction, proposedPath, isApproved }) => (
                           <tr key={entry.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
+                            <td className={TD}>
+                              <Button
+                                type="button"
+                                variant={isApproved ? "secondary" : "outline"}
+                                size="xs"
+                                onClick={() => handleToggleApproved(entry.current_path)}
+                              >
+                                {isApproved ? "Deshacer" : "Aprobar"}
+                              </Button>
+                            </td>
                             <td className={TD}>{entry.tipo}</td>
-                            <td className={TD}>{entry.current_path}</td>
+                            <td className={TD_PATH}>{entry.current_path}</td>
                             <td className={TD}>
                               <Input
                                 aria-label={`Entidad para ${entry.current_path}`}
@@ -343,17 +358,7 @@ export function ReorganizePanel() {
                                 </p>
                               )}
                             </td>
-                            <td className={TD}>{proposedPath ?? "—"}</td>
-                            <td className={TD}>
-                              <Button
-                                type="button"
-                                variant={isApproved ? "secondary" : "outline"}
-                                size="xs"
-                                onClick={() => handleToggleApproved(entry.current_path)}
-                              >
-                                {isApproved ? "Deshacer" : "Aprobar"}
-                              </Button>
-                            </td>
+                            <td className={TD_PATH}>{proposedPath ?? "—"}</td>
                           </tr>
                         ))}
                       </tbody>
