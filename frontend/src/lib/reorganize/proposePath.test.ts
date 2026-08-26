@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReorganizeException } from "../../api/types";
-import { computeFolderRenameTarget, computeProposedPath } from "./proposePath";
+import { computeFolderRenameTarget, computeProposedPath, isConfidentException } from "./proposePath";
 
 function makeException(overrides: Partial<ReorganizeException> = {}): ReorganizeException {
   return {
@@ -88,5 +88,51 @@ describe("computeFolderRenameTarget", () => {
     expect(computeFolderRenameTarget("ACUERDOS", "../..")).toBeNull();
     expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA/../etc")).toBeNull();
     expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA\\etc")).toBeNull();
+  });
+});
+
+describe("isConfidentException", () => {
+  it("is confident for missing_entity_folder once resolved from the filename", () => {
+    expect(isConfidentException(makeException())).toBe(true);
+  });
+
+  it("is confident for year_mismatch (year is always read from the filename, never a guess)", () => {
+    const entry = makeException({
+      kind: "year_mismatch",
+      detected_entity: "MME",
+      detected_year: 2015,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is confident for missing_year_folder once the year is resolved from the filename", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      detected_entity: "PGN",
+      detected_year: 2019,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is NOT confident when the year is only an mtime guess", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      detected_year: null,
+      mtime_year_hint: 2022,
+    });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("is never confident for entity_mismatch, even with a resolved year", () => {
+    const entry = makeException({ kind: "entity_mismatch", detected_entity: "AGN", detected_year: 2003 });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("is NOT confident for missing_entity_folder when the entity couldn't be parsed, even though the year is always known", () => {
+    // detected_year for missing_entity_folder is the year of the folder the
+    // file already sits in — always known, never a guess — but a blank
+    // entity still means a human has to type one in.
+    const entry = makeException({ detected_entity: null, detected_year: 2022 });
+    expect(isConfidentException(entry)).toBe(false);
   });
 });

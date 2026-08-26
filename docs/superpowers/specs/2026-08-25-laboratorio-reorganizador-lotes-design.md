@@ -256,6 +256,38 @@ modelo anterior ("todo se aplica salvo lo que descartes con 'Dejar así'")
 no daba suficiente control fila por fila, sobre todo en lotes con cientos
 de excepciones.
 
+**Pre-aprobación de casos sin ambigüedad.** El modelo de aprobación fila
+por fila, con cientos de excepciones, generaba fatiga de scroll y lectura
+para casos donde en realidad no hay ninguna decisión que tomar — el dato
+faltante ya se leyó con confianza directo del nombre del archivo. Por eso,
+justo después de analizar, `frontend/src/lib/reorganize/proposePath.ts`
+(`isConfidentException`) marca como pre-aprobada automáticamente toda
+excepción que cumple **ambas** condiciones:
+- No es `entity_mismatch` — esa clase siempre significa que la carpeta y
+  el nombre del archivo discrepan activamente, lo cual es una decisión de
+  criterio (¿cuál de los dos está mal?), no solo un dato faltante por
+  completar.
+- Su propia `proposed_path`, calculada con los valores ya detectados (sin
+  que el admin escriba nada), no es `null` — esto cubre a la vez que el
+  año no venga de `mtime_year_hint` (adivinanza, nunca autoritativa) y que
+  no falte una Entidad requerida sin resolver.
+
+Bajo esta regla: `year_mismatch` siempre califica (el año, por construcción,
+siempre se lee del nombre del archivo, nunca es una adivinanza).
+`missing_entity_folder`/`missing_year_folder` califican solo cuando el dato
+que les faltaba se resolvió limpiamente. `entity_mismatch` y las
+sugerencias de renombrar carpeta (que mueven muchos archivos a la vez
+basándose en una mayoría inferida, no en un solo hecho confirmado) nunca
+se pre-aprueban.
+
+En la interfaz, las filas pre-aprobadas quedan en una sección aparte y
+colapsada ("N resuelto(s) automáticamente"), con la misma fila completa
+(Entidad/Año editables, botón "Aprobar"/"Deshacer") por si el admin quiere
+revisar o deshacer alguna — simplemente no exige que las abra o las toque
+para que "Aplicar" quede habilitado. Las filas que sí necesitan criterio
+quedan en su propia tabla ("Requieren tu revisión"), visualmente separada
+para que el admin enfoque su atención ahí.
+
 ## Backend
 
 **`core/reorganize.py`** (lógica pura, sin FastAPI ni I/O de red):
@@ -423,7 +455,11 @@ reubica el contenido actual sin cambiar su lógica:
 - `frontend/src/lib/reorganize/proposePath.ts` — `computeProposedPath`
   (excepciones archivo por archivo) y `computeFolderRenameTarget(tipo,
   entityName)` (sugerencias de renombrar carpeta), ambas puras y editables
-  — nunca autoritativas.
+  — nunca autoritativas. También `initialCorrection(entry)` (los valores
+  detectados, antes de cualquier edición del admin) e
+  `isConfidentException(entry)` (ver "Pre-aprobación de casos sin
+  ambigüedad" arriba), compartidas entre `ReorganizePanel.tsx` y sus
+  pruebas.
 
 `lib/formatter/` (la lógica de renombrado) no cambia — la sigue usando
 `RenamePanel.tsx` exactamente igual que hoy.

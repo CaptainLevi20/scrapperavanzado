@@ -5,6 +5,11 @@ export interface Correction {
   year: string;
 }
 
+export function initialCorrection(entry: ReorganizeException): Correction {
+  const year = entry.detected_year ?? entry.mtime_year_hint;
+  return { entity: entry.detected_entity ?? "", year: year !== null ? String(year) : "" };
+}
+
 function filenameOf(currentPath: string): string {
   const segments = currentPath.split("/");
   return segments[segments.length - 1];
@@ -32,4 +37,21 @@ export function computeFolderRenameTarget(tipo: string, entityName: string): str
   if (!entity) return null;
   if (/[\\/]/.test(entity) || entity.includes("..")) return null;
   return `${tipo}/${entity}`;
+}
+
+// Whether a file's own exception can be resolved without a human decision.
+// entity_mismatch never qualifies — the folder and the filename actively
+// disagree, which is a judgment call about which one is right, not just a
+// gap to fill in. For the other kinds: the year must come from the
+// filename itself, never the mtime fallback (that's explicitly not
+// authoritative), AND the exception's own detected values must resolve to
+// a complete, valid path on their own — reusing computeProposedPath
+// against initialCorrection is what actually proves nothing is left
+// blank (e.g. a missing_entity_folder whose entity couldn't be read from
+// the filename still needs a human to type one in, even though its year
+// is known from the folder it's already sitting in).
+export function isConfidentException(entry: ReorganizeException): boolean {
+  if (entry.kind === "entity_mismatch") return false;
+  if (entry.detected_year === null) return false;
+  return computeProposedPath(entry, initialCorrection(entry)) !== null;
 }

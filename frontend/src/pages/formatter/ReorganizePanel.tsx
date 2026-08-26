@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { ApiError } from "../../api/client";
 import { analyzeReorganization, applyReorganization } from "../../api/reorganize";
-import type {
-  ApplyResult,
-  BatchAnalysis,
-  ReorganizeException,
-  ResolvedFolderRename,
-  ResolvedMove,
-} from "../../api/types";
+import type { ApplyResult, BatchAnalysis, ResolvedFolderRename, ResolvedMove } from "../../api/types";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { computeFolderRenameTarget, computeProposedPath, type Correction } from "../../lib/reorganize/proposePath";
+import {
+  computeFolderRenameTarget,
+  computeProposedPath,
+  initialCorrection,
+  isConfidentException,
+  type Correction,
+} from "../../lib/reorganize/proposePath";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../../lib/tableStyles";
 
 // Full file/folder paths can be long — wrap them instead of letting them
@@ -35,11 +35,6 @@ type ReorganizeState =
   | { step: "applying" }
   | { step: "applied"; result: ApplyResult };
 
-function initialCorrection(entry: ReorganizeException): Correction {
-  const year = entry.detected_year ?? entry.mtime_year_hint;
-  return { entity: entry.detected_entity ?? "", year: year !== null ? String(year) : "" };
-}
-
 export function ReorganizePanel() {
   const [rootPath, setRootPath] = useState("");
   const [state, setState] = useState<ReorganizeState>({ step: "idle" });
@@ -48,12 +43,21 @@ export function ReorganizePanel() {
     setState({ step: "loading" });
     try {
       const analysis = await analyzeReorganization(rootPath);
+      // Pre-approve exceptions that don't need a human decision — the missing
+      // piece was read confidently from the filename itself, and it isn't an
+      // entity_mismatch (the folder and filename actively disagreeing is
+      // always a judgment call). Folder renames always still need a manual
+      // look, since they move many files at once based on an inferred
+      // majority, not a single confirmed fact.
+      const approved = new Set(
+        analysis.exceptions.filter(isConfidentException).map((entry) => entry.current_path)
+      );
       setState({
         step: "loaded",
         analysis,
         corrections: new Map(),
         folderRenameCorrections: new Map(),
-        approved: new Set(),
+        approved,
       });
     } catch (error) {
       setState({ step: "error", message: error instanceof ApiError ? error.message : "No se pudo analizar la carpeta." });
@@ -208,6 +212,8 @@ export function ReorganizePanel() {
             const proposedPath = computeProposedPath(entry, correction);
             return { entry, correction, proposedPath, isApproved: approved.has(entry.current_path) };
           });
+          const autoRows = rows.filter((row) => isConfidentException(row.entry));
+          const reviewRows = rows.filter((row) => !isConfidentException(row.entry));
           const renameRows = analysis.folder_renames.map((fr) => {
             const entityName = folderRenameCorrections.get(fr.current_path) ?? fr.suggested_entity;
             const proposedPath = computeFolderRenameTarget(fr.tipo, entityName);
@@ -223,7 +229,8 @@ export function ReorganizePanel() {
           return (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                {analysis.total_files} archivo(s) analizados, {analysis.exceptions.length} excepción(es),{" "}
+                {analysis.total_files} archivo(s) analizados, {analysis.exceptions.length} excepción(es)
+                {autoRows.length > 0 ? ` (${autoRows.length} resuelta(s) automáticamente)` : ""},{" "}
                 {analysis.extra_depth_total} archivo(s) con profundidad extra (informativo, no se modifican).
               </p>
 
@@ -248,6 +255,74 @@ export function ReorganizePanel() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {reviewRows.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Requieren tu revisión (la carpeta y el nombre del archivo no coinciden)
+                  </p>
+                  <div className={TABLE_SHELL}>
+                    <div className={TABLE_SCROLL}>
+                      <table className={TABLE}>
+                        <thead>
+                          <tr className={THEAD_ROW}>
+                            <th className={TH}></th>
+                            <th className={TH}>Tipo</th>
+                            <th className={TH}>Ruta actual</th>
+                            <th className={TH}>Entidad</th>
+                            <th className={TH}>Año</th>
+                            <th className={TH}>Ruta propuesta</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reviewRows.map(({ entry, correction, proposedPath, isApproved }) => (
+                            <tr key={entry.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
+                              <td className={TD}>
+                                <Button
+                                  type="button"
+                                  variant={isApproved ? "secondary" : "outline"}
+                                  size="xs"
+                                  onClick={() => handleToggleApproved(entry.current_path)}
+                                >
+                                  {isApproved ? "Deshacer" : "Aprobar"}
+                                </Button>
+                              </td>
+                              <td className={TD}>{entry.tipo}</td>
+                              <td className={TD_PATH}>{entry.current_path}</td>
+                              <td className={TD}>
+                                <Input
+                                  aria-label={`Entidad para ${entry.current_path}`}
+                                  value={correction.entity}
+                                  onChange={(event) =>
+                                    handleCorrectionChange(entry.current_path, "entity", event.target.value)
+                                  }
+                                  className="w-28"
+                                />
+                              </td>
+                              <td className={TD}>
+                                <Input
+                                  aria-label={`Año para ${entry.current_path}`}
+                                  value={correction.year}
+                                  onChange={(event) =>
+                                    handleCorrectionChange(entry.current_path, "year", event.target.value)
+                                  }
+                                  className="w-24"
+                                />
+                                {entry.detected_year === null && (
+                                  <p className="mt-1 text-xs text-destructive">
+                                    Sin confirmar — revisa el documento
+                                  </p>
+                                )}
+                              </td>
+                              <td className={TD_PATH}>{proposedPath ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -304,67 +379,68 @@ export function ReorganizePanel() {
                 </div>
               )}
 
-              {rows.length > 0 && (
-                <div className={TABLE_SHELL}>
-                  <div className={TABLE_SCROLL}>
-                    <table className={TABLE}>
-                      <thead>
-                        <tr className={THEAD_ROW}>
-                          <th className={TH}></th>
-                          <th className={TH}>Tipo</th>
-                          <th className={TH}>Ruta actual</th>
-                          <th className={TH}>Entidad</th>
-                          <th className={TH}>Año</th>
-                          <th className={TH}>Ruta propuesta</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map(({ entry, correction, proposedPath, isApproved }) => (
-                          <tr key={entry.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
-                            <td className={TD}>
-                              <Button
-                                type="button"
-                                variant={isApproved ? "secondary" : "outline"}
-                                size="xs"
-                                onClick={() => handleToggleApproved(entry.current_path)}
-                              >
-                                {isApproved ? "Deshacer" : "Aprobar"}
-                              </Button>
-                            </td>
-                            <td className={TD}>{entry.tipo}</td>
-                            <td className={TD_PATH}>{entry.current_path}</td>
-                            <td className={TD}>
-                              <Input
-                                aria-label={`Entidad para ${entry.current_path}`}
-                                value={correction.entity}
-                                onChange={(event) =>
-                                  handleCorrectionChange(entry.current_path, "entity", event.target.value)
-                                }
-                                className="w-28"
-                              />
-                            </td>
-                            <td className={TD}>
-                              <Input
-                                aria-label={`Año para ${entry.current_path}`}
-                                value={correction.year}
-                                onChange={(event) =>
-                                  handleCorrectionChange(entry.current_path, "year", event.target.value)
-                                }
-                                className="w-24"
-                              />
-                              {entry.detected_year === null && (
-                                <p className="mt-1 text-xs text-destructive">
-                                  Sin confirmar — revisa el documento
-                                </p>
-                              )}
-                            </td>
-                            <td className={TD_PATH}>{proposedPath ?? "—"}</td>
+              {autoRows.length > 0 && (
+                <details className="space-y-2">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">
+                    {autoRows.length} resuelto(s) automáticamente (entidad y año ya coincidían con el nombre del
+                    archivo — no necesitan tu aprobación, pero puedes revisarlos o deshacerlos aquí)
+                  </summary>
+                  <div className={TABLE_SHELL}>
+                    <div className={TABLE_SCROLL}>
+                      <table className={TABLE}>
+                        <thead>
+                          <tr className={THEAD_ROW}>
+                            <th className={TH}></th>
+                            <th className={TH}>Tipo</th>
+                            <th className={TH}>Ruta actual</th>
+                            <th className={TH}>Entidad</th>
+                            <th className={TH}>Año</th>
+                            <th className={TH}>Ruta propuesta</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {autoRows.map(({ entry, correction, proposedPath, isApproved }) => (
+                            <tr key={entry.current_path} className={`${TBODY_ROW} ${isApproved ? "bg-primary/5" : ""}`}>
+                              <td className={TD}>
+                                <Button
+                                  type="button"
+                                  variant={isApproved ? "secondary" : "outline"}
+                                  size="xs"
+                                  onClick={() => handleToggleApproved(entry.current_path)}
+                                >
+                                  {isApproved ? "Deshacer" : "Aprobar"}
+                                </Button>
+                              </td>
+                              <td className={TD}>{entry.tipo}</td>
+                              <td className={TD_PATH}>{entry.current_path}</td>
+                              <td className={TD}>
+                                <Input
+                                  aria-label={`Entidad para ${entry.current_path}`}
+                                  value={correction.entity}
+                                  onChange={(event) =>
+                                    handleCorrectionChange(entry.current_path, "entity", event.target.value)
+                                  }
+                                  className="w-28"
+                                />
+                              </td>
+                              <td className={TD}>
+                                <Input
+                                  aria-label={`Año para ${entry.current_path}`}
+                                  value={correction.year}
+                                  onChange={(event) =>
+                                    handleCorrectionChange(entry.current_path, "year", event.target.value)
+                                  }
+                                  className="w-24"
+                                />
+                              </td>
+                              <td className={TD_PATH}>{proposedPath ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
+                </details>
               )}
 
               <Button onClick={() => void handleApply()} disabled={!canApply}>
