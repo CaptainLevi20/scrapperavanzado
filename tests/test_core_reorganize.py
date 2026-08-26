@@ -358,6 +358,33 @@ def test_entity_mismatch_still_corrects_the_year_when_both_are_wrong(tmp_path):
     assert exc.proposed_path == "ACUERDOS/AGN/2015/A_AGN_0015_2015.pdf"
 
 
+def test_no_entity_mismatch_for_a_hyphenated_joint_entity_matching_the_folder(tmp_path):
+    # Reported real case: CIRCULAR/ANCP/2023/C_ANCP-DAFP_0001_2023.pdf — a
+    # circular jointly issued by ANCP and DAFP. It was proposing to move
+    # the file into a brand-new "ANCP-DAFP" folder even though ANCP (one of
+    # the two entities named) is exactly the folder it's already in.
+    _touch(tmp_path / "CIRCULAR" / "ANCP" / "2023" / "C_ANCP-DAFP_0001_2023.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+    assert _by_tipo(result, "CIRCULAR").total_files == 1
+    assert _by_tipo(result, "CIRCULAR").exception_count == 0
+
+
+def test_no_entity_mismatch_for_a_hyphenated_joint_entity_matching_neither_part(tmp_path):
+    # Same principle even when the current folder isn't one of the named
+    # entities at all — a hyphenated value is never a single value to
+    # compare against a folder, so it's left alone either way.
+    _touch(tmp_path / "CIRCULAR" / "MIJ" / "2023" / "C_ANCP-DAFP_0001_2023.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+
+
 def test_missing_entity_folder_resolved_from_filename(tmp_path):
     _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "D_PGN_0001_2019.pdf")
     _touch(tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf")

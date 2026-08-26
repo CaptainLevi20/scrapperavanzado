@@ -164,15 +164,28 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    `" CTCP"` cuentan como el mismo valor, no como dos entidades distintas.
 
    Un archivo cuyo nombre resuelve a una entidad **con guion** (ej.
-   `MME-MJD-MDEF`, una circular conjunta de varios ministerios) no cuenta
-   como voto ni a favor ni en contra al calcular el consenso — no es que
-   discrepe con la carpeta, es que menciona más de una entidad a la vez.
-   Caso real: `CIRCULAR/Min Minas y Energia` tenía 49 archivos que
-   nombraban `MME` y 2 circulares conjuntas (`MME-MJD-MDEF`,
-   `MME-MTRA`) — sin esta excepción, esos 2 archivos rompían el consenso
-   de los 49 y bloqueaban la sugerencia para toda la carpeta. Si la carpeta
-   sí se renombra, esos archivos "conjuntos" se mueven igual (la carpeta se
-   mueve completa), simplemente no cuentan para decidir si renombrar.
+   `MME-MJD-MDEF`, una circular conjunta de varios ministerios) nunca se
+   usa para proponer un cambio — ni a nivel de carpeta completa ni a nivel
+   de archivo individual. No es que discrepe con la carpeta, es que
+   menciona más de una entidad a la vez, así que no hay un solo valor
+   contra el cual compararla. Esto aplica **incluso si ninguna de las
+   entidades mencionadas coincide con la carpeta actual** — el archivo
+   simplemente se deja como está en ambos casos.
+   - En la sugerencia de renombrar carpeta: no cuenta como voto ni a favor
+     ni en contra al calcular el consenso. Caso real:
+     `CIRCULAR/Min Minas y Energia` tenía 49 archivos que nombraban `MME` y
+     2 circulares conjuntas (`MME-MJD-MDEF`, `MME-MTRA`) — sin esta
+     excepción, esos 2 archivos rompían el consenso de los 49 y bloqueaban
+     la sugerencia para toda la carpeta. Si la carpeta sí se renombra, esos
+     archivos "conjuntos" se mueven igual (la carpeta se mueve completa),
+     simplemente no cuentan para decidir si renombrar.
+   - Por archivo individual (`entity_mismatch`): tampoco se marca como
+     excepción, aunque la carpeta actual no coincida con ninguna de las
+     entidades del nombre. Caso real:
+     `CIRCULAR/ANCP/2023/C_ANCP-DAFP_0001_2023.pdf` — antes de esta regla
+     se proponía crear una carpeta nueva `ANCP-DAFP`, cuando en realidad
+     `ANCP` (una de las dos entidades mencionadas) ya es la carpeta donde
+     vive el archivo.
 
    Como con `entity_mismatch`/`year_mismatch`, el nombre de entidad
    sugerido es editable, y la fila requiere aprobación explícita antes de

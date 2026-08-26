@@ -319,8 +319,18 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                             # folder wrong, so it stays as-is. Entity takes priority
                             # when both are wrong — the corrected year still rides
                             # along on that same proposed move, rather than raising
-                            # two separate exceptions for one file.
-                            entity_wrong = correct_entity is not None and not _same_entity(correct_entity, entity)
+                            # two separate exceptions for one file. A hyphenated
+                            # entity (a joint document naming more than one, e.g.
+                            # "ANCP-DAFP") is never used to propose an entity move
+                            # here either — same reasoning as the folder-rename vote
+                            # excluding it: it isn't really disagreeing with the
+                            # folder, it's just not a single value to compare at all,
+                            # even when the folder happens to be none of the parts.
+                            entity_wrong = (
+                                correct_entity is not None
+                                and "-" not in correct_entity
+                                and not _same_entity(correct_entity, entity)
+                            )
                             year_wrong = correct_year is not None and correct_year != year
                             if entity_wrong:
                                 tipo_exceptions += 1
