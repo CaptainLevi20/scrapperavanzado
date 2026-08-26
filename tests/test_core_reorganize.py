@@ -695,6 +695,23 @@ def test_detected_entity_rejects_a_purely_numeric_second_token(tmp_path):
     assert exc.proposed_path is None
 
 
+def test_no_entity_mismatch_when_a_missing_underscore_merges_entity_with_the_next_field(tmp_path):
+    # Reported real case: CONCEPTO/SDHBOG/2015/CTO_SDHBOG2015IE18890_2015.pdf
+    # — meant to be "CTO_SDHBOG_2015IE18890_2015.pdf" but a missing
+    # underscore merged the entity with the document identifier. The
+    # resulting "SDHBOG2015IE18890" isn't a real entity (no real entity
+    # code anywhere in the batch has ever contained a digit) — it must not
+    # propose creating a garbage folder for it.
+    _touch(tmp_path / "CONCEPTO" / "SDHBOG" / "2015" / "CTO_SDHBOG2015IE18890_2015.pdf")
+    _touch(tmp_path / "CONCEPTO" / "SDHBOG" / "2018" / "CTO_SDHBOG2_0010_2018.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+    assert _by_tipo(result, "CONCEPTO").total_files == 2
+
+
 def test_detected_entity_strips_a_stray_space_typo(tmp_path):
     _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "D_PGN_0001_2019.pdf")
     _touch(tmp_path / "DECRETOS" / "2022" / "D_ PGN_0002_2022.pdf")

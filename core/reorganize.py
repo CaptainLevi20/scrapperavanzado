@@ -71,13 +71,18 @@ def _detect_entity_from_filename(filename: str) -> Optional[str]:
     entity = parts[1].strip()
     if not entity:
         return None
-    # A real entity code is always at least partly alphabetic (MSPS, PGN,
-    # AGN, GC...) — a purely numeric second token means the filename
-    # actually follows the shorter CODIGO_NUMERO_AÑO convention (no entity
-    # segment at all, e.g. Gacetas' GC_0114_1992.pdf), and what looked like
-    # "parts[1]" is really the document number, not an entity. isdigit()
-    # also covers a year mistakenly landing in that position.
-    if entity.isdigit():
+    # A real entity code, in every case seen so far, is purely alphabetic —
+    # never a single digit in it (MSPS, PGN, AGN, GC, SDHBOG...). A token
+    # containing any digit means either the shorter CODIGO_NUMERO_AÑO
+    # convention (no entity segment at all, e.g. Gacetas' GC_0114_1992.pdf,
+    # where "parts[1]" is really the document number), a year landing in
+    # that position, or a filename missing an underscore that merged the
+    # entity with the next field (e.g. "CTO_SDHBOG2015IE18890_2015.pdf",
+    # meant to be "CTO_SDHBOG_2015IE18890_2015.pdf" — "SDHBOG2015IE18890"
+    # is not a real entity, just a data-entry mistake). None of these are a
+    # value worth comparing against a folder name, so all of them resolve
+    # to "can't determine" rather than risk proposing a garbage folder.
+    if any(ch.isdigit() for ch in entity):
         return None
     return _ENTITY_ALIASES.get(entity.upper(), entity)
 

@@ -210,13 +210,21 @@ sentido.
    - El **año**: el token de 4 dígitos que matchea el patrón de año, típicamente
      el último segmento antes de la extensión.
    - La **entidad**: el segundo token separado por `_` (después del código
-     de tipo), cuando aplica — pero solo si ese token no es puramente
-     numérico. Algunas series de documentos (ej. Gacetas: `GC_0114_1992.pdf`)
-     siguen un patrón más corto `CODIGO_NUMERO_AÑO` (3 tokens, sin entidad
-     codificada), y en ese caso el segundo token es el número del documento,
-     no una entidad — un código de entidad real siempre tiene letras
-     (`MSPS`, `PGN`, `AGN`, `GC`...), así que un token todo-numérico ahí
-     nunca se toma como entidad.
+     de tipo), cuando aplica — pero solo si ese token no contiene ningún
+     dígito. Un código de entidad real, en todos los casos vistos hasta
+     ahora en el lote completo, es siempre puramente alfabético (`MSPS`,
+     `PGN`, `AGN`, `GC`, `SDHBOG`...) — nunca tiene un solo dígito. Un token
+     con dígitos ahí significa una de tres cosas: el patrón más corto
+     `CODIGO_NUMERO_AÑO` (3 tokens, sin entidad codificada, ej. Gacetas:
+     `GC_0114_1992.pdf`, donde el segundo token es el número del documento);
+     un año que cayó en esa posición por error; o un guion bajo faltante que
+     pegó la entidad con el siguiente campo (caso real:
+     `CTO_SDHBOG2015IE18890_2015.pdf`, que debía ser
+     `CTO_SDHBOG_2015IE18890_2015.pdf` — `SDHBOG2015IE18890` no es una
+     entidad real, es un error de tipeo). Ninguno de los tres es un valor
+     confiable para comparar contra una carpeta, así que todos resuelven a
+     "no se puede determinar" en vez de arriesgarse a proponer una carpeta
+     basura.
    Si el nombre no calza con ese patrón (como `RSG2058.docx`, sin año ni
    entidad codificados), no se puede resolver automáticamente.
 5. **No resuelto automáticamente → revisión manual.** Se marca la excepción
