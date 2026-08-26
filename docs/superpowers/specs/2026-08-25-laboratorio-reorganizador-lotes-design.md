@@ -327,6 +327,23 @@ patrón específico (carpeta que empieza con "CM", nombre de archivo igual a
 la carpeta quitando esa segunda letra) y SOLO ese — un `entity_mismatch`
 que no encaja en él sigue exigiendo revisión manual como antes.
 
+**Patrón confirmado: fusión CONCEPTO/SDH → SDHBOG.** Distinto del caso
+anterior: aquí no hay una carpeta nueva que crear, sino archivos sueltos
+que deben unirse a `CONCEPTO/SDHBOG`, una carpeta que ya existe con 900+
+archivos. El renombre de carpeta completo (arriba) nunca puede encargarse
+de esto porque exige que el destino NO exista todavía — fusionar dentro de
+una carpeta que ya está ahí no es un renombre, es un movimiento archivo
+por archivo, así que sin este patrón esas filas se quedarían pidiendo
+aprobación manual para siempre aunque el destino ya esté establecido y
+confirmado. `isConfirmedSdhToSdhbogMerge` en `proposePath.ts` reconoce
+este caso específico (Tipo `CONCEPTO`, carpeta actual `SDH`, entidad
+detectada `SDHBOG`) y SOLO ese — no se generalizó a "cualquier
+`entity_mismatch` cuya carpeta destino ya exista", porque al revisar los
+demás casos de esa forma en el lote real apareció al menos uno
+(`CIRCULAR/COINFO` → `CIRCULAR/ARCHIVO`) que probablemente está mal
+(mover un documento hacia el bucket genérico "ARCHIVO" no parece correcto)
+— generalizar habría aprobado ese caso sin revisión también.
+
 En la interfaz, las filas pre-aprobadas quedan en secciones aparte y
 colapsadas ("N resuelto(s) automáticamente" para excepciones, "N
 carpeta(s) para renombrar" para las sugerencias de renombrar carpeta),

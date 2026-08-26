@@ -172,6 +172,37 @@ describe("isConfidentException", () => {
     expect(isConfidentException(entry)).toBe(false);
   });
 
+  it("is confident for the confirmed CONCEPTO/SDH -> SDHBOG merge into an already-existing folder", () => {
+    const entry = makeException({
+      tipo: "CONCEPTO",
+      kind: "entity_mismatch",
+      current_path: "CONCEPTO/SDH/2025/CTO_SDHBOG_2025EE202811_2025.pdf",
+      detected_entity: "SDHBOG",
+      detected_year: 2025,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is NOT confident for an SDH-named folder outside CONCEPTO, or for a different detected entity", () => {
+    const wrongTipo = makeException({
+      tipo: "RESOLUCIONES",
+      kind: "entity_mismatch",
+      current_path: "RESOLUCIONES/SDH/2020/R_SDHBOG_0001_2020.pdf",
+      detected_entity: "SDHBOG",
+      detected_year: 2020,
+    });
+    expect(isConfidentException(wrongTipo)).toBe(false);
+
+    const wrongEntity = makeException({
+      tipo: "CONCEPTO",
+      kind: "entity_mismatch",
+      current_path: "CONCEPTO/SDH/2020/CTO_OTHER_0001_2020.pdf",
+      detected_entity: "OTHER",
+      detected_year: 2020,
+    });
+    expect(isConfidentException(wrongEntity)).toBe(false);
+  });
+
   it("is NOT confident for missing_entity_folder when the entity couldn't be parsed, even though the year is always known", () => {
     // detected_year for missing_entity_folder is the year of the folder the
     // file already sits in — always known, never a guess — but a blank

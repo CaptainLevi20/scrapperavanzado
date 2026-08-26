@@ -55,9 +55,22 @@ function isConfirmedCmToCPattern(entry: ReorganizeException): boolean {
   return expected.toUpperCase() === entry.detected_entity.toUpperCase();
 }
 
+// Another confirmed, narrow case: the handful of files left behind in
+// CONCEPTO/SDH always belong under CONCEPTO/SDHBOG (900+ files) — the same
+// "todo debe ser SDHBOG" correction already applied everywhere else this
+// entity shows up in the batch. These can't go through the whole-folder
+// rename (that requires the target to NOT already exist — merging into an
+// existing folder isn't a rename), so they'd otherwise sit as individual
+// entity_mismatch rows needing a click every single analysis even though
+// the destination is already an established, confirmed folder.
+function isConfirmedSdhToSdhbogMerge(entry: ReorganizeException): boolean {
+  const currentEntity = entry.current_path.split("/")[1];
+  return entry.tipo === "CONCEPTO" && currentEntity === "SDH" && entry.detected_entity === "SDHBOG";
+}
+
 // Whether a file's own exception can be resolved without a human decision.
-// entity_mismatch only ever qualifies via the one confirmed pattern above —
-// otherwise the folder and the filename actively disagree, which is a
+// entity_mismatch only ever qualifies via one of the confirmed patterns
+// above — otherwise the folder and the filename actively disagree, which is a
 // judgment call about which one is right, not just a gap to fill in. For
 // the other kinds: the year must come from the filename itself, never the
 // mtime fallback (that's explicitly not authoritative), AND the
@@ -68,7 +81,9 @@ function isConfirmedCmToCPattern(entry: ReorganizeException): boolean {
 // type one in, even though its year is known from the folder it's already
 // sitting in).
 export function isConfidentException(entry: ReorganizeException): boolean {
-  if (entry.kind === "entity_mismatch") return isConfirmedCmToCPattern(entry);
+  if (entry.kind === "entity_mismatch") {
+    return isConfirmedCmToCPattern(entry) || isConfirmedSdhToSdhbogMerge(entry);
+  }
   if (entry.detected_year === null) return false;
   return computeProposedPath(entry, initialCorrection(entry)) !== null;
 }
