@@ -86,6 +86,17 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    que ya trae el Año corregido también — nunca dos excepciones separadas
    para el mismo archivo.
 
+   La comparación de Entidad ignora mayúsculas/minúsculas — Windows ya trata
+   los nombres de carpeta así (no pueden coexistir `INVIMA` e `invima` como
+   carpetas distintas), así que una diferencia solo de mayúsculas nunca es
+   un problema real, ni a nivel de archivo ni de carpeta. Caso real:
+   `Documentos/INVIMA` con archivos nombrando `invima` (minúscula) — no se
+   marca nada, la carpeta se deja tal cual. Esto también aplica a la
+   sugerencia de renombrar carpeta (abajo): variantes de mayúsculas del
+   mismo valor alternativo cuentan como un solo voto, no como dos entidades
+   distintas, y una carpeta hermana existente bloquea la sugerencia sin
+   importar la diferencia de mayúsculas en su nombre.
+
    A diferencia de las otras dos, `entity_mismatch`/`year_mismatch` pueden
    ser un falso positivo genuino — la carpeta y el nombre pueden referirse
    al mismo valor con grafías distintas (ej. `CMAGUACHICA` en la carpeta vs

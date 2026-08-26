@@ -99,6 +99,21 @@ def test_no_entity_mismatch_when_filename_agrees_with_folder(tmp_path):
     assert _by_tipo(result, "ACUERDOS").exception_count == 0
 
 
+def test_no_entity_mismatch_for_a_case_only_difference(tmp_path):
+    # Reported real case: Documentos/INVIMA held files naming "invima"
+    # (lowercase). Windows folder names are already case-insensitive — a
+    # case-only difference is never a real mismatch, the folder is left as-is.
+    _touch(tmp_path / "Documentos" / "INVIMA" / "2020" / "D_invima_0001_2020.pdf")
+    _touch(tmp_path / "Documentos" / "INVIMA" / "2021" / "D_invima_0002_2021.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
+    assert _by_tipo(result, "Documentos").total_files == 2
+    assert _by_tipo(result, "Documentos").exception_count == 0
+
+
 def test_no_entity_mismatch_when_filename_cant_be_parsed(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "ARCHIVO" / "2003" / "documento-suelto.pdf")
 
@@ -225,6 +240,31 @@ def test_no_folder_rename_when_the_target_folder_already_exists(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_CARAUCA_200_2017.pdf")
     _touch(tmp_path / "ACUERDOS" / "CARAUCA" / "2019" / "A_CARAUCA_300_2019.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.folder_renames == []
+    assert len(result.exceptions) == 2
+    assert all(e.kind == "entity_mismatch" for e in result.exceptions)
+
+
+def test_folder_rename_groups_case_variants_of_the_same_alternate_entity(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_carauca_200_2017.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.suggested_entity == "CARAUCA"
+    assert fr.file_count == 2
+
+
+def test_no_folder_rename_when_the_target_folder_already_exists_in_a_different_case(tmp_path):
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
+    _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_CARAUCA_200_2017.pdf")
+    _touch(tmp_path / "ACUERDOS" / "carauca" / "2019" / "A_CARAUCA_300_2019.pdf")
 
     result = analyze_batch(tmp_path)
 

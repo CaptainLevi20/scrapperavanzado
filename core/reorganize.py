@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,14 @@ _IGNORED_FILENAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
 
 def _is_year_name(name: str) -> bool:
     return bool(YEAR_RE.match(name))
+
+
+def _same_entity(a: str, b: str) -> bool:
+    # Windows folder names are already case-insensitive (you can't even have
+    # "INVIMA" and "invima" as separate sibling folders), so a difference in
+    # case alone is never a real mismatch — just inconsistent capitalization
+    # in how the filename was typed.
+    return a.casefold() == b.casefold()
 
 
 def _is_ignored_file(name: str) -> bool:
@@ -232,16 +241,28 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                     # excluded from per-file entity_mismatch below if that path is
                     # taken instead, only from this folder-level vote.
                     single_entity_resolved = [(y, f, ce) for y, f, ce, _ in resolved if ce is not None and "-" not in ce]
-                    # Files whose filename-entity agrees with the current folder name —
-                    # evidence the current name might actually be right for at least
-                    # part of the folder. A folder can still be renamed with some of
-                    # these present (a stale minority using the old/wrong name), but
-                    # only when the alternative is a clear majority — see below.
-                    agree_count = sum(1 for _, _, ce in single_entity_resolved if ce == entity)
-                    disagreeing = {ce for _, _, ce in single_entity_resolved if ce != entity}
-                    suggested_entity = next(iter(disagreeing)) if len(disagreeing) == 1 else None
-                    mismatched = [(y, f) for y, f, ce in single_entity_resolved if ce == suggested_entity]
-                    sibling_names = {d.name for d in dir_children}
+                    # Files whose filename-entity agrees with the current folder name
+                    # (case-insensitively — Windows folders already are, so "INVIMA"
+                    # vs "invima" is never a real disagreement) — evidence the current
+                    # name might actually be right for at least part of the folder. A
+                    # folder can still be renamed with some of these present (a stale
+                    # minority using the old/wrong name), but only when the
+                    # alternative is a clear majority — see below.
+                    agree_count = sum(1 for _, _, ce in single_entity_resolved if _same_entity(ce, entity))
+                    # Group genuinely-disagreeing entities case-insensitively too, so
+                    # "CARAUCA" and "carauca" count as the same alternate, not two —
+                    # picking the most common casing among them as the one to propose.
+                    disagreeing_by_key: dict[str, list[str]] = {}
+                    for _, _, ce in single_entity_resolved:
+                        if not _same_entity(ce, entity):
+                            disagreeing_by_key.setdefault(ce.casefold(), []).append(ce)
+                    suggested_entity = None
+                    mismatched: list[tuple[int, Path]] = []
+                    if len(disagreeing_by_key) == 1:
+                        (variants,) = disagreeing_by_key.values()
+                        suggested_entity = Counter(variants).most_common(1)[0][0]
+                        mismatched = [(y, f) for y, f, ce in single_entity_resolved if _same_entity(ce, suggested_entity)]
+                    sibling_names_cf = {d.name.casefold() for d in dir_children}
 
                     if (
                         suggested_entity is not None
@@ -260,7 +281,7 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                         # Never propose renaming onto a folder that already exists —
                         # that would be a merge, not a rename, and deserves its own
                         # explicit review rather than being silently offered here.
-                        and suggested_entity not in sibling_names
+                        and suggested_entity.casefold() not in sibling_names_cf
                     ):
                         tipo_exceptions += len(mismatched)
                         folder_renames.append(
@@ -285,7 +306,7 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                             # when both are wrong — the corrected year still rides
                             # along on that same proposed move, rather than raising
                             # two separate exceptions for one file.
-                            entity_wrong = correct_entity is not None and correct_entity != entity
+                            entity_wrong = correct_entity is not None and not _same_entity(correct_entity, entity)
                             year_wrong = correct_year is not None and correct_year != year
                             if entity_wrong:
                                 tipo_exceptions += 1
