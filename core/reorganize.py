@@ -16,9 +16,17 @@ from api.schemas import (
 
 YEAR_RE = re.compile(r"^(?:1[89]\d{2}|20\d{2})$")
 
+# OS-generated junk, never a real document — ignored entirely: not counted,
+# not listed as an exception or as extra_depth, nothing asks about it.
+_IGNORED_FILENAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
+
 
 def _is_year_name(name: str) -> bool:
     return bool(YEAR_RE.match(name))
+
+
+def _is_ignored_file(name: str) -> bool:
+    return name.lower() in _IGNORED_FILENAMES
 
 
 def _last_underscore_token(stem: str) -> Optional[str]:
@@ -46,7 +54,7 @@ def _relpath(root: Path, path: Path) -> str:
 def _collect_extra_depth(root: Path, tipo: str, start: Path, out: list[ExtraDepthEntry]) -> int:
     count = 0
     for f in sorted(start.rglob("*")):
-        if f.is_file():
+        if f.is_file() and not _is_ignored_file(f.name):
             out.append(ExtraDepthEntry(tipo=tipo, current_path=_relpath(root, f)))
             count += 1
     return count
@@ -121,14 +129,14 @@ def analyze_batch(root: Path) -> BatchAnalysis:
     # Files sitting directly in root (outside any Tipo folder) don't fit the
     # audit rule at all, but they must not silently vanish from the count —
     # same principle as the extra_depth handling below for deeper nesting.
-    for p in sorted(f for f in root.iterdir() if f.is_file()):
+    for p in sorted(f for f in root.iterdir() if f.is_file() and not _is_ignored_file(f.name)):
         extra_depth.append(ExtraDepthEntry(tipo="", current_path=_relpath(root, p)))
         total_files += 1
 
     for tipo_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         tipo = tipo_dir.name
         dir_children = sorted(c for c in tipo_dir.iterdir() if c.is_dir())
-        file_children = sorted(c for c in tipo_dir.iterdir() if c.is_file())
+        file_children = sorted(c for c in tipo_dir.iterdir() if c.is_file() and not _is_ignored_file(c.name))
         year_like = [c for c in dir_children if _is_year_name(c.name)]
         entity_like = [c for c in dir_children if not _is_year_name(c.name)]
         if len(entity_like) == 0 and len(year_like) == 0:
@@ -162,6 +170,8 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                     year = int(child.name)
                     for f in sorted(child.iterdir()):
                         if f.is_file():
+                            if _is_ignored_file(f.name):
+                                continue
                             tipo_total += 1
                             tipo_exceptions += 1
                             exceptions.append(_missing_entity_exception(root, tipo, year, f))
@@ -171,6 +181,8 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                     entity = child.name
                     for ec in sorted(child.iterdir()):
                         if ec.is_file():
+                            if _is_ignored_file(ec.name):
+                                continue
                             tipo_total += 1
                             tipo_exceptions += 1
                             exceptions.append(_missing_year_exception(root, tipo, entity, ec))
@@ -178,6 +190,8 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                             year = int(ec.name)
                             for f in sorted(ec.iterdir()):
                                 if f.is_file():
+                                    if _is_ignored_file(f.name):
+                                        continue
                                     tipo_total += 1
                                     # The file already sits at Tipo/Entidad/Año — structurally
                                     # complete — but either folder might be wrong (a catch-all
@@ -212,6 +226,8 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                 if _is_year_name(child.name):
                     for f in sorted(child.iterdir()):
                         if f.is_file():
+                            if _is_ignored_file(f.name):
+                                continue
                             tipo_total += 1
                         else:
                             tipo_total += _collect_extra_depth(root, tipo, f, extra_depth)

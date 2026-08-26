@@ -95,6 +95,13 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    aplicar sin bloquear las demás filas (`missing_entity_folder`/
    `missing_year_folder` siempre representan un archivo genuinamente
    incompleto, así que no tiene sentido "dejarlos así").
+**Archivos ignorados por completo:** basura generada por el sistema
+operativo (`Thumbs.db`, `desktop.ini`, `.DS_Store`, sin distinguir
+mayúsculas/minúsculas) nunca entra a ningún conteo, tabla de excepciones ni
+lista de `extra_depth` — ni siquiera se menciona en ningún lado. No son
+documentos, así que aplicarles cualquiera de las reglas de arriba no tiene
+sentido.
+
 3. **Tipo `sin_entidad`:** cada archivo debe vivir en `Año/archivo` directo
    bajo el Tipo. No se detectó ningún caso de excepción de este tipo en el
    lote de referencia, pero si un archivo apareciera directo bajo el Tipo

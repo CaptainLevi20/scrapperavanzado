@@ -32,6 +32,46 @@ def test_correctly_placed_files_produce_no_exceptions(tmp_path):
     assert _by_tipo(result, "Leyes").total_files == 1
 
 
+def test_ignored_junk_files_are_excluded_everywhere(tmp_path):
+    # Root-level junk.
+    _touch(tmp_path / "Thumbs.db")
+    # Bare junk directly under a con_entidad Tipo (would otherwise be extra_depth).
+    _touch(tmp_path / "DECRETOS" / "desktop.ini")
+    # Junk sitting alongside an already-correctly-placed file.
+    _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "D_PGN_0001_2019.pdf")
+    _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "Thumbs.db")
+    # Junk in a Tipo/Año folder (would otherwise be missing_entity_folder).
+    _touch(tmp_path / "DECRETOS" / "2022" / "Thumbs.db")
+    # A second entity-like dir so DECRETOS' entity_like (PGN, OTRO) strictly
+    # outnumbers year_like (2022) under the majority tie-break.
+    (tmp_path / "DECRETOS" / "OTRO").mkdir(parents=True, exist_ok=True)
+    # Junk in a Tipo/Entidad folder (would otherwise be missing_year_folder).
+    _touch(tmp_path / "RESOLUCIONES" / "SGCANDINA" / "desktop.ini")
+    # Junk in a sin_entidad Tipo's year folder, with an UPPERCASE variant —
+    # detection must be case-insensitive (Windows filenames are too).
+    _touch(tmp_path / "Leyes" / "2022" / "L_0001_2022.pdf")
+    _touch(tmp_path / "Leyes" / "2022" / "THUMBS.DB")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.extra_depth == []
+    assert result.total_files == 2  # only D_PGN_0001_2019.pdf and L_0001_2022.pdf
+    assert _by_tipo(result, "DECRETOS").total_files == 1
+    assert _by_tipo(result, "Leyes").total_files == 1
+
+
+def test_ignored_junk_file_inside_a_deeper_nested_folder_is_not_listed(tmp_path):
+    _touch(tmp_path / "Gacetas" / "GC" / "1992" / "AC" / "AC_0001_1992.pdf")
+    _touch(tmp_path / "Gacetas" / "GC" / "1992" / "AC" / "Thumbs.db")
+
+    result = analyze_batch(tmp_path)
+
+    assert len(result.extra_depth) == 1
+    assert result.extra_depth[0].current_path == "Gacetas/GC/1992/AC/AC_0001_1992.pdf"
+    assert result.total_files == 1
+
+
 def test_entity_mismatch_detected_when_filename_disagrees_with_folder(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "ARCHIVO" / "2003" / "A_AGN_0015_2003.pdf")
 
