@@ -433,7 +433,14 @@ su atención ahí.
   exist_ok=True)`) y mueve el archivo (`shutil.move` — casi instantáneo al
   ser mismo volumen). Devuelve, por archivo, si se movió o se saltó y por
   qué (mismo patrón `copiedCount`/`skippedCount` que ya usa `copy.ts` del
-  Formateador).
+  Formateador). Después de mover, `_prune_empty_dirs` sube desde la carpeta
+  de origen borrando cada carpeta que quedó completamente vacía (y su
+  carpeta padre, en cascada), sin tocar nunca la raíz del lote. Caso real
+  que motivó esto: mover el ÚLTIMO archivo de una carpeta hacia una carpeta
+  destino que ya existía (una corrección archivo por archivo, no un
+  renombre de carpeta completa) dejaba la carpeta de origen vacía pero
+  presente en disco — confuso para el admin, que veía "las dos carpetas
+  existen" después de aprobar la corrección.
 - `apply_folder_renames(root: Path, renames: list[ResolvedFolderRename]) ->
   list[FolderRenameOutcome]`: mismas protecciones que `apply_moves`
   (contención dentro de `root`, origen debe existir, destino **no** debe

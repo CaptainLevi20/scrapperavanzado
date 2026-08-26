@@ -444,6 +444,25 @@ def analyze_batch(root: Path) -> BatchAnalysis:
     )
 
 
+def _prune_empty_dirs(root_resolved: Path, start_dir: Path) -> None:
+    # Moving the last file out of a folder (e.g. an entity_mismatch fix
+    # into a folder that already exists, so it's a per-file move rather
+    # than a whole-folder rename) leaves that folder — and its now-empty
+    # parent, and so on — behind as orphaned litter. Walk up removing each
+    # directory that's completely empty, stopping at the first non-empty
+    # one (rmdir raises OSError for that, our natural stop condition) and
+    # never at or above the batch root. A leftover Thumbs.db or similar
+    # blocks this too — safer to leave a near-empty folder than to also
+    # delete files nothing asked to touch.
+    current = start_dir.resolve()
+    while current != root_resolved and current.is_relative_to(root_resolved):
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
+
+
 def apply_moves(root: Path, moves: list[ResolvedMove]) -> ApplyResult:
     results: list[MoveResult] = []
     root_resolved = root.resolve()
@@ -484,7 +503,9 @@ def apply_moves(root: Path, moves: list[ResolvedMove]) -> ApplyResult:
                 )
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
+            source_parent = source.parent
             shutil.move(str(source), str(target))
+            _prune_empty_dirs(root_resolved, source_parent)
             results.append(
                 MoveResult(current_path=move.current_path, target_path=move.target_path, moved=True, skip_reason=None)
             )

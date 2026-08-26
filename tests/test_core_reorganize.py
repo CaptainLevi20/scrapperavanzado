@@ -693,6 +693,58 @@ def test_apply_moves_moves_file_and_creates_missing_folders(tmp_path):
     assert target.read_text(encoding="utf-8") == "contenido-original"
 
 
+def test_apply_moves_removes_the_now_empty_folder_left_behind(tmp_path):
+    # Reported real case: ACTAS/REPAISESANDINO/2011/ACT_CA_0005_2011.pdf
+    # moved to ACTAS/CA/2011/... (a per-file entity_mismatch fix, not a
+    # whole-folder rename, since CA already existed) — after the move,
+    # both ACTAS/CA and the now-empty ACTAS/REPAISESANDINO existed on
+    # disk, confusing the admin. Moving the last file out of a folder
+    # should clean up the folder (and its now-empty parent, cascading)
+    # behind it, not leave orphaned empty folders as litter.
+    source = tmp_path / "ACTAS" / "REPAISESANDINO" / "2011" / "ACT_CA_0005_2011.pdf"
+    _touch(source, content="contenido")
+
+    result = apply_moves(
+        tmp_path,
+        [
+            ResolvedMove(
+                current_path="ACTAS/REPAISESANDINO/2011/ACT_CA_0005_2011.pdf",
+                target_path="ACTAS/CA/2011/ACT_CA_0005_2011.pdf",
+            )
+        ],
+    )
+
+    assert result.results[0].moved is True
+    assert not (tmp_path / "ACTAS" / "REPAISESANDINO").exists()
+    assert (tmp_path / "ACTAS" / "CA" / "2011" / "ACT_CA_0005_2011.pdf").exists()
+
+
+def test_apply_moves_does_not_remove_a_folder_that_still_has_other_files(tmp_path):
+    source = tmp_path / "DECRETOS" / "ARCHIVO" / "2003" / "moved.pdf"
+    _touch(source, content="contenido")
+    _touch(tmp_path / "DECRETOS" / "ARCHIVO" / "2003" / "stays.pdf", content="se queda")
+
+    apply_moves(
+        tmp_path,
+        [ResolvedMove(current_path="DECRETOS/ARCHIVO/2003/moved.pdf", target_path="DECRETOS/MSPS/2003/moved.pdf")],
+    )
+
+    assert (tmp_path / "DECRETOS" / "ARCHIVO" / "2003" / "stays.pdf").exists()
+
+
+def test_apply_moves_never_removes_the_batch_root_even_if_it_ends_up_empty(tmp_path):
+    source = tmp_path / "DECRETOS" / "2022" / "only.pdf"
+    _touch(source, content="contenido")
+
+    apply_moves(
+        tmp_path,
+        [ResolvedMove(current_path="DECRETOS/2022/only.pdf", target_path="RESOLUCIONES/2022/only.pdf")],
+    )
+
+    assert tmp_path.exists()
+    assert not (tmp_path / "DECRETOS").exists()
+
+
 def test_apply_moves_skips_when_destination_already_exists(tmp_path):
     source = tmp_path / "DECRETOS" / "2022" / "D_MSPS_0017AJ_2022.pdf"
     _touch(source, content="nuevo")
