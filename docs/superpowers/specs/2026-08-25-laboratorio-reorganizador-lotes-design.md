@@ -336,11 +336,13 @@ reubica el contenido actual sin cambiar su lógica:
   afectados, carpeta propuesta, "Dejar así") + tabla de excepciones (Tipo,
   ruta actual, entidad detectada editable, año detectado/sugerido editable,
   ruta propuesta, "Dejar así" para `entity_mismatch`/`year_mismatch`) +
-  sección aparte de solo lectura para los casos de profundidad extra
-  (informativos, sin acción) + botón "Aplicar" único para ambas tablas
-  (deshabilitado hasta que todas las filas activas —no descartadas con
-  "Dejar así"— tengan sus campos resueltos, mismo criterio `canCopy` que ya
-  usa el Formateador).
+  botón "Aplicar" único para ambas tablas (deshabilitado hasta que todas
+  las filas activas —no descartadas con "Dejar así"— tengan sus campos
+  resueltos, mismo criterio `canCopy` que ya usa el Formateador). Los casos
+  de profundidad extra solo se cuentan en el resumen de arriba
+  (`extra_depth_total`) — nunca se listan uno por uno en pantalla, ya que
+  son puramente informativos y nunca se tocan (a diferencia de las otras
+  dos tablas, no cambian según lo que el admin haga).
 - `frontend/src/pages/FormatterPage.tsx` — pasa a ser el shell con estado de
   pestaña activa (`useState<"rename" | "reorganize">`) que renderiza el
   panel correspondiente.

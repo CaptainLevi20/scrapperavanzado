@@ -54,7 +54,7 @@ describe("ReorganizePanel", () => {
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
-  it("shows extra-depth entries as informational only, without an Entidad/Año row", async () => {
+  it("counts extra-depth files in the summary only, without listing them", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -74,8 +74,8 @@ describe("ReorganizePanel", () => {
     await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
     await user.click(screen.getByRole("button", { name: "Analizar" }));
 
-    expect(await screen.findByText("Gacetas/GC/1992/AC/AC_0001_1992.pdf")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Entidad para Gacetas/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/1 archivo\(s\) con profundidad extra/)).toBeInTheDocument();
+    expect(screen.queryByText("Gacetas/GC/1992/AC/AC_0001_1992.pdf")).not.toBeInTheDocument();
   });
 
   it("pre-fills the year from the mtime hint and applies the resolved move", async () => {

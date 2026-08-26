@@ -217,10 +217,7 @@ export function ReorganizePanel() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 {analysis.total_files} archivo(s) analizados, {analysis.exceptions.length} excepción(es),{" "}
-                {analysis.extra_depth_total} archivo(s) con profundidad extra (informativo).
-                {analysis.extra_depth_total > analysis.extra_depth.length
-                  ? ` (mostrando los primeros ${analysis.extra_depth.length}).`
-                  : ""}
+                {analysis.extra_depth_total} archivo(s) con profundidad extra (informativo, no se modifican).
               </p>
 
               {analysis.tipos.length > 0 && (
@@ -360,29 +357,6 @@ export function ReorganizePanel() {
                                 </Button>
                               )}
                             </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {analysis.extra_depth.length > 0 && (
-                <div className={TABLE_SHELL}>
-                  <div className={TABLE_SCROLL}>
-                    <table className={TABLE}>
-                      <thead>
-                        <tr className={THEAD_ROW}>
-                          <th className={TH}>Tipo</th>
-                          <th className={TH}>Ruta (no se modifica)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {analysis.extra_depth.map((item) => (
-                          <tr key={item.current_path} className={TBODY_ROW}>
-                            <td className={TD}>{item.tipo}</td>
-                            <td className={TD}>{item.current_path}</td>
                           </tr>
                         ))}
                       </tbody>
