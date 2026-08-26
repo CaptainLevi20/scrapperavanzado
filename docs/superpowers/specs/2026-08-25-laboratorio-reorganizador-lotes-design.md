@@ -165,6 +165,19 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    y el alias convierte ese empate en una mayoría unánime, con lo que la
    carpeta completa se renombra en un solo movimiento).
 
+   **Renombres de carpeta confirmados para casos de un solo archivo.** El
+   voto por mayoría (arriba) nunca puede dispararse en una carpeta con un
+   solo archivo — el mínimo de 2 nunca se alcanza, así que ese archivo
+   quedaría pidiendo aprobación manual para siempre, aunque el usuario ya
+   haya confirmado cuál es el nombre correcto. `_CONFIRMED_FOLDER_RENAMES`
+   (en `core/reorganize.py`) es una segunda tabla pequeña, en el mismo
+   espíritu que `_ENTITY_ALIASES`, con pares (`Tipo`, carpeta actual) →
+   nombre correcto confirmados uno por uno; cuando aplica, se salta el
+   mínimo de 2 archivos por completo y se propone el renombre igual que
+   con una mayoría real. Casos reales: `ACUERDOS/CODIRUMED` →
+   `CONDIRUDEMED`, `ACUERDOS/CRIOACHA` → `CRIOHACHA`,
+   `ACUERDOS/MINAGRICULTURA` → `MA`.
+
    Al extraer la entidad del nombre del archivo, un espacio de más justo
    después del guion bajo (ej. `CTO_ CTCP_...` en vez de `CTO_CTCP_...`,
    error de tipeo humano) se recorta antes de comparar — así `CTCP` y

@@ -36,6 +36,19 @@ _ENTITY_ALIASES = {
     "CONBOG": "CONCBOG",
 }
 
+# Folder-name corrections confirmed by the user directly, for isolated
+# single-file (or few-file) entity folders where the usual majority-vote
+# rename can never fire — there's only ever one filename to "vote", so it
+# can never reach the >=2 minimum. The correct name is known with
+# certainty anyway, so these bypass that minimum entirely. Keyed by
+# (Tipo, current folder name); same small, rarely-changing,
+# edited-directly-in-code list as _ENTITY_ALIASES above.
+_CONFIRMED_FOLDER_RENAMES: dict[tuple[str, str], str] = {
+    ("ACUERDOS", "CODIRUMED"): "CONDIRUDEMED",
+    ("ACUERDOS", "CRIOACHA"): "CRIOHACHA",
+    ("ACUERDOS", "MINAGRICULTURA"): "MA",
+}
+
 
 def _is_year_name(name: str) -> bool:
     return bool(YEAR_RE.match(name))
@@ -286,8 +299,29 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                         suggested_entity = Counter(ce for _, _, ce in winner_files).most_common(1)[0][0]
                         mismatched = [(y, f) for y, f, _ in winner_files]
                     sibling_names_cf = {d.name.casefold() for d in dir_children}
+                    confirmed_target = _CONFIRMED_FOLDER_RENAMES.get((tipo, entity))
 
                     if (
+                        confirmed_target is not None
+                        and total_resolved > 0
+                        and confirmed_target.casefold() not in sibling_names_cf
+                    ):
+                        # A user-confirmed correction always wins, bypassing the
+                        # majority-vote minimum below entirely — it exists precisely
+                        # for folders too small (often just one file) to ever reach
+                        # that minimum on their own.
+                        tipo_exceptions += total_resolved
+                        folder_renames.append(
+                            FolderRenameSuggestion(
+                                tipo=tipo,
+                                current_entity=entity,
+                                suggested_entity=confirmed_target,
+                                current_path=_relpath(root, child),
+                                proposed_path=f"{tipo}/{confirmed_target}",
+                                file_count=total_resolved,
+                            )
+                        )
+                    elif (
                         suggested_entity is not None
                         # Require at least 2 matching files — a single file's typo is
                         # exactly what per-file entity_mismatch already handles, and a

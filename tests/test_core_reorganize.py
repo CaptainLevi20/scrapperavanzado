@@ -319,6 +319,26 @@ def test_conbog_is_always_normalized_to_concbog_even_on_a_tied_vote(tmp_path):
     assert fr.file_count == 4
 
 
+def test_confirmed_single_file_folder_rename_bypasses_the_two_file_minimum(tmp_path):
+    # Reported real cases: ACUERDOS/CODIRUMED, ACUERDOS/CRIOACHA and
+    # ACUERDOS/MINAGRICULTURA each have exactly one file, so the normal
+    # majority-vote rename (which needs >=2 matching files) can never fire
+    # for them — they'd sit as per-file entity_mismatch forever, needing a
+    # manual click every single analysis even though the user already
+    # confirmed the correct name. _CONFIRMED_FOLDER_RENAMES bypasses that
+    # minimum for these specific, individually-confirmed folders.
+    _touch(tmp_path / "ACUERDOS" / "CODIRUMED" / "1987" / "A_CONDIRUDEMED_0985_1987.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.current_entity == "CODIRUMED"
+    assert fr.suggested_entity == "CONDIRUDEMED"
+    assert fr.file_count == 1
+
+
 def test_folder_rename_groups_case_variants_of_the_same_alternate_entity(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_carauca_200_2017.pdf")
