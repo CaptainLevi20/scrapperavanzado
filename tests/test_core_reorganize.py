@@ -248,6 +248,41 @@ def test_no_folder_rename_when_the_target_folder_already_exists(tmp_path):
     assert all(e.kind == "entity_mismatch" for e in result.exceptions)
 
 
+def test_folder_rename_wins_despite_several_one_off_stray_typos(tmp_path):
+    # Reported real case: RESOLUCIONES/SDH had 883 files — 681 "SDHBOG",
+    # 190 "SHACIENDABOG" (a confirmed alias, see the alias test below), and
+    # a handful of one-file typos (SDHBO, SDHGOG, SHDBOG, SDPBOG). None of
+    # those stray typos should be able to block the suggestion for the
+    # dominant majority just by each being "yet another disagreeing value".
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2020" / "R_SDHBOG_0001_2020.pdf")
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2021" / "R_SDHBOG_0002_2021.pdf")
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2022" / "R_SDHBOG_0003_2022.pdf")
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2019" / "R_SDH_0004_2019.pdf")  # agrees with the folder
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2018" / "R_SDHTYPO_0005_2018.pdf")  # one-off stray
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.current_entity == "SDH"
+    assert fr.suggested_entity == "SDHBOG"
+    assert fr.file_count == 3
+
+
+def test_shaciendabog_is_always_normalized_to_sdhbog(tmp_path):
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2023" / "R_SHACIENDABOG_0001_2023.pdf")
+    _touch(tmp_path / "RESOLUCIONES" / "SDH" / "2024" / "R_SHACIENDABOG_0002_2024.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.suggested_entity == "SDHBOG"
+    assert fr.file_count == 2
+
+
 def test_folder_rename_groups_case_variants_of_the_same_alternate_entity(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2017" / "A_carauca_200_2017.pdf")

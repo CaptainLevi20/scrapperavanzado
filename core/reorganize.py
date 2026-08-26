@@ -24,6 +24,16 @@ YEAR_RE = re.compile(r"^(?:1[89]\d{2}|20\d{2})$")
 # not listed as an exception or as extra_depth, nothing asks about it.
 _IGNORED_FILENAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
 
+# Known entity synonyms, confirmed by the user — an old/alternate
+# abbreviation that must always resolve to today's correct one, regardless
+# of which one happens to be more common in any given folder. This is a
+# small, rarely-changing list edited directly here (dev-only tool, no UI
+# for it) — add an entry whenever another confirmed synonym turns up.
+# Keys are matched case-insensitively (see _detect_entity_from_filename).
+_ENTITY_ALIASES = {
+    "SHACIENDABOG": "SDHBOG",
+}
+
 
 def _is_year_name(name: str) -> bool:
     return bool(YEAR_RE.match(name))
@@ -67,7 +77,9 @@ def _detect_entity_from_filename(filename: str) -> Optional[str]:
     # segment at all, e.g. Gacetas' GC_0114_1992.pdf), and what looked like
     # "parts[1]" is really the document number, not an entity. isdigit()
     # also covers a year mistakenly landing in that position.
-    return None if entity.isdigit() else entity
+    if entity.isdigit():
+        return None
+    return _ENTITY_ALIASES.get(entity.upper(), entity)
 
 
 def _relpath(root: Path, path: Path) -> str:
@@ -241,43 +253,45 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                     # excluded from per-file entity_mismatch below if that path is
                     # taken instead, only from this folder-level vote.
                     single_entity_resolved = [(y, f, ce) for y, f, ce, _ in resolved if ce is not None and "-" not in ce]
-                    # Files whose filename-entity agrees with the current folder name
-                    # (case-insensitively — Windows folders already are, so "INVIMA"
-                    # vs "invima" is never a real disagreement) — evidence the current
-                    # name might actually be right for at least part of the folder. A
-                    # folder can still be renamed with some of these present (a stale
-                    # minority using the old/wrong name), but only when the
-                    # alternative is a clear majority — see below.
-                    agree_count = sum(1 for _, _, ce in single_entity_resolved if _same_entity(ce, entity))
-                    # Group genuinely-disagreeing entities case-insensitively too, so
-                    # "CARAUCA" and "carauca" count as the same alternate, not two —
-                    # picking the most common casing among them as the one to propose.
-                    disagreeing_by_key: dict[str, list[str]] = {}
-                    for _, _, ce in single_entity_resolved:
-                        if not _same_entity(ce, entity):
-                            disagreeing_by_key.setdefault(ce.casefold(), []).append(ce)
+                    # Group every resolved entity case-insensitively (so "CARAUCA" and
+                    # "carauca" count as the same value, not two), tracking each
+                    # casing's own count so the winning group can propose its most
+                    # common spelling.
+                    groups: dict[str, list[tuple[int, Path, str]]] = {}
+                    for y, f, ce in single_entity_resolved:
+                        groups.setdefault(ce.casefold(), []).append((y, f, ce))
+                    agree_key = entity.casefold()
+                    total_resolved = len(single_entity_resolved)
+
+                    # The winning alternate is whichever non-agreeing group has the
+                    # most files — not "the only group that disagrees". A large,
+                    # real-world folder always carries a handful of one-off typos
+                    # alongside a dominant majority (883-file case: 681 "SDHBOG" +
+                    # 190 "SHACIENDABOG" vs. 4 lone one-file misspellings) —
+                    # requiring unanimity among every disagreeing file would let
+                    # those stragglers block the suggestion for the 871 that really
+                    # do agree with each other.
+                    candidates = {k: v for k, v in groups.items() if k != agree_key}
                     suggested_entity = None
                     mismatched: list[tuple[int, Path]] = []
-                    if len(disagreeing_by_key) == 1:
-                        (variants,) = disagreeing_by_key.values()
-                        suggested_entity = Counter(variants).most_common(1)[0][0]
-                        mismatched = [(y, f) for y, f, ce in single_entity_resolved if _same_entity(ce, suggested_entity)]
+                    if candidates:
+                        _, winner_files = max(candidates.items(), key=lambda kv: len(kv[1]))
+                        suggested_entity = Counter(ce for _, _, ce in winner_files).most_common(1)[0][0]
+                        mismatched = [(y, f) for y, f, _ in winner_files]
                     sibling_names_cf = {d.name.casefold() for d in dir_children}
 
                     if (
                         suggested_entity is not None
-                        # Require at least 2 agreeing files — a single file's typo is
+                        # Require at least 2 matching files — a single file's typo is
                         # exactly what per-file entity_mismatch already handles, and a
                         # whole-folder rename shouldn't rest on one data point.
                         and len(mismatched) >= 2
-                        # Strict majority: the alternate entity must be named by MORE
-                        # files than agree with the current folder name — same
-                        # principle as the con_entidad/sin_entidad Tipo tie-break. This
-                        # is what lets a folder with a mostly-wrong name (many old
-                        # files using the correct entity, a smaller lingering set still
-                        # using the folder's current, wrong name) still get suggested,
-                        # without guessing on anything close to a 50/50 split.
-                        and len(mismatched) > agree_count
+                        # True majority: the winning alternate must outnumber
+                        # EVERYONE else combined (the current name plus every other
+                        # stray variant), not just beat the current name in
+                        # isolation — same principle as the con_entidad/sin_entidad
+                        # Tipo tie-break, just extended to more than two groups.
+                        and len(mismatched) > total_resolved - len(mismatched)
                         # Never propose renaming onto a folder that already exists —
                         # that would be a merge, not a rename, and deserves its own
                         # explicit review rather than being silently offered here.

@@ -116,16 +116,20 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    current_path, proposed_path, file_count}`) en vez de N excepciones
    `entity_mismatch`. Condiciones para activarla, todas conservadoras a
    propósito:
-   - Todos los archivos que discrepan de la carpeta coinciden entre sí en
-     una única entidad alternativa (si hay dos entidades distintas
-     propuestas, es ambiguo, no se sugiere nada).
-   - Esa entidad alternativa la nombran **más** archivos que los que
-     coinciden con el nombre actual de la carpeta — mayoría estricta, mismo
-     principio que la clasificación `con_entidad`/`sin_entidad` de un Tipo.
-     Esto permite detectar una carpeta cuyo nombre quedó desactualizado
-     (muchos archivos ya usan el nombre correcto, un remanente menor sigue
-     usando el nombre viejo de la carpeta) sin arriesgarse en un caso
-     realmente parejo (ej. un empate 2 contra 2 no alcanza).
+   - Se agrupan todos los archivos ya estructurados de la carpeta por la
+     entidad que su nombre resuelve (sin distinguir mayúsculas/minúsculas —
+     ver más abajo), incluyendo el grupo que coincide con el nombre actual
+     de la carpeta. El grupo con más archivos que **no** sea el de la
+     carpeta actual es el candidato a "entidad sugerida".
+   - Ese candidato debe tener **más archivos que todos los demás grupos
+     juntos** (el que coincide con la carpeta, más cualquier otra variante
+     suelta) — mayoría real, no solo "más que la carpeta". Esto es lo que
+     permite que una carpeta con el nombre desactualizado (muchos archivos
+     ya usan el nombre correcto, un remanente menor sigue usando el nombre
+     viejo de la carpeta) se detecte igual aunque además haya errores de
+     tipeo sueltos de un solo archivo cada uno — esos errores no alcanzan
+     por sí solos para bloquear al candidato ganador, a diferencia de una
+     regla que exigiera unanimidad entre todo lo que discrepa.
    - Al menos 2 archivos lo confirman (un solo archivo es exactamente el
      caso `entity_mismatch` normal, con su propio "Dejar así").
    - La entidad sugerida no coincide con ninguna carpeta hermana que ya
@@ -133,13 +137,26 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
      de carpetas, no un renombrado — eso queda fuera de alcance, igual que
      fusionar carpetas de Tipo).
 
-   Caso real que motivó la mayoría estricta (en vez de exigir unanimidad):
-   `CONCEPTO/CCTCP` tenía 404 archivos — 336 nombraban `CTCP` (incluyendo
-   variantes con un espacio de más por error de tipeo) y 68 nombraban
-   `CCTCP` (coincidiendo con la carpeta). Confirmado con el usuario que
-   `CTCP` es la entidad correcta y `CCTCP` un error — con la regla de
-   unanimidad original, los 68 archivos que sí coincidían con la carpeta
-   bloqueaban la sugerencia para los 336 restantes.
+   Caso real que motivó la mayoría "contra todos los demás juntos" (en vez
+   de exigir que el ganador sea el único que discrepa): `RESOLUCIONES/SDH`
+   tenía 883 archivos — 681 nombraban `SDHBOG`, 190 nombraban
+   `SHACIENDABOG` (ver alias abajo), 6 coincidían con la carpeta (`SDH`), y
+   4 más eran errores de tipeo sueltos de un solo archivo cada uno
+   (`SDHBO`, `SDHGOG`, `SHDBOG`, `SDPBOG`). Exigir que TODO lo que discrepa
+   converja en un único valor habría dejado que esos 4 archivos sueltos
+   bloquearan la sugerencia para los 871 que sí concuerdan entre sí.
+   `CONCEPTO/CCTCP` (404 archivos, 336 `CTCP` contra 68 `CCTCP`) es el caso
+   más simple de la misma regla: el candidato solo necesita superar a la
+   suma de todo lo demás, no ser unánime.
+
+   **Alias de entidades conocidos.** Algunas abreviaciones antiguas deben
+   traducirse siempre a la actual, sin importar cuál sea más frecuente en
+   un lote dado — confirmado por el usuario, no algo que la herramienta
+   pueda inferir sola. Se resuelven en `_detect_entity_from_filename` antes
+   de cualquier comparación, en una tabla pequeña (`_ENTITY_ALIASES`)
+   editada directamente en el código cuando se confirme un caso nuevo (sin
+   UI — herramienta de un solo desarrollador). Caso real:
+   `SHACIENDABOG` → `SDHBOG`.
 
    Al extraer la entidad del nombre del archivo, un espacio de más justo
    después del guion bajo (ej. `CTO_ CTCP_...` en vez de `CTO_CTCP_...`,
