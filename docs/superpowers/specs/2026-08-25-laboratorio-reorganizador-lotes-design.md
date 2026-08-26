@@ -241,11 +241,11 @@ sentido.
    Formateador; no se duplica esa responsabilidad aquí).
 
 **Modelo de aprobación.** Ninguna fila se incluye en "Aplicar" por
-default — cada una (`missing_entity_folder`, `missing_year_folder`,
-`entity_mismatch`, `year_mismatch`, y cada sugerencia de renombrar
-carpeta) necesita un clic explícito en "Aprobar" antes de contar. El botón
-alterna a "Deshacer" una vez aprobada (quita la aprobación, no aplica
-nada). "Aplicar" se habilita solo cuando hay al menos una fila aprobada y
+default salvo que quede pre-aprobada automáticamente (ver el punto
+siguiente) — cada fila que sí necesita criterio (`missing_entity_folder`,
+`missing_year_folder`, `entity_mismatch`, `year_mismatch`) necesita un
+clic explícito en "Aprobar" antes de contar. El botón alterna a
+"Deshacer" una vez aprobada (quita la aprobación, no aplica nada). "Aplicar" se habilita solo cuando hay al menos una fila aprobada y
 todas las filas aprobadas tienen sus campos resueltos (Entidad/Año, o el
 nombre de entidad nuevo en una carpeta) — una fila sin aprobar nunca
 bloquea nada, esté completa o no. Al aplicar, solo se envían las filas
@@ -277,9 +277,19 @@ Bajo esta regla: `year_mismatch` siempre califica (el año, por construcción,
 siempre se lee del nombre del archivo, nunca es una adivinanza).
 `missing_entity_folder`/`missing_year_folder` califican solo cuando el dato
 que les faltaba se resolvió limpiamente. `entity_mismatch` nunca califica
-por sí solo, y las sugerencias de renombrar carpeta (que mueven muchos
-archivos a la vez basándose en una mayoría inferida, no en un solo hecho
-confirmado) nunca se pre-aprueban.
+por sí solo (salvo el patrón confirmado que se explica abajo).
+
+**Sugerencias de renombrar carpeta: también pre-aprobadas.** A diferencia
+de una excepción por archivo, una sugerencia de renombrar carpeta ya pasó
+por su propia barra de confianza en el backend antes de llegar a la
+interfaz: solo se genera cuando una mayoría estricta de los archivos de
+esa carpeta (superior a todos los demás grupos combinados, mínimo 2
+archivos, sin entidades conjuntas con guion) coincide en una entidad
+distinta a la de la carpeta actual, y solo si la carpeta destino no existe
+ya como hermana. Dado que esa mayoría YA es el hecho confirmado (no una
+lectura de un solo archivo), a petición del usuario estas sugerencias se
+pre-aprueban igual que las excepciones sin ambigüedad — el admin sigue
+pudiendo revisarlas o deshacerlas antes de aplicar.
 
 **Patrón confirmado: prefijo "CM" → "C".** Confirmado por el usuario
 después de verificar 16 carpetas `ACUERDOS/CM*`: en 13 de ellas, el nombre
@@ -293,13 +303,15 @@ patrón específico (carpeta que empieza con "CM", nombre de archivo igual a
 la carpeta quitando esa segunda letra) y SOLO ese — un `entity_mismatch`
 que no encaja en él sigue exigiendo revisión manual como antes.
 
-En la interfaz, las filas pre-aprobadas quedan en una sección aparte y
-colapsada ("N resuelto(s) automáticamente"), con la misma fila completa
-(Entidad/Año editables, botón "Aprobar"/"Deshacer") por si el admin quiere
-revisar o deshacer alguna — simplemente no exige que las abra o las toque
-para que "Aplicar" quede habilitado. Las filas que sí necesitan criterio
-quedan en su propia tabla ("Requieren tu revisión"), visualmente separada
-para que el admin enfoque su atención ahí.
+En la interfaz, las filas pre-aprobadas quedan en secciones aparte y
+colapsadas ("N resuelto(s) automáticamente" para excepciones, "N
+carpeta(s) para renombrar" para las sugerencias de renombrar carpeta),
+con la misma fila completa (Entidad/Año o nueva entidad, editables, botón
+"Aprobar"/"Deshacer") por si el admin quiere revisar o deshacer alguna —
+simplemente no exige que las abra o las toque para que "Aplicar" quede
+habilitado. Las filas que sí necesitan criterio quedan en su propia tabla
+("Requieren tu revisión"), visualmente separada para que el admin enfoque
+su atención ahí.
 
 ## Backend
 

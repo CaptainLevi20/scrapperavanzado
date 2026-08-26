@@ -330,7 +330,7 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText(/2 archivo\(s\) movido\(s\)/)).toBeInTheDocument();
   });
 
-  it("shows a folder-rename suggestion, editable, and applies it only after approval (never auto-approved)", async () => {
+  it("auto-approves a folder-rename suggestion — Aplicar is enabled without any click, and applies it", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -373,20 +373,20 @@ describe("ReorganizePanel", () => {
     await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
     await user.click(screen.getByRole("button", { name: "Analizar" }));
 
-    expect(await screen.findByText("ACUERDOS/CMARAUCA")).toBeInTheDocument();
+    // Open the collapsed section to confirm the pre-approved row is there.
+    await user.click(await screen.findByText(/no necesitan tu aprobación/));
+    // The rename cleared the majority-vote bar on the backend — no click needed.
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+    expect(screen.getByText("ACUERDOS/CMARAUCA")).toBeInTheDocument();
     expect(screen.getByLabelText("Nueva entidad para ACUERDOS/CMARAUCA")).toHaveValue("CARAUCA");
     expect(screen.getByText("ACUERDOS/CARAUCA")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Aprobar" }));
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
 
     expect(await screen.findByText(/1 carpeta\(s\) renombrada\(s\)/)).toBeInTheDocument();
   });
 
-  it("toggles Aplicar on and off as a folder-rename suggestion is approved and un-approved", async () => {
+  it("toggles Aplicar on and off as a pre-approved folder-rename suggestion is un-approved and re-approved", async () => {
     server.use(
       http.post(`${BASE_URL}/reorganize/analyze`, () =>
         HttpResponse.json({
@@ -414,15 +414,15 @@ describe("ReorganizePanel", () => {
 
     await user.type(screen.getByLabelText("Ruta de la carpeta"), "D:\\LOTE 2");
     await user.click(screen.getByRole("button", { name: "Analizar" }));
-    await screen.findByText("ACUERDOS/CMARAUCA");
+    await user.click(await screen.findByText(/no necesitan tu aprobación/));
 
-    expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Aprobar" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Deshacer" }));
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Aprobar" }));
+    expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
   it("shows a summary count for each Tipo alongside the exceptions table", async () => {

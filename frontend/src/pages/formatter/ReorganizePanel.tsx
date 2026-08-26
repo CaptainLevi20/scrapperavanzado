@@ -46,12 +46,14 @@ export function ReorganizePanel() {
       // Pre-approve exceptions that don't need a human decision — the missing
       // piece was read confidently from the filename itself, and it isn't an
       // entity_mismatch (the folder and filename actively disagreeing is
-      // always a judgment call). Folder renames always still need a manual
-      // look, since they move many files at once based on an inferred
-      // majority, not a single confirmed fact.
-      const approved = new Set(
-        analysis.exceptions.filter(isConfidentException).map((entry) => entry.current_path)
-      );
+      // always a judgment call). Folder renames are pre-approved too: the
+      // backend only ever suggests one once a strict majority of that
+      // folder's own files already agree on the alternate entity, so by the
+      // time it reaches the UI it has already cleared a real confidence bar.
+      const approved = new Set([
+        ...analysis.exceptions.filter(isConfidentException).map((entry) => entry.current_path),
+        ...analysis.folder_renames.map((fr) => fr.current_path),
+      ]);
       setState({
         step: "loaded",
         analysis,
@@ -231,6 +233,8 @@ export function ReorganizePanel() {
               <p className="text-sm text-muted-foreground">
                 {analysis.total_files} archivo(s) analizados, {analysis.exceptions.length} excepción(es)
                 {autoRows.length > 0 ? ` (${autoRows.length} resuelta(s) automáticamente)` : ""},{" "}
+                {renameRows.length} carpeta(s) para renombrar
+                {renameRows.length > 0 ? " (aprobadas automáticamente)" : ""},{" "}
                 {analysis.extra_depth_total} archivo(s) con profundidad extra (informativo, no se modifican).
               </p>
 
@@ -328,10 +332,11 @@ export function ReorganizePanel() {
               )}
 
               {renameRows.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">
-                    Carpetas para renombrar (todos sus archivos coinciden en otra entidad)
-                  </p>
+                <details className="space-y-2">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">
+                    {renameRows.length} carpeta(s) para renombrar (una mayoría clara de sus archivos coincide en otra
+                    entidad — no necesitan tu aprobación, pero puedes revisarlas o deshacerlas aquí)
+                  </summary>
                   <div className={TABLE_SHELL}>
                     <div className={TABLE_SCROLL}>
                       <table className={TABLE}>
@@ -376,7 +381,7 @@ export function ReorganizePanel() {
                       </table>
                     </div>
                   </div>
-                </div>
+                </details>
               )}
 
               {autoRows.length > 0 && (
