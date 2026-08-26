@@ -128,6 +128,27 @@ def test_folder_rename_suggested_when_all_files_agree_on_a_different_entity(tmp_
     assert _by_tipo(result, "ACUERDOS").exception_count == 2
 
 
+def test_folder_rename_ignores_joint_circulars_with_a_hyphenated_entity(tmp_path):
+    # Reported real case: CIRCULAR/Min Minas y Energia has 49 files naming
+    # "MME" plus 2 joint circulars co-issued with other ministries, encoded
+    # as a hyphenated compound ("MME-MJD-MDEF"). The compound shouldn't
+    # count as a vote against the 49-file consensus.
+    _touch(tmp_path / "CIRCULAR" / "Min Minas y Energia" / "2005" / "C_MME_0025_2005.pdf")
+    _touch(tmp_path / "CIRCULAR" / "Min Minas y Energia" / "2005" / "C_MME_0038_2005.pdf")
+    _touch(tmp_path / "CIRCULAR" / "Min Minas y Energia" / "2025" / "C_MME-MJD-MDEF_40008_2025.pdf")
+    _touch(tmp_path / "CIRCULAR" / "Min Minas y Energia" / "2025" / "C_MME-MTRA_40017_2025.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.current_entity == "Min Minas y Energia"
+    assert fr.suggested_entity == "MME"
+    assert fr.file_count == 2
+    assert _by_tipo(result, "CIRCULAR").total_files == 4
+
+
 def test_no_folder_rename_suggested_for_a_single_mismatched_file(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
 

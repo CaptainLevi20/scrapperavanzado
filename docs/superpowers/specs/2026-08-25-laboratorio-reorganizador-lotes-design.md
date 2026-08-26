@@ -118,6 +118,17 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
      de carpetas, no un renombrado — eso queda fuera de alcance, igual que
      fusionar carpetas de Tipo).
 
+   Un archivo cuyo nombre resuelve a una entidad **con guion** (ej.
+   `MME-MJD-MDEF`, una circular conjunta de varios ministerios) no cuenta
+   como voto ni a favor ni en contra al calcular el consenso — no es que
+   discrepe con la carpeta, es que menciona más de una entidad a la vez.
+   Caso real: `CIRCULAR/Min Minas y Energia` tenía 49 archivos que
+   nombraban `MME` y 2 circulares conjuntas (`MME-MJD-MDEF`,
+   `MME-MTRA`) — sin esta excepción, esos 2 archivos rompían el consenso
+   de los 49 y bloqueaban la sugerencia para toda la carpeta. Si la carpeta
+   sí se renombra, esos archivos "conjuntos" se mueven igual (la carpeta se
+   mueve completa), simplemente no cuentan para decidir si renombrar.
+
    Como con `entity_mismatch`/`year_mismatch`, es editable (el nombre de
    entidad sugerido) y tiene su propio "Dejar así" — puede ser un falso
    positivo si el patrón de nombres coincide por casualidad.

@@ -220,13 +220,20 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                         (year, f, _detect_entity_from_filename(f.name), _detect_year_from_filename(f.name))
                         for year, f in year_files
                     ]
+                    # A hyphenated entity (e.g. "MME-MJD-MDEF") is a joint circular
+                    # co-issued by several entities, not a single one disagreeing with
+                    # the folder — it shouldn't count as a vote either way when
+                    # deciding whether the whole folder should be renamed. It's not
+                    # excluded from per-file entity_mismatch below if that path is
+                    # taken instead, only from this folder-level vote.
+                    single_entity_resolved = [(y, f, ce) for y, f, ce, _ in resolved if ce is not None and "-" not in ce]
                     # Evidence FOR keeping the current folder name at all disqualifies a
                     # whole-folder rename — a mixed folder (some files agree, some don't)
                     # is genuine ambiguity, left to per-file review instead of guessing.
-                    agrees_with_folder = any(ce == entity for _, _, ce, _ in resolved if ce is not None)
-                    disagreeing = {ce for _, _, ce, _ in resolved if ce is not None and ce != entity}
+                    agrees_with_folder = any(ce == entity for _, _, ce in single_entity_resolved)
+                    disagreeing = {ce for _, _, ce in single_entity_resolved if ce != entity}
                     suggested_entity = next(iter(disagreeing)) if len(disagreeing) == 1 else None
-                    mismatched = [(y, f) for y, f, ce, _ in resolved if ce == suggested_entity]
+                    mismatched = [(y, f) for y, f, ce in single_entity_resolved if ce == suggested_entity]
                     sibling_names = {d.name for d in dir_children}
 
                     if (
