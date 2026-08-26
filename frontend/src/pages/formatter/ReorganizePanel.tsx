@@ -205,6 +205,11 @@ export function ReorganizePanel() {
                                 }
                                 className="w-24"
                               />
+                              {entry.detected_year === null && (
+                                <p className="mt-1 text-xs text-destructive">
+                                  Sin confirmar — revisa el documento
+                                </p>
+                              )}
                             </td>
                             <td className={TD}>{proposedPath ?? "—"}</td>
                           </tr>

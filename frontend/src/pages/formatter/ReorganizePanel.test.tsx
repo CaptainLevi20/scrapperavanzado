@@ -40,6 +40,8 @@ describe("ReorganizePanel", () => {
     expect(await screen.findByText("DECRETOS/2022/D_MSPS_0017AJ_2022.pdf")).toBeInTheDocument();
     expect(screen.getByLabelText("Año para DECRETOS/2022/D_MSPS_0017AJ_2022.pdf")).toHaveValue("2022");
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeDisabled();
+    // detected_year came from the filename, not a guess — no "unconfirmed" warning.
+    expect(screen.queryByText(/Sin confirmar/)).not.toBeInTheDocument();
 
     const tipoSummaryTable = screen.getAllByRole("table")[0];
     expect(within(tipoSummaryTable).getByText("DECRETOS")).toBeInTheDocument();
@@ -129,6 +131,9 @@ describe("ReorganizePanel", () => {
 
     expect(screen.getByLabelText("Año para RESOLUCIONES/SGCANDINA/RSG2058.docx")).toHaveValue("2022");
     expect(screen.getByRole("button", { name: "Aplicar" })).toBeEnabled();
+    // detected_year is null here — 2022 is only the file's mtime, not a
+    // year read from its name — so the "unconfirmed" warning must show.
+    expect(screen.getByText(/Sin confirmar/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
 

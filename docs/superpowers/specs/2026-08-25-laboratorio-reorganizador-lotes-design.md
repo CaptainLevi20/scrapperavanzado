@@ -85,7 +85,10 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    con el dato faltante en blanco, y como sugerencia editable (nunca
    autoritativa — la fecha de un archivo puede no reflejar la fecha real del
    acto administrativo) se ofrece el año de última modificación del archivo
-   en disco.
+   en disco. Como esta sugerencia se ve idéntica a un año leído con
+   confianza del nombre del archivo, la UI marca el campo con un aviso
+   ("Sin confirmar — revisa el documento") siempre que `detected_year` sea
+   `None` — el admin debe verificar contra el documento antes de aplicar.
 6. **Ruta propuesta.** Una vez resueltos tipo, entidad (si aplica) y año, la
    ruta propuesta es `Tipo/[Entidad/]Año/nombre-original-del-archivo` — esta
    herramienta reorganiza carpetas, no renombra archivos (eso ya lo hace el
