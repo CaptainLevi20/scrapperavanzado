@@ -97,26 +97,43 @@ Para cada carpeta de Tipo (nivel 1, tomada tal cual existe en disco):
    incompleto, así que no tiene sentido "dejarlos así").
 
    **Sugerencia de renombrar carpeta en vez de mover archivo por archivo.**
-   Cuando TODOS los archivos ya estructurados de una carpeta de Entidad
-   resuelven, desde su nombre, a la MISMA entidad distinta de la carpeta
-   actual (mínimo 2 archivos, y ninguno coincide con el nombre actual de la
-   carpeta), la corrección real no es mover cada archivo — es que la carpeta
-   entera tiene el nombre equivocado. En ese caso se reporta una única
-   `FolderRenameSuggestion` (`{tipo, current_entity, suggested_entity,
+   Cuando los archivos ya estructurados de una carpeta de Entidad resuelven,
+   desde su nombre, mayoritariamente a la MISMA entidad distinta de la
+   carpeta actual, la corrección real no es mover cada archivo — es que la
+   carpeta entera tiene el nombre equivocado. En ese caso se reporta una
+   única `FolderRenameSuggestion` (`{tipo, current_entity, suggested_entity,
    current_path, proposed_path, file_count}`) en vez de N excepciones
    `entity_mismatch`. Condiciones para activarla, todas conservadoras a
    propósito:
-   - Ningún archivo de la carpeta coincide con el nombre actual (evidencia
-     mixta = ambigüedad real, se deja para revisión archivo por archivo).
-   - Todos los archivos que sí discrepan coinciden entre sí en una única
-     entidad alternativa (si hay dos entidades distintas propuestas, es
-     ambiguo, no se sugiere nada).
+   - Todos los archivos que discrepan de la carpeta coinciden entre sí en
+     una única entidad alternativa (si hay dos entidades distintas
+     propuestas, es ambiguo, no se sugiere nada).
+   - Esa entidad alternativa la nombran **más** archivos que los que
+     coinciden con el nombre actual de la carpeta — mayoría estricta, mismo
+     principio que la clasificación `con_entidad`/`sin_entidad` de un Tipo.
+     Esto permite detectar una carpeta cuyo nombre quedó desactualizado
+     (muchos archivos ya usan el nombre correcto, un remanente menor sigue
+     usando el nombre viejo de la carpeta) sin arriesgarse en un caso
+     realmente parejo (ej. un empate 2 contra 2 no alcanza).
    - Al menos 2 archivos lo confirman (un solo archivo es exactamente el
      caso `entity_mismatch` normal, con su propio "Dejar así").
    - La entidad sugerida no coincide con ninguna carpeta hermana que ya
      exista bajo ese Tipo (evita ofrecer lo que en realidad sería una fusión
      de carpetas, no un renombrado — eso queda fuera de alcance, igual que
      fusionar carpetas de Tipo).
+
+   Caso real que motivó la mayoría estricta (en vez de exigir unanimidad):
+   `CONCEPTO/CCTCP` tenía 404 archivos — 336 nombraban `CTCP` (incluyendo
+   variantes con un espacio de más por error de tipeo) y 68 nombraban
+   `CCTCP` (coincidiendo con la carpeta). Confirmado con el usuario que
+   `CTCP` es la entidad correcta y `CCTCP` un error — con la regla de
+   unanimidad original, los 68 archivos que sí coincidían con la carpeta
+   bloqueaban la sugerencia para los 336 restantes.
+
+   Al extraer la entidad del nombre del archivo, un espacio de más justo
+   después del guion bajo (ej. `CTO_ CTCP_...` en vez de `CTO_CTCP_...`,
+   error de tipeo humano) se recorta antes de comparar — así `CTCP` y
+   `" CTCP"` cuentan como el mismo valor, no como dos entidades distintas.
 
    Un archivo cuyo nombre resuelve a una entidad **con guion** (ej.
    `MME-MJD-MDEF`, una circular conjunta de varios ministerios) no cuenta

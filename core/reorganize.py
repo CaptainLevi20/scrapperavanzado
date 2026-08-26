@@ -46,7 +46,12 @@ def _detect_entity_from_filename(filename: str) -> Optional[str]:
     parts = Path(filename).stem.split("_")
     if len(parts) < 3:
         return None
-    entity = parts[1]
+    # A stray space right after the underscore (e.g. "CTO_ CTCP_...") is a
+    # data-entry typo, not a different entity — strip it so "CTCP" and
+    # " CTCP" resolve to the same value instead of splitting the vote.
+    entity = parts[1].strip()
+    if not entity:
+        return None
     # A real entity code is always at least partly alphabetic (MSPS, PGN,
     # AGN, GC...) — a purely numeric second token means the filename
     # actually follows the shorter CODIGO_NUMERO_AÑO convention (no entity
@@ -227,22 +232,31 @@ def analyze_batch(root: Path) -> BatchAnalysis:
                     # excluded from per-file entity_mismatch below if that path is
                     # taken instead, only from this folder-level vote.
                     single_entity_resolved = [(y, f, ce) for y, f, ce, _ in resolved if ce is not None and "-" not in ce]
-                    # Evidence FOR keeping the current folder name at all disqualifies a
-                    # whole-folder rename — a mixed folder (some files agree, some don't)
-                    # is genuine ambiguity, left to per-file review instead of guessing.
-                    agrees_with_folder = any(ce == entity for _, _, ce in single_entity_resolved)
+                    # Files whose filename-entity agrees with the current folder name —
+                    # evidence the current name might actually be right for at least
+                    # part of the folder. A folder can still be renamed with some of
+                    # these present (a stale minority using the old/wrong name), but
+                    # only when the alternative is a clear majority — see below.
+                    agree_count = sum(1 for _, _, ce in single_entity_resolved if ce == entity)
                     disagreeing = {ce for _, _, ce in single_entity_resolved if ce != entity}
                     suggested_entity = next(iter(disagreeing)) if len(disagreeing) == 1 else None
                     mismatched = [(y, f) for y, f, ce in single_entity_resolved if ce == suggested_entity]
                     sibling_names = {d.name for d in dir_children}
 
                     if (
-                        not agrees_with_folder
-                        and suggested_entity is not None
+                        suggested_entity is not None
                         # Require at least 2 agreeing files — a single file's typo is
                         # exactly what per-file entity_mismatch already handles, and a
                         # whole-folder rename shouldn't rest on one data point.
                         and len(mismatched) >= 2
+                        # Strict majority: the alternate entity must be named by MORE
+                        # files than agree with the current folder name — same
+                        # principle as the con_entidad/sin_entidad Tipo tie-break. This
+                        # is what lets a folder with a mostly-wrong name (many old
+                        # files using the correct entity, a smaller lingering set still
+                        # using the folder's current, wrong name) still get suggested,
+                        # without guessing on anything close to a 50/50 split.
+                        and len(mismatched) > agree_count
                         # Never propose renaming onto a folder that already exists —
                         # that would be a merge, not a rename, and deserves its own
                         # explicit review rather than being silently offered here.

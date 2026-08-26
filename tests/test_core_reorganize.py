@@ -149,6 +149,44 @@ def test_folder_rename_ignores_joint_circulars_with_a_hyphenated_entity(tmp_path
     assert _by_tipo(result, "CIRCULAR").total_files == 4
 
 
+def test_folder_rename_suggested_when_a_clear_majority_disagrees_with_the_folder(tmp_path):
+    # Reported real case: CONCEPTO/CCTCP has 318 files naming "CTCP" (plus
+    # 18 more with a stray space typo, "CTCP" after stripping) against only
+    # 65 naming "CCTCP" (plus 3 " CCTCP" typos) — a clear majority, not a
+    # unanimous one. Confirmed by the user: CTCP is the correct entity.
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CTCP_0000185_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CTCP_0000223_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CTCP_0000437_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2026" / "CTO_ CTCP_0000239_2026.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CCTCP_0000060_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2026" / "CTO_ CCTCP_0000011_2026.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert len(result.folder_renames) == 1
+    fr = result.folder_renames[0]
+    assert fr.current_entity == "CCTCP"
+    assert fr.suggested_entity == "CTCP"
+    assert fr.file_count == 4  # the 3 "CTCP" + 1 " CTCP" (typo, stripped)
+    assert _by_tipo(result, "CONCEPTO").total_files == 6
+
+
+def test_no_folder_rename_when_the_alternate_entity_is_not_a_clear_majority(tmp_path):
+    # 2 files disagree with the folder, but 2 also agree with it — a tie,
+    # not a majority. Stays as individual entity_mismatch review.
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CTCP_0000185_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CTCP_0000223_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CCTCP_0000060_2025.pdf")
+    _touch(tmp_path / "CONCEPTO" / "CCTCP" / "2025" / "CTO_CCTCP_0000097_2025.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.folder_renames == []
+    assert len(result.exceptions) == 2
+    assert all(e.kind == "entity_mismatch" and e.detected_entity == "CTCP" for e in result.exceptions)
+
+
 def test_no_folder_rename_suggested_for_a_single_mismatched_file(tmp_path):
     _touch(tmp_path / "ACUERDOS" / "CMARAUCA" / "2016" / "A_CARAUCA_100_2016.pdf")
 
@@ -553,6 +591,18 @@ def test_detected_entity_rejects_a_purely_numeric_second_token(tmp_path):
     exc = next(e for e in result.exceptions if e.current_path.endswith("D_0114_2022.pdf"))
     assert exc.detected_entity is None
     assert exc.proposed_path is None
+
+
+def test_detected_entity_strips_a_stray_space_typo(tmp_path):
+    _touch(tmp_path / "DECRETOS" / "PGN" / "2019" / "D_PGN_0001_2019.pdf")
+    _touch(tmp_path / "DECRETOS" / "2022" / "D_ PGN_0002_2022.pdf")
+    (tmp_path / "DECRETOS" / "OTRO").mkdir(parents=True, exist_ok=True)
+
+    result = analyze_batch(tmp_path)
+
+    exc = next(e for e in result.exceptions if e.current_path.endswith("D_ PGN_0002_2022.pdf"))
+    assert exc.detected_entity == "PGN"
+    assert exc.proposed_path == "DECRETOS/PGN/2022/D_ PGN_0002_2022.pdf"
 
 
 def test_apply_folder_renames_moves_the_whole_directory(tmp_path):
