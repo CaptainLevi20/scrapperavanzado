@@ -9,6 +9,7 @@ __pycache__/
 !.env.production.example
 .pytest_cache/
 .coverage
+node_modules/
 graphify-out/
 .superpowers/
 
