@@ -146,3 +146,78 @@ export interface DocumentVersion {
   downloaded_at: string;
   superseded_at: string;
 }
+
+export interface TipoSummary {
+  tipo: string;
+  total_files: number;
+  exception_count: number;
+}
+
+export type ReorganizeExceptionKind =
+  | "missing_entity_folder"
+  | "missing_year_folder"
+  | "entity_mismatch"
+  | "year_mismatch";
+
+export interface ReorganizeException {
+  tipo: string;
+  kind: ReorganizeExceptionKind;
+  current_path: string;
+  detected_entity: string | null;
+  detected_year: number | null;
+  mtime_year_hint: number | null;
+  proposed_path: string | null;
+}
+
+export interface ExtraDepthEntry {
+  tipo: string;
+  current_path: string;
+}
+
+export interface FolderRenameSuggestion {
+  tipo: string;
+  current_entity: string;
+  suggested_entity: string;
+  current_path: string;
+  proposed_path: string;
+  file_count: number;
+}
+
+export interface BatchAnalysis {
+  root_path: string;
+  total_files: number;
+  tipos: TipoSummary[];
+  exceptions: ReorganizeException[];
+  extra_depth: ExtraDepthEntry[];
+  extra_depth_total: number;
+  folder_renames: FolderRenameSuggestion[];
+}
+
+export interface ResolvedMove {
+  current_path: string;
+  target_path: string;
+}
+
+export interface ResolvedFolderRename {
+  current_path: string;
+  target_path: string;
+}
+
+export interface MoveResult {
+  current_path: string;
+  target_path: string;
+  moved: boolean;
+  skip_reason: string | null;
+}
+
+export interface FolderRenameOutcome {
+  current_path: string;
+  target_path: string;
+  renamed: boolean;
+  skip_reason: string | null;
+}
+
+export interface ApplyResult {
+  results: MoveResult[];
+  folder_rename_results: FolderRenameOutcome[];
+}

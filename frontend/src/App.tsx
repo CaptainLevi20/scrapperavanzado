@@ -1,6 +1,7 @@
 import { lazy } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AdminRoute } from "./auth/AdminRoute";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppLayout } from "./components/layout/AppLayout";
@@ -11,7 +12,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 
 // The authenticated pages are code-split: each downloads only when its route is
-// first visited, keeping the initial bundle small (the Formatter in particular
+// first visited, keeping the initial bundle small (Laboratorio in particular
 // carries a chunky rules engine that most sessions never open). They all render
 // under AppLayout's <Outlet>, whose <Suspense> boundary shows the fallback while
 // a chunk loads. React.lazy needs a default export, hence the `.then` unwrap of
@@ -48,7 +49,9 @@ export function App() {
                 <Route path="/bulk-downloads" element={<BulkDownloadsPage />} />
                 <Route path="/expedientes" element={<ExpedientesPage />} />
                 <Route path="/expedientes/:caseLinkId" element={<CaseLinkDetailPage />} />
-                <Route path="/formateador" element={<FormatterPage />} />
+                <Route element={<AdminRoute />}>
+                  <Route path="/laboratorio" element={<FormatterPage />} />
+                </Route>
               </Route>
             </Route>
           </Routes>

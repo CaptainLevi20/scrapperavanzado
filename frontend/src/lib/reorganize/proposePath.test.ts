@@ -1,0 +1,213 @@
+import { describe, expect, it } from "vitest";
+import type { ReorganizeException } from "../../api/types";
+import { computeFolderRenameTarget, computeProposedPath, isConfidentException } from "./proposePath";
+
+function makeException(overrides: Partial<ReorganizeException> = {}): ReorganizeException {
+  return {
+    tipo: "DECRETOS",
+    kind: "missing_entity_folder",
+    current_path: "DECRETOS/2022/D_MSPS_0017AJ_2022.pdf",
+    detected_entity: "MSPS",
+    detected_year: 2022,
+    mtime_year_hint: null,
+    proposed_path: null,
+    ...overrides,
+  };
+}
+
+describe("computeProposedPath", () => {
+  it("builds Tipo/Entidad/Año/archivo when entity and year are resolved", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "2022" })).toBe(
+      "DECRETOS/MSPS/2022/D_MSPS_0017AJ_2022.pdf"
+    );
+  });
+
+  it("returns null for missing_entity_folder when entity is blank", () => {
+    const entry = makeException({ detected_entity: null });
+    expect(computeProposedPath(entry, { entity: "", year: "2022" })).toBeNull();
+  });
+
+  it("returns null when year isn't four digits", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "22" })).toBeNull();
+  });
+
+  it("builds Tipo/Año/archivo (no entity segment) for a missing_year_folder entry with no entity", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      tipo: "Leyes",
+      current_path: "Leyes/LEY_0042_2019.pdf",
+      detected_entity: null,
+      detected_year: null,
+    });
+    expect(computeProposedPath(entry, { entity: "", year: "2019" })).toBe("Leyes/2019/LEY_0042_2019.pdf");
+  });
+
+  it("returns null for a missing_year_folder entry under a con_entidad Tipo when entity is blank", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      tipo: "RESOLUCIONES",
+      current_path: "RESOLUCIONES/PGN/R_PGN_0158.docx",
+      detected_entity: "PGN",
+      detected_year: null,
+    });
+    expect(computeProposedPath(entry, { entity: "", year: "2019" })).toBeNull();
+  });
+
+  it("rejects an entity containing a path separator or a parent-directory reference", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "../..", year: "2022" })).toBeNull();
+    expect(computeProposedPath(entry, { entity: "MSPS/../etc", year: "2022" })).toBeNull();
+    expect(computeProposedPath(entry, { entity: "MSPS\\etc", year: "2022" })).toBeNull();
+  });
+
+  it("rejects a year outside the plausible 1800-2099 range", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "0000" })).toBeNull();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "3450" })).toBeNull();
+  });
+
+  it("accepts a boundary year matching the backend's YEAR_RE", () => {
+    const entry = makeException();
+    expect(computeProposedPath(entry, { entity: "MSPS", year: "1899" })).toBe("DECRETOS/MSPS/1899/D_MSPS_0017AJ_2022.pdf");
+  });
+});
+
+describe("computeFolderRenameTarget", () => {
+  it("builds Tipo/NuevaEntidad", () => {
+    expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA")).toBe("ACUERDOS/CARAUCA");
+  });
+
+  it("returns null when the entity is blank", () => {
+    expect(computeFolderRenameTarget("ACUERDOS", "")).toBeNull();
+    expect(computeFolderRenameTarget("ACUERDOS", "   ")).toBeNull();
+  });
+
+  it("rejects an entity containing a path separator or a parent-directory reference", () => {
+    expect(computeFolderRenameTarget("ACUERDOS", "../..")).toBeNull();
+    expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA/../etc")).toBeNull();
+    expect(computeFolderRenameTarget("ACUERDOS", "CARAUCA\\etc")).toBeNull();
+  });
+});
+
+describe("isConfidentException", () => {
+  it("is confident for missing_entity_folder once resolved from the filename", () => {
+    expect(isConfidentException(makeException())).toBe(true);
+  });
+
+  it("is confident for year_mismatch (year is always read from the filename, never a guess)", () => {
+    const entry = makeException({
+      kind: "year_mismatch",
+      detected_entity: "MME",
+      detected_year: 2015,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is confident for missing_year_folder once the year is resolved from the filename", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      detected_entity: "PGN",
+      detected_year: 2019,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is NOT confident when the year is only an mtime guess", () => {
+    const entry = makeException({
+      kind: "missing_year_folder",
+      detected_year: null,
+      mtime_year_hint: 2022,
+    });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("is never confident for an ordinary entity_mismatch, even with a resolved year", () => {
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/ARCHIVO/2003/A_AGN_0015_2003.pdf",
+      detected_entity: "AGN",
+      detected_year: 2003,
+    });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("is confident for the confirmed CM-prefix pattern (folder 'CM'+city, filename 'C'+city)", () => {
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/CMAGUACHICA/2022/A_CAGUACHICA_0011_2022.pdf",
+      detected_entity: "CAGUACHICA",
+      detected_year: 2022,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is NOT confident when the folder doesn't start with CM, even if it superficially looks similar", () => {
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/CIRCULAR/2022/A_IRCULAR_0011_2022.pdf",
+      detected_entity: "IRCULAR",
+      detected_year: 2022,
+    });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("never fires at all for a CM folder whose city name genuinely starts with M (e.g. CMEDELLIN)", () => {
+    // Medellín itself starts with M, so real files there say "CMEDELLIN" —
+    // matching the folder exactly. No mismatch, so no exception is ever
+    // raised for them in the first place (this isn't something
+    // isConfidentException needs to guard against; there's nothing to
+    // decide once entity_wrong is already false upstream).
+    const entry = makeException({
+      kind: "entity_mismatch",
+      current_path: "ACUERDOS/CMEDELLIN/2022/A_CMEDELLIN_0011_2022.pdf",
+      detected_entity: "CMEDELLIN",
+      detected_year: 2022,
+    });
+    // Structurally this still matches the pattern function's shape (it's
+    // never even called for a real CMEDELLIN file since entity_wrong is
+    // false), but confirms the pattern check itself is a no-op when
+    // detected_entity already equals the current folder verbatim.
+    expect(isConfidentException(entry)).toBe(false);
+  });
+
+  it("is confident for the confirmed CONCEPTO/SDH -> SDHBOG merge into an already-existing folder", () => {
+    const entry = makeException({
+      tipo: "CONCEPTO",
+      kind: "entity_mismatch",
+      current_path: "CONCEPTO/SDH/2025/CTO_SDHBOG_2025EE202811_2025.pdf",
+      detected_entity: "SDHBOG",
+      detected_year: 2025,
+    });
+    expect(isConfidentException(entry)).toBe(true);
+  });
+
+  it("is NOT confident for an SDH-named folder outside CONCEPTO, or for a different detected entity", () => {
+    const wrongTipo = makeException({
+      tipo: "RESOLUCIONES",
+      kind: "entity_mismatch",
+      current_path: "RESOLUCIONES/SDH/2020/R_SDHBOG_0001_2020.pdf",
+      detected_entity: "SDHBOG",
+      detected_year: 2020,
+    });
+    expect(isConfidentException(wrongTipo)).toBe(false);
+
+    const wrongEntity = makeException({
+      tipo: "CONCEPTO",
+      kind: "entity_mismatch",
+      current_path: "CONCEPTO/SDH/2020/CTO_OTHER_0001_2020.pdf",
+      detected_entity: "OTHER",
+      detected_year: 2020,
+    });
+    expect(isConfidentException(wrongEntity)).toBe(false);
+  });
+
+  it("is NOT confident for missing_entity_folder when the entity couldn't be parsed, even though the year is always known", () => {
+    // detected_year for missing_entity_folder is the year of the folder the
+    // file already sits in — always known, never a guess — but a blank
+    // entity still means a human has to type one in.
+    const entry = makeException({ detected_entity: null, detected_year: 2022 });
+    expect(isConfidentException(entry)).toBe(false);
+  });
+});

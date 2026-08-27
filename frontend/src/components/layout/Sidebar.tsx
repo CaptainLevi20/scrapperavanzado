@@ -4,14 +4,22 @@ import { Archive, FileStack, Gauge, GitMerge, LogOut, PanelLeftClose, PanelLeftO
 import { useAuth } from "../../auth/AuthContext";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
-const LINKS = [
+interface NavLinkConfig {
+  to: string;
+  label: string;
+  end: boolean;
+  icon: typeof Gauge;
+  adminOnly?: boolean;
+}
+
+const LINKS: NavLinkConfig[] = [
   { to: "/", label: "Dashboard", end: true, icon: Gauge },
   { to: "/sources", label: "Fuentes", end: false, icon: Radar },
   { to: "/runs", label: "Runs", end: false, icon: PlayCircle },
   { to: "/documents", label: "Documentos", end: false, icon: FileStack },
   { to: "/expedientes", label: "Expedientes", end: false, icon: GitMerge },
   { to: "/bulk-downloads", label: "Descargas masivas", end: false, icon: Archive },
-  { to: "/formateador", label: "Formateador", end: false, icon: Wand2 },
+  { to: "/laboratorio", label: "Laboratorio", end: false, icon: Wand2, adminOnly: true },
 ];
 
 // Persisted so the chosen width survives a reload — re-collapsing on every
@@ -19,7 +27,7 @@ const LINKS = [
 const COLLAPSE_STORAGE_KEY = "iurisync:sidebar-collapsed";
 
 export function Sidebar() {
-  const { username, logout } = useAuth();
+  const { username, isAdmin, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_STORAGE_KEY) === "true");
 
   useEffect(() => {
@@ -56,7 +64,7 @@ export function Sidebar() {
       </div>
 
       <ul className="flex-1 space-y-1 px-3">
-        {LINKS.map((link) => {
+        {LINKS.filter((link) => !link.adminOnly || isAdmin).map((link) => {
           const Icon = link.icon;
           return (
             <li key={link.to}>
