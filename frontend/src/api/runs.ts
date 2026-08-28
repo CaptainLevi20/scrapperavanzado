@@ -1,4 +1,5 @@
 import { apiFetch, buildQuery } from "./client";
+import { fetchBlobFrom } from "./documents";
 import type { Run, RunCreateInput, RunSource } from "./types";
 
 export interface ListRunsParams {
@@ -30,4 +31,8 @@ export function cancelRun(id: number): Promise<Run> {
 
 export function retryFailedRunSources(id: number): Promise<Run> {
   return apiFetch<Run>(`/runs/${id}/retry-failed`, { method: "POST" });
+}
+
+export function fetchRunReportBlob(id: number): Promise<Blob> {
+  return fetchBlobFrom(`/runs/${id}/report.xlsx`, "No se pudo generar el informe");
 }

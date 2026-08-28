@@ -164,6 +164,11 @@ class DocumentVersion(Base):
     # vigente (la más antigua = 1). Fijado al archivar en
     # archive_and_replace_document.
     version_no = Column(Integer, nullable=False, default=1, server_default="1")
+    # run_source que disparó esta republicación (la actualización que dejó
+    # esta versión archivada). Nullable porque archive_and_replace_document
+    # también se usa fuera del flujo de scraping normal; sin esto no hay
+    # forma de saber qué run actualizó un documento dado (ver informe de run).
+    updated_by_run_source_id = Column(Integer, ForeignKey("run_sources.id"), nullable=True)
 
 
 class User(Base):

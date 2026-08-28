@@ -386,7 +386,11 @@ def scrape_source_task(run_source_id: int):
                                     else:
                                         _, existing, doc_id, doc = entry
                                         repository.archive_and_replace_document(
-                                            db, existing.id, review_status=auto_review_status or "pending", **payload
+                                            db,
+                                            existing.id,
+                                            review_status=auto_review_status or "pending",
+                                            run_source_id=run_source_id,
+                                            **payload,
                                         )
                                         docs_updated += 1
                                         documentos_republicados.add(existing.id)

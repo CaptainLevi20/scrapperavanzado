@@ -1,11 +1,13 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_session
 from api.schemas import RunCreate, RunOut, RunSourceOut
 from core.db import repository
+from core.run_report import build_run_report_workbook
 from worker.tasks import orchestrate_run, retry_failed_run_sources_task
 
 router = APIRouter(dependencies=[Depends(require_session)])
@@ -39,6 +41,25 @@ def get_run(run_id: int, db: Session = Depends(get_db)):
 @router.get("/runs/{run_id}/sources", response_model=list[RunSourceOut])
 def get_run_sources(run_id: int, db: Session = Depends(get_db)):
     return repository.list_run_sources_with_source_names(db, run_id)
+
+
+@router.get("/runs/{run_id}/report.xlsx")
+def get_run_report(run_id: int, db: Session = Depends(get_db)):
+    run = repository.get_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+
+    workbook_bytes = build_run_report_workbook(
+        repository.list_run_sources_with_source_names(db, run_id),
+        repository.list_new_documents_for_run(db, run_id),
+        repository.list_updated_documents_for_run(db, run_id),
+        repository.list_run_errors_for_run(db, run_id),
+    )
+    return StreamingResponse(
+        iter([workbook_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="informe_run_{run_id}.xlsx"'},
+    )
 
 
 @router.post("/runs/{run_id}/cancel", response_model=RunOut)

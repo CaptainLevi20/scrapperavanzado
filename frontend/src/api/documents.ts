@@ -142,7 +142,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> {
+export async function fetchBlobFrom(path: string, errorMessage: string): Promise<Blob> {
   const token = getStoredToken();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
