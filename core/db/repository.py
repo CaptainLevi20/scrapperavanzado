@@ -235,6 +235,81 @@ def add_run_error(db: Session, run_source_id: int, message: str, context: Option
     return error
 
 
+def list_new_documents_for_run(db: Session, run_id: int) -> list[dict]:
+    """Documents this run created, for the run report export. Document.run_source_id
+    is set once at insert and never changes, so this join is exact — unlike
+    "updated", there's no ambiguity about which run a new document belongs to."""
+    stmt = (
+        select(Document, Source.name)
+        .join(RunSource, Document.run_source_id == RunSource.id)
+        .join(Source, Document.source_id == Source.id)
+        .where(RunSource.run_id == run_id)
+        .order_by(Source.name, Document.title)
+    )
+    return [
+        {
+            "source_name": source_name,
+            "title": document.title,
+            "tipo": document.tipo,
+            "seccion": document.seccion,
+            "especialidad": document.especialidad,
+            "magistrado": document.magistrado,
+            "f_public": document.f_public,
+            "f_providencia": document.f_providencia,
+            "source_url": document.source_url,
+            "downloaded_at": document.downloaded_at,
+        }
+        for document, source_name in db.execute(stmt).all()
+    ]
+
+
+def list_updated_documents_for_run(db: Session, run_id: int) -> list[dict]:
+    """Documents republished by this run, for the run report export. Relies on
+    DocumentVersion.updated_by_run_source_id (set by archive_and_replace_document) —
+    each archived version records the run that superseded it, so a document updated
+    again by a later run still shows correctly under the run that actually touched it."""
+    stmt = (
+        select(Document, DocumentVersion.superseded_at, Source.name)
+        .join(DocumentVersion, DocumentVersion.document_id == Document.id)
+        .join(RunSource, DocumentVersion.updated_by_run_source_id == RunSource.id)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(RunSource.run_id == run_id)
+        .order_by(Source.name, Document.title)
+    )
+    return [
+        {
+            "source_name": source_name,
+            "title": document.title,
+            "source_url": document.source_url,
+            "updated_at": superseded_at,
+        }
+        for document, superseded_at, source_name in db.execute(stmt).all()
+    ]
+
+
+def list_run_errors_for_run(db: Session, run_id: int) -> list[dict]:
+    stmt = (
+        select(RunError, Source.name)
+        .join(RunSource, RunError.run_source_id == RunSource.id)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(RunSource.run_id == run_id)
+        .order_by(Source.name, RunError.occurred_at)
+    )
+    results = []
+    for error, source_name in db.execute(stmt).all():
+        context = error.context or {}
+        results.append(
+            {
+                "source_name": source_name,
+                "title": context.get("title"),
+                "url": context.get("url"),
+                "message": error.message,
+                "occurred_at": error.occurred_at,
+            }
+        )
+    return results
+
+
 def create_bulk_download(db: Session) -> BulkDownload:
     bulk_download = BulkDownload(status="pending")
     db.add(bulk_download)
@@ -326,7 +401,11 @@ def get_document_by_doc_id(db: Session, doc_id: str) -> Optional[Document]:
 
 
 def archive_and_replace_document(
-    db: Session, document_id: int, review_status: str = "pending", **new_fields
+    db: Session,
+    document_id: int,
+    review_status: str = "pending",
+    run_source_id: Optional[int] = None,
+    **new_fields,
 ) -> Document:
     # with_for_update() locks the row for the duration of this transaction: a second,
     # concurrent republication of the same document (two overlapping runs touching the
@@ -352,6 +431,7 @@ def archive_and_replace_document(
         source_url=document.source_url,
         downloaded_at=document.downloaded_at,
         version_no=document.version_no,
+        updated_by_run_source_id=run_source_id,
     )
     db.add(version)
     for key, value in new_fields.items():

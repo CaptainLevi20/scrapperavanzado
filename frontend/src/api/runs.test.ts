@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { clearStoredToken } from "./client";
-import { cancelRun, createRun, fetchRun, fetchRunSources, fetchRuns, retryFailedRunSources } from "./runs";
+import { cancelRun, createRun, fetchRun, fetchRunReportBlob, fetchRunSources, fetchRuns, retryFailedRunSources } from "./runs";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -104,5 +104,26 @@ describe("runs API", () => {
 
     expect(method).toBe("POST");
     expect(run.status).toBe("running");
+  });
+
+  it("fetchRunReportBlob fetches the run report as a Blob", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/9/report.xlsx`, () =>
+        new HttpResponse("contenido xlsx", {
+          headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+        })
+      )
+    );
+
+    const blob = await fetchRunReportBlob(9);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(await blob.text()).toBe("contenido xlsx");
+  });
+
+  it("fetchRunReportBlob throws when the request fails", async () => {
+    server.use(http.get(`${BASE_URL}/runs/9/report.xlsx`, () => new HttpResponse(null, { status: 404 })));
+
+    await expect(fetchRunReportBlob(9)).rejects.toThrow();
   });
 });

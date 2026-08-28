@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cancelRun, fetchRun, fetchRunSources, retryFailedRunSources } from "../api/runs";
+import { downloadBlob } from "../api/documents";
+import { cancelRun, fetchRun, fetchRunReportBlob, fetchRunSources, retryFailedRunSources } from "../api/runs";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
@@ -113,6 +114,11 @@ export function RunDetailPage() {
     },
   });
 
+  const exportMutation = useMutation({
+    mutationFn: () => fetchRunReportBlob(id),
+    onSuccess: (blob) => downloadBlob(blob, `informe_run_${id}.xlsx`),
+  });
+
   if (Number.isNaN(id)) return <ErrorBanner message="Run inválido." />;
   if (runQuery.isError) {
     return <ErrorBanner message="No se pudo cargar el run." onRetry={() => runQuery.refetch()} />;
@@ -148,25 +154,33 @@ export function RunDetailPage() {
         />
       )}
 
-      {!isTerminalRunStatus(run.status) && (
-        <Button
-          variant="destructive"
-          disabled={run.cancel_requested || cancelMutation.isPending}
-          onClick={() => cancelMutation.mutate()}
-        >
-          {run.cancel_requested ? "Cancelación solicitada" : "Cancelar run"}
-        </Button>
-      )}
+      <div className="flex flex-wrap items-center gap-3">
+        {!isTerminalRunStatus(run.status) && (
+          <Button
+            variant="destructive"
+            disabled={run.cancel_requested || cancelMutation.isPending}
+            onClick={() => cancelMutation.mutate()}
+          >
+            {run.cancel_requested ? "Cancelación solicitada" : "Cancelar run"}
+          </Button>
+        )}
 
-      {(run.status === "failed" || run.status === "completed_with_errors") && (
-        <Button
-          variant="outline"
-          disabled={retryMutation.isPending}
-          onClick={() => retryMutation.mutate()}
-        >
-          Reintentar fuentes fallidas
+        {(run.status === "failed" || run.status === "completed_with_errors") && (
+          <Button
+            variant="outline"
+            disabled={retryMutation.isPending}
+            onClick={() => retryMutation.mutate()}
+          >
+            Reintentar fuentes fallidas
+          </Button>
+        )}
+
+        <Button variant="outline" size="sm" disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()}>
+          {exportMutation.isPending ? "Generando informe..." : "Exportar a Excel"}
         </Button>
-      )}
+      </div>
+
+      {exportMutation.isError && <ErrorBanner message="No se pudo generar el informe." onRetry={() => exportMutation.mutate()} />}
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>

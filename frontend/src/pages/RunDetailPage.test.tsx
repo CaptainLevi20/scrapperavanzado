@@ -323,4 +323,43 @@ describe("RunDetailPage", () => {
     await screen.findByText("Run #1");
     expect(screen.getByText("4")).toBeInTheDocument();
   });
+
+  it("downloads the Excel report when Exportar a Excel is clicked", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json(RUN)),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([RUN_SOURCE])),
+      http.get(`${BASE_URL}/runs/1/report.xlsx`, () => HttpResponse.text("contenido xlsx"))
+    );
+    // Same convention as BulkDownloadsPage.test.tsx: downloadBlob does a real
+    // URL.createObjectURL + <a download> click, so stub the click to avoid jsdom's
+    // "Not implemented: navigation" noise while still verifying the click fired.
+    const clickSpy = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = originalCreateElement(tag);
+      if (tag === "a") element.click = clickSpy;
+      return element;
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Exportar a Excel"));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledOnce());
+    createElementSpy.mockRestore();
+  });
+
+  it("shows an error banner when the export fails", async () => {
+    server.use(
+      http.get(`${BASE_URL}/runs/1`, () => HttpResponse.json(RUN)),
+      http.get(`${BASE_URL}/runs/1/sources`, () => HttpResponse.json([RUN_SOURCE])),
+      http.get(`${BASE_URL}/runs/1/report.xlsx`, () => new HttpResponse(null, { status: 500 }))
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("Exportar a Excel"));
+
+    expect(await screen.findByText("No se pudo generar el informe.")).toBeInTheDocument();
+  });
 });

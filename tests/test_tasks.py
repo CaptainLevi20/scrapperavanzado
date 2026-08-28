@@ -391,6 +391,7 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
 
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
         assert version.file_size_bytes == 9
+        assert version.updated_by_run_source_id == run_source.id
     finally:
         assertion_session.close()
 
