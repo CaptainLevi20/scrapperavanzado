@@ -634,6 +634,13 @@ def get_source_family_keys(db: Session, source_ids: list[int]) -> dict[int, str]
     return dict(db.execute(stmt).all())
 
 
+def get_source_names(db: Session, source_ids: list[int]) -> dict[int, str]:
+    if not source_ids:
+        return {}
+    stmt = select(Source.id, Source.name).where(Source.id.in_(source_ids))
+    return dict(db.execute(stmt).all())
+
+
 def count_documents_by_title_within_family(db: Session, titles: list[str], family_key: str) -> dict[str, int]:
     if not titles:
         return {}
