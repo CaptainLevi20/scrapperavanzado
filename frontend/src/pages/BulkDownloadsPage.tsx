@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive } from "lucide-react";
-import { fetchBulkDownloads, fetchBulkDownloadUrl } from "../api/bulkDownloads";
+import { deleteBulkDownload, fetchBulkDownloads, fetchBulkDownloadUrl } from "../api/bulkDownloads";
 import { downloadFromUrl } from "../api/documents";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -26,6 +26,8 @@ export function BulkDownloadsPage() {
   });
 
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   async function handleDownload(id: number) {
     setDownloadError(null);
@@ -34,6 +36,25 @@ export function BulkDownloadsPage() {
       await downloadFromUrl(url, `descarga_masiva_${id}.zip`);
     } catch {
       setDownloadError("No se pudo descargar el archivo. El enlace pudo haber expirado — intenta de nuevo.");
+    }
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteBulkDownload(id),
+    onSuccess: () => {
+      setDeleteError(null);
+      queryClient.invalidateQueries({ queryKey: ["bulk-downloads"] });
+    },
+    onError: () => setDeleteError("No se pudo eliminar la descarga masiva. Intenta de nuevo."),
+  });
+
+  function handleDelete(id: number) {
+    if (
+      window.confirm(
+        "Esto elimina el lote y libera sus documentos para que puedan incluirse en una nueva descarga masiva. ¿Continuar?"
+      )
+    ) {
+      deleteMutation.mutate(id);
     }
   }
 
@@ -55,6 +76,7 @@ export function BulkDownloadsPage() {
       )}
 
       {downloadError && <ErrorBanner message={downloadError} />}
+      {deleteError && <ErrorBanner message={deleteError} />}
 
       <div className={TABLE_SHELL}>
         <div className={TABLE_SCROLL}>
@@ -65,7 +87,7 @@ export function BulkDownloadsPage() {
                 <th className={TH}>Estado</th>
                 <th className={TH}>Documentos</th>
                 <th className={TH}>Creado</th>
-                <th className={TH}>Descarga</th>
+                <th className={TH}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -86,15 +108,25 @@ export function BulkDownloadsPage() {
                   </td>
                   <td className={TD_MONO}>{formatDateTime(item.created_at)}</td>
                   <td className={TD}>
-                    {item.status === "completed" && (
-                      <Button variant="outline" size="sm" onClick={() => handleDownload(item.id)}>
-                        Descargar
+                    <div className="flex items-center gap-2">
+                      {item.status === "completed" && (
+                        <Button variant="outline" size="sm" onClick={() => handleDownload(item.id)}>
+                          Descargar
+                        </Button>
+                      )}
+                      {item.status === "failed" && <span className="text-xs text-rojo">{item.error_message}</span>}
+                      {(item.status === "pending" || item.status === "running") && (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(item.id)}
+                        disabled={deleteMutation.isPending && deleteMutation.variables === item.id}
+                      >
+                        Eliminar
                       </Button>
-                    )}
-                    {item.status === "failed" && <span className="text-xs text-rojo">{item.error_message}</span>}
-                    {(item.status === "pending" || item.status === "running") && (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
+                    </div>
                   </td>
                 </tr>
                 ))
