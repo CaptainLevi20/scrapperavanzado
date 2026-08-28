@@ -125,6 +125,10 @@ class BulkDownloadOut(BaseModel):
     created_at: datetime
 
 
+class BulkDownloadDeletionOut(BaseModel):
+    documents_freed: int
+
+
 class DocumentVersionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

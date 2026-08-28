@@ -143,4 +143,54 @@ describe("BulkDownloadsPage", () => {
 
     expect(await screen.findByText(/todav.a no se ha generado ninguna descarga masiva/i)).toBeInTheDocument();
   });
+
+  it("deletes a bulk download when 'Eliminar' is clicked and confirmed", async () => {
+    let deleteCalled = false;
+    server.use(
+      http.get(`${BASE_URL}/bulk-downloads`, () => HttpResponse.json([COMPLETED])),
+      http.delete(`${BASE_URL}/bulk-downloads/1`, () => {
+        deleteCalled = true;
+        return HttpResponse.json({ documents_freed: 12 });
+      })
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /eliminar/i }));
+
+    await waitFor(() => expect(deleteCalled).toBe(true));
+  });
+
+  it("does not delete when the confirmation is cancelled", async () => {
+    let deleteCalled = false;
+    server.use(
+      http.get(`${BASE_URL}/bulk-downloads`, () => HttpResponse.json([COMPLETED])),
+      http.delete(`${BASE_URL}/bulk-downloads/1`, () => {
+        deleteCalled = true;
+        return HttpResponse.json({ documents_freed: 12 });
+      })
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /eliminar/i }));
+
+    expect(deleteCalled).toBe(false);
+  });
+
+  it("shows an error banner when deleting fails", async () => {
+    server.use(
+      http.get(`${BASE_URL}/bulk-downloads`, () => HttpResponse.json([COMPLETED])),
+      http.delete(`${BASE_URL}/bulk-downloads/1`, () => new HttpResponse(null, { status: 500 }))
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /eliminar/i }));
+
+    expect(await screen.findByText(/no se pudo eliminar la descarga masiva/i)).toBeInTheDocument();
+  });
 });

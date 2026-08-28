@@ -28,3 +28,7 @@ export function fetchBulkDownloads(params: ListBulkDownloadsParams = {}): Promis
 export function fetchBulkDownloadUrl(id: number): Promise<string> {
   return apiFetch<{ url: string }>(`/bulk-downloads/${id}/download`).then((data) => data.url);
 }
+
+export function deleteBulkDownload(id: number): Promise<{ documents_freed: number }> {
+  return apiFetch<{ documents_freed: number }>(`/bulk-downloads/${id}`, { method: "DELETE" });
+}

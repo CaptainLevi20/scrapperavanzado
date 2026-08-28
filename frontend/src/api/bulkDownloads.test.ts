@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { createBulkDownload, fetchBulkDownloadUrl, fetchBulkDownloads } from "./bulkDownloads";
+import { createBulkDownload, deleteBulkDownload, fetchBulkDownloadUrl, fetchBulkDownloads } from "./bulkDownloads";
 
 const BASE_URL = "http://localhost:8000";
 
@@ -47,5 +47,17 @@ describe("fetchBulkDownloadUrl", () => {
     const result = await fetchBulkDownloadUrl(1);
 
     expect(result).toBe("https://signed.example.com/bulk-downloads/1.zip");
+  });
+});
+
+describe("deleteBulkDownload", () => {
+  it("deletes /bulk-downloads/:id and returns how many documents were freed", async () => {
+    server.use(
+      http.delete(`${BASE_URL}/bulk-downloads/1`, () => HttpResponse.json({ documents_freed: 3 }))
+    );
+
+    const result = await deleteBulkDownload(1);
+
+    expect(result).toEqual({ documents_freed: 3 });
   });
 });

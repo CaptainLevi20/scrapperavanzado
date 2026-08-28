@@ -358,6 +358,32 @@ def mark_documents_bulk_downloaded(db: Session, document_ids: list[int], bulk_do
     db.commit()
 
 
+def delete_bulk_download(db: Session, bulk_download_id: int) -> Optional[dict]:
+    """Borra un lote de descarga masiva y libera sus documentos (quedan
+    disponibles para el próximo lote en vez de quedar marcados como ya
+    entregados para siempre). No borra el ZIP en MinIO — eso es un efecto
+    externo, lo hace el router después de confirmar que este borrado tuvo
+    éxito. Devuelve None si el lote no existe."""
+    bulk_download = db.get(BulkDownload, bulk_download_id)
+    if bulk_download is None:
+        return None
+    stmt = (
+        update(Document)
+        .where(Document.bulk_download_id == bulk_download_id)
+        .values(bulk_download_id=None)
+    )
+    documents_freed = db.execute(stmt).rowcount
+    zip_storage_key = bulk_download.zip_storage_key
+    storage_bucket = bulk_download.storage_bucket
+    db.delete(bulk_download)
+    db.commit()
+    return {
+        "documents_freed": documents_freed,
+        "zip_storage_key": zip_storage_key,
+        "storage_bucket": storage_bucket,
+    }
+
+
 def document_exists(db: Session, doc_id: str) -> bool:
     stmt = select(Document.id).where(Document.doc_id == doc_id)
     return db.scalars(stmt).first() is not None
