@@ -268,6 +268,75 @@ docker compose --env-file .env.production -f docker-compose.prod.yml down
 Esto apaga los contenedores sin borrar nada: los documentos y la base de datos
 quedan guardados y vuelven a estar disponibles al levantarla de nuevo.
 
+### Cambiar dónde se guardan los documentos a una ruta de disco específica
+
+Por defecto, los documentos (el almacenamiento MinIO) quedan dentro de un
+volumen interno de Docker — no es una carpeta que se pueda abrir directamente
+en el Explorador de Windows. Si sistemas asignó un disco o ruta dedicada para
+centralizar los documentos (ejemplo: `O:\IURISYNC`), sigue estos pasos. **Esto
+mueve los documentos que ya existen — no se pueden perder, así que sigue el
+orden exacto y no te saltes la verificación final.**
+
+1. Apaga toda la herramienta (importante: nadie debe estar subiendo ni
+   abriendo documentos durante la copia):
+
+   ```
+   docker compose --env-file .env.production -f docker-compose.prod.yml down
+   ```
+
+2. Confirma el nombre real del volumen donde están los documentos hoy
+   (normalmente `<nombre_de_carpeta>_minio_data`, pero verifícalo en vez de
+   asumirlo):
+
+   ```
+   docker volume ls
+   ```
+
+3. Crea la carpeta destino si no existe todavía (ajusta la ruta al valor que
+   te dieron; el ejemplo usa Windows):
+
+   ```
+   mkdir O:\IURISYNC
+   ```
+
+4. Copia todos los documentos del volumen de Docker a la carpeta de disco.
+   Reemplaza `NOMBRE_DEL_VOLUMEN` por lo que viste en el paso 2:
+
+   ```
+   docker run --rm -v NOMBRE_DEL_VOLUMEN:/from -v O:\IURISYNC:/to alpine sh -c "cp -a /from/. /to/"
+   ```
+
+5. En `.env.production`, descomenta (o agrega) la línea `MINIO_DATA_PATH` con
+   la misma ruta, por ejemplo:
+
+   ```
+   MINIO_DATA_PATH=O:\IURISYNC
+   ```
+
+6. Levanta la herramienta de nuevo:
+
+   ```
+   docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+   ```
+
+7. **Verifica antes de dar por terminado:** entra a la herramienta desde el
+   navegador y abre un documento que ya existía antes de este cambio (no uno
+   nuevo) — debe abrir igual que siempre. Después revisa que la carpeta
+   `O:\IURISYNC` en el servidor ya tenga contenido (subcarpetas con nombres
+   como el bucket `iurisync-documents`).
+
+8. Deja el volumen de Docker original **sin borrar** por un tiempo (unos días
+   de uso normal) como respaldo de seguridad, por si algo salió mal en la
+   copia. Solo después de confirmar que todo funciona bien de forma
+   sostenida, puedes liberarlo con `docker volume rm NOMBRE_DEL_VOLUMEN`.
+
+Con este cambio hecho, el comando de respaldo de la sección 8
+(`docker compose ... cp minio:/data respaldos\documentos_%FECHA%`) sigue
+funcionando exactamente igual — no hay que tocarlo. Como beneficio adicional,
+ahora también se puede copiar `O:\IURISYNC` directamente con cualquier
+herramienta de respaldo de archivos que ya use la empresa, sin pasar por
+Docker.
+
 ### Actualizar a una versión nueva
 
 Cuando el equipo de desarrollo avise que hay una versión nueva:
