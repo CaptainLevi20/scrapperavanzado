@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import tempfile
 import threading
@@ -21,24 +22,42 @@ from worker.storage_sync_tasks import reconcile_document_task, reconcile_title_g
 logger = logging.getLogger(__name__)
 
 
-def _nombres_zip(documents, family_keys, actuacion_counts) -> list[str]:
-    """Nombre de cada entrada del ZIP = nombre canónico + extensión. Desambigua
-    colisiones agregando ' (2)', ' (3)'… antes de la extensión, para no
-    sobrescribir un archivo con otro dentro del mismo ZIP. actuacion_counts
-    (de repository.actuacion_counts_by_title) decide si la fecha va completa
-    (hay otra actuación con el mismo título) o solo el año (todavía no)."""
+_INVALID_PATH_SEGMENT_CHARS = re.compile(r'[/\\\x00-\x1f]')
+
+
+def _carpeta_zip(document, source_names: dict) -> str:
+    """Carpeta de cada documento dentro del ZIP: Fuente/Fecha/Tipo, la misma
+    jerarquía que ya usa el almacenamiento interno (ver core/utils.py
+    storage_path), para que la descarga masiva quede organizada igual sea
+    cual sea la cantidad de fuentes incluidas."""
+    fuente = source_names.get(document.source_id) or "Sin fuente"
+    fecha = document.f_public.strftime("%Y-%m-%d") if document.f_public else "Sin fecha"
+    tipo = document.tipo or "Sin tipo"
+    return "/".join(_INVALID_PATH_SEGMENT_CHARS.sub("-", segmento) for segmento in (fuente, fecha, tipo))
+
+
+def _nombres_zip(documents, family_keys, actuacion_counts, source_names) -> list[str]:
+    """Ruta de cada entrada del ZIP = Fuente/Fecha/Tipo/nombre_canónico +
+    extensión. Desambigua colisiones dentro de la misma carpeta agregando
+    ' (2)', ' (3)'… antes de la extensión, para no sobrescribir un archivo con
+    otro dentro del mismo ZIP. actuacion_counts (de
+    repository.actuacion_counts_by_title) decide si la fecha del nombre va
+    completa (hay otra actuación con el mismo título) o solo el año (todavía
+    no)."""
     usados: dict[str, int] = {}
     nombres: list[str] = []
     for d in documents:
         tiene_actuaciones = actuacion_counts.get(d.title, 0) > 1
         base = nombre_archivo_documento(d, family_keys.get(d.source_id), tiene_actuaciones)
-        if base not in usados:
-            usados[base] = 1
-            nombres.append(base)
+        carpeta = _carpeta_zip(d, source_names)
+        ruta = f"{carpeta}/{base}"
+        if ruta not in usados:
+            usados[ruta] = 1
+            nombres.append(ruta)
         else:
-            usados[base] += 1
+            usados[ruta] += 1
             p = PurePosixPath(base)
-            nombres.append(f"{p.stem} ({usados[base]}){p.suffix}")
+            nombres.append(f"{carpeta}/{p.stem} ({usados[ruta]}){p.suffix}")
     return nombres
 
 
@@ -602,14 +621,16 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             zip_path = tmp_path / "bulk_download.zip"
             downloaded_count = 0
             failed_count = 0
-            # Nombre canónico por documento (el mismo que se ve en la app), en vez
-            # de la ruta interna de almacenamiento (storage_key), usado como
-            # entrada del ZIP. Se calcula una sola vez, en el mismo orden que
-            # `documents`, así que zip(documents, arcnames) mantiene la
-            # correspondencia aunque el bucle se salte algún documento después.
+            # Ruta de cada documento dentro del ZIP: Fuente/Fecha/Tipo/nombre
+            # canónico (el mismo nombre que se ve en la app), no la ruta interna
+            # de almacenamiento (storage_key). Se calcula una sola vez, en el
+            # mismo orden que `documents`, así que zip(documents, arcnames)
+            # mantiene la correspondencia aunque el bucle se salte algún
+            # documento después.
             family_keys = repository.get_source_family_keys(db, [d.source_id for d in documents])
             actuacion_counts = repository.actuacion_counts_by_title(db, documents, family_keys)
-            arcnames = _nombres_zip(documents, family_keys, actuacion_counts)
+            source_names = repository.get_source_names(db, [d.source_id for d in documents])
+            arcnames = _nombres_zip(documents, family_keys, actuacion_counts, source_names)
             included_document_ids: list[int] = []
             # Documentos concretos que fallaron — no solo el conteo — para que,
             # si todos terminan fallando, el mensaje de error diga cuáles

@@ -1684,14 +1684,17 @@ def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, t
     repository.insert_document(
         db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
         storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/doc1.pdf",
+        f_public=date(2026, 6, 1), tipo="Auto",
     )
     repository.insert_document(
         db_session, doc_id="doc-2", source_id=source.id, title="Doc 2", review_status="useful",
         storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-02/Sentencia/doc2.pdf",
+        f_public=date(2026, 6, 2), tipo="Sentencia",
     )
     repository.insert_document(
         db_session, doc_id="doc-3", source_id=source.id, title="Doc 3",  # not useful — must be excluded
         storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-03/Auto/doc3.pdf",
+        f_public=date(2026, 6, 3), tipo="Auto",
     )
 
     bulk_download = repository.create_bulk_download(db_session)
@@ -1718,13 +1721,14 @@ def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, t
             zip_path = Path(tmp) / "result.zip"
             zip_path.write_bytes(response.content)
             with zipfile.ZipFile(zip_path) as zf:
-                # Las entradas del ZIP usan el nombre canónico (título + extensión),
-                # no la ruta interna de almacenamiento (storage_key) — ver
-                # core/naming.py y worker/tasks.py::_nombres_zip. "jep" no es una
-                # familia con actuaciones, así que el nombre es solo título+ext.
+                # Las entradas del ZIP van dentro de Fuente/Fecha/Tipo, y el nombre
+                # del archivo es el canónico (título + extensión), no la ruta interna
+                # de almacenamiento (storage_key) — ver core/naming.py y
+                # worker/tasks.py::_nombres_zip. "jep" no es una familia con
+                # actuaciones, así que el nombre es solo título+ext.
                 names = set(zf.namelist())
-                assert names == {"Doc 1.pdf", "Doc 2.pdf"}
-                assert zf.read("Doc 1.pdf") == b"contenido uno"
+                assert names == {"JEP/2026-06-01/Auto/Doc 1.pdf", "JEP/2026-06-02/Sentencia/Doc 2.pdf"}
+                assert zf.read("JEP/2026-06-01/Auto/Doc 1.pdf") == b"contenido uno"
     finally:
         assertion_session.close()
 
