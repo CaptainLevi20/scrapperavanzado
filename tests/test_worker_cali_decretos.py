@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 import pytest
@@ -299,3 +300,143 @@ def test_task_resume_does_not_rewalk_completed_pages(tmp_path, monkeypatch):
     final = leer_estado(tmp_path)
     assert final["estado"] == "terminado"
     assert (tmp_path / "DECRETOS" / "ALCACALI" / "1975" / "D_ALCACALI_0002_1975.pdf").exists()
+
+
+@responses.activate
+def test_task_stop_requested_mid_page_is_honored(tmp_path, monkeypatch):
+    # Regresion: el Detener llega MIENTRAS se descarga una pagina (el caso real,
+    # ya que las descargas dominan el tiempo). La escritura de fin de pagina no
+    # debe pisar el flag `detener_solicitado` que dejo el endpoint /stop; si lo
+    # pisa, el recorrido continua y el boton Detener queda sin efecto.
+    monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
+    responses.add(
+        responses.GET, _BASE, status=200,
+        match=[responses.matchers.query_param_matcher({"pag": "1"})],
+        body=_pagina_html([("0001", "1974-01-02", "1974", "https://pdf.test/a.pdf")], total_paginas=2),
+    )
+    responses.add(
+        responses.GET, _BASE, status=200,
+        match=[responses.matchers.query_param_matcher({"pag": "2"})],
+        body=_pagina_html([("0002", "1975-05-05", "1975", "https://pdf.test/b.pdf")], total_paginas=2),
+    )
+    responses.add(responses.GET, "https://pdf.test/a.pdf", body=_PDF_BYTES, status=200)
+    responses.add(responses.GET, "https://pdf.test/b.pdf", body=_PDF_BYTES, status=200)
+
+    real_descargar = tasks._descargar_un_pdf
+
+    def _descargar_y_pedir_stop(url, destino_final, tmp_dir):
+        # Simula que /stop llega durante la descarga de la pagina 1 (antes de que
+        # esa pagina persista su estado de fin de pagina).
+        resultado = real_descargar(url, destino_final, tmp_dir)
+        if "a.pdf" in url:
+            actual = tasks.cali.leer_estado(tmp_path)
+            actual["detener_solicitado"] = True
+            tasks.cali.escribir_estado(tmp_path, actual)
+        return resultado
+
+    monkeypatch.setattr(tasks, "_descargar_un_pdf", _descargar_y_pedir_stop)
+
+    tasks.descargar_decretos_cali_task(str(tmp_path))
+
+    estado = leer_estado(tmp_path)
+    assert estado["estado"] == "detenido"
+    assert estado["ultima_pagina_completada"] == 1
+    # La pagina 2 no debe haberse descargado.
+    assert not (tmp_path / "DECRETOS" / "ALCACALI" / "1975" / "D_ALCACALI_0002_1975.pdf").exists()
+
+
+@responses.activate
+def test_task_stop_on_last_page_skips_final_pass_and_ends_detenido(tmp_path, monkeypatch):
+    # Regresion (el caso mas comun del "casi nunca detiene"): el Detener llega
+    # mientras se descarga la UNICA pagina / la ultima pagina. El for termina solo
+    # (no hay iteracion siguiente donde revisar el flag), corre la pasada final de
+    # reintentos y el estado se cierra como "terminado_con_fallos" con
+    # detener_solicitado pisado a False. Debe cerrarse "detenido" y NO reintentar.
+    monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
+    responses.add(
+        responses.GET, _BASE, status=200,
+        match=[responses.matchers.query_param_matcher({"pag": "1"})],
+        body=_pagina_html(
+            [
+                ("0001", "1974-01-02", "1974", "https://pdf.test/a.pdf"),
+                ("0002", "1974-02-02", "1974", "https://pdf.test/bad.pdf"),
+            ],
+            total_paginas=1,
+        ),
+    )
+    responses.add(responses.GET, "https://pdf.test/a.pdf", body=_PDF_BYTES, status=200)
+    # bad.pdf no se registra a proposito: falla por ConnectionError y cae a fallidos.
+
+    real_descargar = tasks._descargar_un_pdf
+    lock = threading.Lock()
+    llamadas = {"n": 0}
+
+    def _descargar_y_pedir_stop(url, destino_final, tmp_dir):
+        resultado = real_descargar(url, destino_final, tmp_dir)
+        if "a.pdf" in url:
+            actual = tasks.cali.leer_estado(tmp_path)
+            actual["detener_solicitado"] = True
+            tasks.cali.escribir_estado(tmp_path, actual)
+        with lock:
+            llamadas["n"] += 1
+        return resultado
+
+    monkeypatch.setattr(tasks, "_descargar_un_pdf", _descargar_y_pedir_stop)
+
+    tasks.descargar_decretos_cali_task(str(tmp_path))
+
+    estado = leer_estado(tmp_path)
+    assert estado["estado"] == "detenido"
+    assert estado["detener_solicitado"] is True
+    assert estado["ultima_pagina_completada"] == 1
+    # Solo las 2 descargas de la pagina (a.pdf, bad.pdf). Sin el arreglo serian 3
+    # (bad.pdf reintentado en la pasada final) y el estado "terminado_con_fallos".
+    assert llamadas["n"] == 2
+
+
+@responses.activate
+def test_task_stop_during_final_pass_is_honored(tmp_path, monkeypatch):
+    # El Detener llega DURANTE la pasada final de reintentos (que puede reintentar
+    # cientos de descargas). Debe cortarse ahi y cerrar "detenido", sin pisar el
+    # flag a False.
+    monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
+    responses.add(
+        responses.GET, _BASE, status=200,
+        match=[responses.matchers.query_param_matcher({"pag": "1"})],
+        body=_pagina_html(
+            [
+                ("0001", "1974-01-02", "1974", "https://pdf.test/bad1.pdf"),
+                ("0002", "1974-02-02", "1974", "https://pdf.test/bad2.pdf"),
+            ],
+            total_paginas=1,
+        ),
+    )
+    # Ninguno de los dos PDF se registra: ambos fallan y quedan en fallidos, listos
+    # para la pasada final.
+
+    real_descargar = tasks._descargar_un_pdf
+    lock = threading.Lock()
+    llamadas = {"n": 0}
+
+    def _descargar_y_pedir_stop(url, destino_final, tmp_dir):
+        with lock:
+            llamadas["n"] += 1
+            n = llamadas["n"]
+        resultado = real_descargar(url, destino_final, tmp_dir)
+        # La pagina hace 2 llamadas (bad1, bad2). La 3a es la 1a de la pasada final.
+        if n == 3:
+            actual = tasks.cali.leer_estado(tmp_path)
+            actual["detener_solicitado"] = True
+            tasks.cali.escribir_estado(tmp_path, actual)
+        return resultado
+
+    monkeypatch.setattr(tasks, "_descargar_un_pdf", _descargar_y_pedir_stop)
+
+    tasks.descargar_decretos_cali_task(str(tmp_path))
+
+    estado = leer_estado(tmp_path)
+    assert estado["estado"] == "detenido"
+    assert estado["detener_solicitado"] is True
+    # La pasada final se corto tras el primer reintento: 2 (pagina) + 1 (final).
+    # Sin el arreglo serian 4 y el estado "terminado_con_fallos".
+    assert llamadas["n"] == 3

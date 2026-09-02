@@ -921,12 +921,38 @@ def _numero_anio_de_ruta(ruta: Path) -> tuple[str | None, int | None]:
     return None, None
 
 
+def _stop_pedido(destino: Path, estado: dict) -> bool:
+    # True si el endpoint /stop marco detener_solicitado en el archivo. Copia la
+    # marca al estado en memoria: ese dict arranca la corrida con
+    # detener_solicitado=False y la tarea lo reescribe una y otra vez (fin de
+    # pagina, pasada final, cierre), asi que sin esta copia la siguiente escritura
+    # pisaria el pedido de Detener -- el sintoma real: la descarga sigue y el flag
+    # "vuelve solo a False".
+    previo = cali.leer_estado(destino)
+    if previo and previo.get("detener_solicitado"):
+        estado["detener_solicitado"] = True
+        return True
+    return False
+
+
+def _guardar_estado(destino: Path, estado: dict) -> None:
+    # Unica via por la que la tarea persiste el estado: recorta las listas y
+    # preserva un detener_solicitado puesto por /stop mientras la tarea trabajaba.
+    _stop_pedido(destino, estado)
+    cali.recortar_listas(estado)
+    cali.escribir_estado(destino, estado)
+
+
 def _pasada_final_fallidos(destino: Path, estado: dict, tmp_dir: Path) -> None:
     # Se itera sobre una copia porque las entradas que ahora sí bajan se quitan de
     # la lista original en el acto. No se reinicia fallidos_count a 0: la lista pudo
     # haber sido recortada a 1.000 y el conteo real (que incluye ese excedente) debe
     # conservarse; solo se decrementa por cada entrada que efectivamente se recupera.
     for entrada in list(estado["fallidos"]):
+        # Si /stop llega durante esta pasada (que puede reintentar cientos de
+        # descargas), se corta aca; el estado "detenido" lo fija quien llama.
+        if _stop_pedido(destino, estado):
+            break
         # Las entradas de página (motivo == "pagina") apuntan al HTML del paginador,
         # no a un PDF: reintentarlas como PDF siempre falla la validación. Se dejan
         # tal cual, en la lista y contadas.
@@ -943,8 +969,7 @@ def _pasada_final_fallidos(destino: Path, estado: dict, tmp_dir: Path) -> None:
             estado["fallidos"].remove(entrada)
             estado["fallidos_count"] -= 1
         # Las que siguen fallando quedan en la lista sin cambios.
-    cali.recortar_listas(estado)
-    cali.escribir_estado(destino, estado)
+    _guardar_estado(destino, estado)
 
 
 @celery_app.task(name="worker.descargar_decretos_cali_task")
@@ -970,7 +995,7 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
                     estado["total_paginas"] = primera.total_paginas
                 if primera.total_registros:
                     estado["total_registros_sitio"] = primera.total_registros
-                cali.escribir_estado(destino, estado)
+                _guardar_estado(destino, estado)
             elif not estado.get("total_paginas"):
                 # Corrida nueva: si la página 1 no responde y no hay un total_paginas
                 # previamente establecido, no se puede saber cuántas páginas caminar.
@@ -997,11 +1022,9 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
             inicio = estado["ultima_pagina_completada"] + 1
 
             for pag in range(inicio, total_paginas + 1):
-                fresco = cali.leer_estado(destino)
-                if fresco and fresco.get("detener_solicitado"):
-                    estado["detener_solicitado"] = True
+                if _stop_pedido(destino, estado):
                     estado["estado"] = "detenido"
-                    cali.escribir_estado(destino, estado)
+                    _guardar_estado(destino, estado)
                     return
 
                 pagina = primera if pag == 1 else _pedir_pagina(sesion, pag)
@@ -1017,22 +1040,32 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
                     )
                     estado["fallidos_count"] += 1
                     estado["ultima_pagina_completada"] = pag
-                    cali.recortar_listas(estado)
-                    cali.escribir_estado(destino, estado)
+                    _guardar_estado(destino, estado)
                     continue
 
                 trabajos = _preparar_trabajos(pagina, destino, vistos, estado)
                 fallos_seguidos = _ejecutar_trabajos(trabajos, tmp_dir, estado, fallos_seguidos)
                 estado["ultima_pagina_completada"] = pag
-                cali.recortar_listas(estado)
-                cali.escribir_estado(destino, estado)
+                _guardar_estado(destino, estado)
+
+                # El Detener pudo llegar mientras se descargaba esta pagina (las
+                # descargas dominan el tiempo). Se corta al terminar la pagina en
+                # curso, sin entrar a la pasada final de reintentos. Sin esto, en
+                # la ultima pagina el for termina solo y el Detener queda sin
+                # efecto.
+                if _stop_pedido(destino, estado):
+                    estado["estado"] = "detenido"
+                    _guardar_estado(destino, estado)
+                    return
 
             _pasada_final_fallidos(destino, estado, tmp_dir)
 
-        estado["estado"] = "terminado_con_fallos" if estado["fallidos"] else "terminado"
-        estado["terminado"] = cali.ahora_iso()
-        cali.recortar_listas(estado)
-        cali.escribir_estado(destino, estado)
+        if _stop_pedido(destino, estado):
+            estado["estado"] = "detenido"
+        else:
+            estado["estado"] = "terminado_con_fallos" if estado["fallidos"] else "terminado"
+            estado["terminado"] = cali.ahora_iso()
+        _guardar_estado(destino, estado)
     except Exception as exc:  # noqa: BLE001 — nunca dejar el estado en "en_curso"
         logger.exception("descargar_decretos_cali_task falló")
         estado["estado"] = "terminado_con_fallos"
