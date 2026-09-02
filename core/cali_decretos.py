@@ -7,8 +7,11 @@ docs/superpowers/specs/2026-09-02-laboratorio-descarga-decretos-cali-design.md
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -111,10 +114,6 @@ def es_pdf_valido(head_bytes: bytes, size: int) -> bool:
     return size > 1024 and head_bytes[:4] == b"%PDF"
 
 
-import json
-import os
-from datetime import datetime, timezone
-
 NOMBRE_ESTADO = "_descarga_estado.json"
 MAX_LISTA = 1000
 TAREA_VIVA_SEGUNDOS = 300
@@ -143,6 +142,7 @@ def estado_inicial() -> dict:
         "ya_existian": 0,
         "duplicados": 0,
         "fallidos_count": 0,
+        "avisos_count": 0,
         "detener_solicitado": False,
         "concurrencia_actual": 8,
         "avisos": [],

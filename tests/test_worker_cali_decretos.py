@@ -234,6 +234,46 @@ def test_task_stops_between_pages_when_detener_solicitado(tmp_path, monkeypatch)
 
 
 @responses.activate
+def test_task_fresh_run_page1_failure_ends_terminado_con_fallos(tmp_path, monkeypatch):
+    # En una corrida nueva, si la página 1 no responde (ninguna respuesta registrada
+    # → cada intento lanza ConnectionError → _pedir_pagina devuelve None) y no hay un
+    # total_paginas previo, la tarea debe terminar CON fallos y registrar el fallo,
+    # nunca marcarse "terminado" con 0 descargas (que se leería como éxito).
+    monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
+
+    tasks.descargar_decretos_cali_task(str(tmp_path))
+
+    estado = leer_estado(tmp_path)
+    assert estado["estado"] == "terminado_con_fallos"
+    assert estado["descargados"] == 0
+    assert estado["fallidos_count"] == 1
+    assert estado["fallidos"][0]["motivo"] == "pagina"
+    assert not estado["total_paginas"]
+
+
+@responses.activate
+def test_task_five_consecutive_failures_reduce_concurrency(tmp_path, monkeypatch):
+    # Cinco fallos seguidos de descarga bajan la concurrencia de 8 a 3 y emiten el
+    # aviso correspondiente.
+    monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
+    filas = [(f"{i:04d}", "1990-01-01", "1990", f"https://pdf.test/f{i}.pdf") for i in range(1, 6)]
+    responses.add(
+        responses.GET, _BASE, status=200,
+        match=[responses.matchers.query_param_matcher({"pag": "1"})],
+        body=_pagina_html(filas, total_paginas=1),
+    )
+    for i in range(1, 6):
+        responses.add(responses.GET, f"https://pdf.test/f{i}.pdf", status=500)
+
+    tasks.descargar_decretos_cali_task(str(tmp_path))
+
+    estado = leer_estado(tmp_path)
+    assert estado["concurrencia_actual"] == 3
+    assert any(a["tipo"] == "concurrencia_reducida" for a in estado["avisos"])
+    assert estado["avisos_count"] >= 1
+
+
+@responses.activate
 def test_task_resume_does_not_rewalk_completed_pages(tmp_path, monkeypatch):
     monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
     estado = tasks.cali.estado_inicial()

@@ -100,6 +100,7 @@ export function CaliDecretosPanel() {
   const fallidosFtp = estado?.fallidos.filter((f) => f.motivo === "ftp-no-disponible").length ?? 0;
   const fallidosOtros = (estado?.fallidos.length ?? 0) - fallidosFtp;
   const listaRecortada = estado ? estado.fallidos.length < estado.fallidos_count : false;
+  const avisosRecortada = estado ? estado.avisos.length < estado.avisos_count : false;
 
   return (
     <div className="space-y-4">
@@ -175,7 +176,9 @@ export function CaliDecretosPanel() {
           )}
           {estado.avisos.length > 0 && (
             <details className="text-xs">
-              <summary className="cursor-pointer">Avisos ({num(estado.avisos.length)})</summary>
+              <summary className="cursor-pointer">
+                Avisos ({num(estado.avisos_count)}){avisosRecortada && " (lista recortada a 1.000)"}
+              </summary>
               <ListaCopiable
                 lineas={estado.avisos.map(
                   (a) =>

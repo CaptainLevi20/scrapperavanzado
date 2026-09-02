@@ -35,6 +35,7 @@ export interface CaliDecretosEstado {
   ya_existian: number;
   duplicados: number;
   fallidos_count: number;
+  avisos_count: number;
   detener_solicitado: boolean;
   concurrencia_actual: number;
   avisos: CaliDecretosAviso[];

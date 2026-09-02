@@ -832,18 +832,20 @@ def _preparar_trabajos(pagina, destino: Path, vistos: set, estado: dict) -> list
             estado["avisos"].append(
                 {"tipo": "fila_sin_enlace", "numero": fila.numero_raw or None, "anio": None}
             )
+            estado["avisos_count"] += 1
             continue
         numero = cali.normalizar_numero(fila.numero_raw)
         if numero is None:
             estado["avisos"].append({"tipo": "sin_numero", "anio": None, "url": fila.pdf_url})
+            estado["avisos_count"] += 1
             continue
         anio = cali.resolver_anio(fila.anio_raw, fila.fecha)
         if anio is None:
             estado["avisos"].append({"tipo": "sin_anio", "numero": numero, "url": fila.pdf_url})
+            estado["avisos_count"] += 1
             continue
 
         clave = (numero, anio)
-        sufijo = 0
         if clave in vistos:
             sufijo = 2
             destino_final = cali.ruta_destino(destino, numero, anio, sufijo)
@@ -859,6 +861,7 @@ def _preparar_trabajos(pagina, destino: Path, vistos: set, estado: dict) -> list
                     "guardado_como": destino_final.name,
                 }
             )
+            estado["avisos_count"] += 1
         else:
             vistos.add(clave)
             destino_final = cali.ruta_destino(destino, numero, anio)
@@ -905,6 +908,7 @@ def _ejecutar_trabajos(trabajos, tmp_dir: Path, estado: dict, fallos_seguidos: i
                 estado["avisos"].append(
                     {"tipo": "concurrencia_reducida", "numero": None, "anio": None}
                 )
+                estado["avisos_count"] += 1
     return fallos_seguidos
 
 
@@ -918,10 +922,16 @@ def _numero_anio_de_ruta(ruta: Path) -> tuple[str | None, int | None]:
 
 
 def _pasada_final_fallidos(destino: Path, estado: dict, tmp_dir: Path) -> None:
-    pendientes = estado["fallidos"]
-    estado["fallidos"] = []
-    estado["fallidos_count"] = 0
-    for entrada in pendientes:
+    # Se itera sobre una copia porque las entradas que ahora sí bajan se quitan de
+    # la lista original en el acto. No se reinicia fallidos_count a 0: la lista pudo
+    # haber sido recortada a 1.000 y el conteo real (que incluye ese excedente) debe
+    # conservarse; solo se decrementa por cada entrada que efectivamente se recupera.
+    for entrada in list(estado["fallidos"]):
+        # Las entradas de página (motivo == "pagina") apuntan al HTML del paginador,
+        # no a un PDF: reintentarlas como PDF siempre falla la validación. Se dejan
+        # tal cual, en la lista y contadas.
+        if entrada.get("motivo") == "pagina":
+            continue
         numero, anio = entrada.get("numero"), entrada.get("anio")
         if numero and anio:
             destino_final = cali.ruta_destino(destino, numero, anio)
@@ -930,9 +940,9 @@ def _pasada_final_fallidos(destino: Path, estado: dict, tmp_dir: Path) -> None:
         motivo = _descargar_un_pdf(entrada["url"], destino_final, tmp_dir)
         if motivo is None and numero and anio:
             estado["descargados"] += 1
-        else:
-            estado["fallidos"].append({**entrada, "motivo": motivo or entrada["motivo"]})
-            estado["fallidos_count"] += 1
+            estado["fallidos"].remove(entrada)
+            estado["fallidos_count"] -= 1
+        # Las que siguen fallando quedan en la lista sin cambios.
     cali.recortar_listas(estado)
     cali.escribir_estado(destino, estado)
 
@@ -961,6 +971,27 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
                 if primera.total_registros:
                     estado["total_registros_sitio"] = primera.total_registros
                 cali.escribir_estado(destino, estado)
+            elif not estado.get("total_paginas"):
+                # Corrida nueva: si la página 1 no responde y no hay un total_paginas
+                # previamente establecido, no se puede saber cuántas páginas caminar.
+                # Registrar el fallo y terminar CON fallos, no como "terminado" con 0
+                # descargas (que se leería como éxito). En un reanude, un total_paginas
+                # ya guardado hace que un fallo transitorio de la página 1 NO sea fatal.
+                estado["fallidos"].append(
+                    {
+                        "numero": None,
+                        "anio": None,
+                        "url": f"{cali.BASE_PAGINADOR}?pag=1",
+                        "motivo": "pagina",
+                        "intentos": _CALI_INTENTOS_PAGINA,
+                    }
+                )
+                estado["fallidos_count"] += 1
+                estado["estado"] = "terminado_con_fallos"
+                estado["terminado"] = cali.ahora_iso()
+                cali.recortar_listas(estado)
+                cali.escribir_estado(destino, estado)
+                return
 
             total_paginas = estado["total_paginas"] or 0
             inicio = estado["ultima_pagina_completada"] + 1
@@ -1006,5 +1037,6 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
         logger.exception("descargar_decretos_cali_task falló")
         estado["estado"] = "terminado_con_fallos"
         estado["avisos"].append({"tipo": "error_inesperado", "numero": None, "anio": None, "url": str(exc)})
+        estado["avisos_count"] += 1
         cali.recortar_listas(estado)
         cali.escribir_estado(destino, estado)

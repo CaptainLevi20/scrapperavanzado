@@ -21,6 +21,7 @@ function estado(overrides: Record<string, unknown> = {}) {
     ya_existian: 0,
     duplicados: 2,
     fallidos_count: 3,
+    avisos_count: 0,
     detener_solicitado: false,
     concurrencia_actual: 8,
     avisos: [],

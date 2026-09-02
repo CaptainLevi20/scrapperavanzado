@@ -364,6 +364,7 @@ class CaliDecretosEstado(BaseModel):
     ya_existian: int
     duplicados: int
     fallidos_count: int
+    avisos_count: int
     detener_solicitado: bool
     concurrencia_actual: int
     avisos: list[CaliDecretosAviso]
