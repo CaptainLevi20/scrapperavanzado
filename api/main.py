@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import auth, bulk_downloads, case_links, documents, health, reorganize, runs, sources
+from api.routers import auth, bulk_downloads, cali_decretos, case_links, documents, health, reorganize, runs, sources
 from core.config import get_settings
 
 app = FastAPI(title="IURISYNC Backend")
@@ -23,3 +23,4 @@ app.include_router(documents.router)
 app.include_router(bulk_downloads.router)
 app.include_router(case_links.router)
 app.include_router(reorganize.router)
+app.include_router(cali_decretos.router)

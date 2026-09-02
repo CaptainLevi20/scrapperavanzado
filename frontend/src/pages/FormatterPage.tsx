@@ -2,13 +2,21 @@ import { useState } from "react";
 import { Wand2 } from "lucide-react";
 import { RenamePanel } from "./formatter/RenamePanel";
 import { ReorganizePanel } from "./formatter/ReorganizePanel";
+import { CaliDecretosPanel } from "./formatter/CaliDecretosPanel";
 
-type Tab = "rename" | "reorganize";
+type Tab = "rename" | "reorganize" | "cali-decretos";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "rename", label: "Renombrado" },
   { id: "reorganize", label: "Reorganización" },
+  { id: "cali-decretos", label: "Decretos Cali" },
 ];
+
+function PanelActivo({ tab }: { tab: Tab }) {
+  if (tab === "rename") return <RenamePanel />;
+  if (tab === "reorganize") return <ReorganizePanel />;
+  return <CaliDecretosPanel />;
+}
 
 export function FormatterPage() {
   const [tab, setTab] = useState<Tab>("rename");
@@ -39,7 +47,7 @@ export function FormatterPage() {
         ))}
       </div>
 
-      {tab === "rename" ? <RenamePanel /> : <ReorganizePanel />}
+      <PanelActivo tab={tab} />
     </div>
   );
 }

@@ -325,3 +325,47 @@ class FolderRenameOutcome(BaseModel):
 class ApplyResult(BaseModel):
     results: list[MoveResult]
     folder_rename_results: list[FolderRenameOutcome] = []
+
+
+class CaliDecretosStartRequest(BaseModel):
+    dest_path: str
+
+
+class CaliDecretosStopRequest(BaseModel):
+    dest_path: str
+
+
+class CaliDecretosAviso(BaseModel):
+    tipo: str
+    numero: Optional[str] = None
+    anio: Optional[int] = None
+    url: Optional[str] = None
+    guardado_como: Optional[str] = None
+
+
+class CaliDecretosFallido(BaseModel):
+    numero: Optional[str] = None
+    anio: Optional[int] = None
+    url: str
+    motivo: str
+    intentos: int
+
+
+class CaliDecretosEstado(BaseModel):
+    version: int
+    estado: str
+    iniciado: str
+    actualizado: str
+    terminado: Optional[str] = None
+    total_registros_sitio: Optional[int] = None
+    total_paginas: Optional[int] = None
+    ultima_pagina_completada: int
+    descargados: int
+    ya_existian: int
+    duplicados: int
+    fallidos_count: int
+    avisos_count: int
+    detener_solicitado: bool
+    concurrencia_actual: int
+    avisos: list[CaliDecretosAviso]
+    fallidos: list[CaliDecretosFallido]
