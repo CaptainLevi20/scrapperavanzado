@@ -1,12 +1,18 @@
+import ftplib
 import logging
+import os
 import re
 import shutil
 import tempfile
 import threading
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
+
+import requests
 
 from core.db import repository
 from core.db.session import SessionLocal
@@ -176,6 +182,96 @@ def _versioned_replacement_key(original_key: str) -> str:
     if posix_key.suffix:
         return str(posix_key.with_name(f"{posix_key.stem}-republicado-{timestamp}{posix_key.suffix}"))
     return f"{original_key}-republicado-{timestamp}"
+
+
+from core import cali_decretos as cali
+
+_CALI_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+_CALI_ESPERAS = (2, 8, 30)
+_CALI_CHUNK = 64 * 1024
+
+
+def _descargar_http(url: str, destino_tmp: Path) -> tuple[bytes, int]:
+    with requests.get(
+        url,
+        stream=True,
+        timeout=60,
+        allow_redirects=True,
+        headers={"User-Agent": _CALI_USER_AGENT},
+    ) as respuesta:
+        respuesta.raise_for_status()
+        head = b""
+        size = 0
+        with open(destino_tmp, "wb") as archivo:
+            for chunk in respuesta.iter_content(_CALI_CHUNK):
+                if not chunk:
+                    continue
+                if len(head) < 4:
+                    head = (head + chunk)[:4]
+                size += len(chunk)
+                archivo.write(chunk)
+    return head, size
+
+
+def _descargar_ftp(url: str, destino_tmp: Path) -> tuple[bytes, int]:
+    partes = urlsplit(url)
+    ftp = ftplib.FTP(timeout=60)
+    ftp.connect(partes.hostname, partes.port or 21)
+    ftp.login()
+    ftp.set_pasv(True)
+    head = b""
+    size = 0
+    with open(destino_tmp, "wb") as archivo:
+        def _recibir(datos: bytes) -> None:
+            nonlocal head, size
+            if len(head) < 4:
+                head = (head + datos)[:4]
+            size += len(datos)
+            archivo.write(datos)
+
+        ftp.retrbinary(f"RETR {partes.path}", _recibir)
+    try:
+        ftp.quit()
+    except Exception:  # noqa: BLE001 — cerrar la conexión no debe romper una descarga ya lograda
+        pass
+    return head, size
+
+
+def _clasificar_error(exc: Exception) -> str:
+    if isinstance(exc, requests.Timeout):
+        return "timeout"
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        return f"http-{exc.response.status_code}"
+    if isinstance(exc, requests.ConnectionError):
+        return "conexion"
+    return "error"
+
+
+def _descargar_un_pdf(url: str, destino_final: Path, tmp_dir: Path) -> str | None:
+    """Descarga un PDF con reintentos. Devuelve None si quedó guardado y validado
+    en `destino_final`; si no, un string con el motivo del último fallo."""
+    es_ftp = url.lower().startswith("ftp://")
+    tmp = tmp_dir / f"descarga_{abs(hash(url))}.part"
+    motivo = "error"
+    for espera in (0, *_CALI_ESPERAS):
+        if espera:
+            time.sleep(espera)
+        try:
+            if es_ftp:
+                head, size = _descargar_ftp(url, tmp)
+            else:
+                head, size = _descargar_http(url, tmp)
+        except Exception as exc:  # noqa: BLE001 — cualquier fallo de red se reintenta
+            motivo = "ftp-no-disponible" if es_ftp else _clasificar_error(exc)
+            continue
+        if not cali.es_pdf_valido(head, size):
+            motivo = "no-es-pdf"
+            continue
+        destino_final.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp, destino_final)
+        return None
+    tmp.unlink(missing_ok=True)
+    return motivo
 
 
 @celery_app.task(name="worker.scrape_source_task")
