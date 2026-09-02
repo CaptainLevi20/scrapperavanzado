@@ -1,3 +1,5 @@
+import errno
+import os
 import threading
 from pathlib import Path
 
@@ -101,6 +103,40 @@ def _pagina_html(filas, total_paginas=2):
         f"<td colspan='10'><b>10 registros (filtrado de 71969 registros en total)</b>"
         f"<strong>Pagina 1/{total_paginas}</strong></td></table>"
     )
+
+
+@responses.activate
+def test_task_saves_pdfs_when_destino_is_on_another_filesystem(tmp_path, monkeypatch):
+    # Regresion (prod): /descargas es un volumen montado, un sistema de archivos
+    # distinto al /tmp del contenedor. os.replace no puede cruzar sistemas de
+    # archivos (EXDEV), asi que el .part temporal tiene que crearse DENTRO de
+    # destino. Se simula el limite haciendo que os.replace rechace cualquier
+    # .part que no cuelgue de destino.
+    monkeypatch.setattr(tasks.time, "sleep", lambda *_: None)
+    real_replace = os.replace
+
+    def _replace_entre_discos(src, dst, *a, **kw):
+        if str(src).endswith(".part") and tmp_path not in Path(src).resolve().parents:
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(src, dst, *a, **kw)
+
+    monkeypatch.setattr(tasks.os, "replace", _replace_entre_discos)
+
+    responses.add(
+        responses.GET, _BASE, status=200,
+        match=[responses.matchers.query_param_matcher({"pag": "1"})],
+        body=_pagina_html([("0001", "1974-01-02", "1974", "https://pdf.test/a.pdf")], total_paginas=1),
+    )
+    responses.add(responses.GET, "https://pdf.test/a.pdf", body=_PDF_BYTES, status=200)
+
+    tasks.descargar_decretos_cali_task(str(tmp_path))
+
+    estado = leer_estado(tmp_path)
+    assert estado["estado"] == "terminado"
+    assert estado["descargados"] == 1
+    assert (
+        tmp_path / "DECRETOS" / "ALCACALI" / "1974" / "D_ALCACALI_0001_1974.pdf"
+    ).read_bytes() == _PDF_BYTES
 
 
 @responses.activate

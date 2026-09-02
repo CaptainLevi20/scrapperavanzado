@@ -986,7 +986,13 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
     fallos_seguidos = 0
 
     try:
-        with tempfile.TemporaryDirectory(prefix="cali_decretos_") as tmp_dir_str:
+        # El temporal va DENTRO de destino (no en el /tmp del sistema): asi el
+        # os.replace del .part al PDF final es un rename dentro del mismo sistema
+        # de archivos. En produccion destino es un volumen montado (/descargas) y
+        # el /tmp del contenedor es OTRO sistema de archivos; cruzarlos con
+        # os.replace falla con EXDEV "Invalid cross-device link" y toda descarga
+        # queda como fallida.
+        with tempfile.TemporaryDirectory(prefix=".cali_tmp_", dir=destino) as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
 
             primera = _pedir_pagina(sesion, 1)
