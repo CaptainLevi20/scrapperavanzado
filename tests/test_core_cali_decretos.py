@@ -99,3 +99,72 @@ def test_normalizar_url_collapses_dotdot_and_upgrades_http():
     ) == "https://www.cali.gov.co/aplicaciones/boletin_publicaciones/x/a.pdf"
     # ftp URLs are left untouched
     assert _normalizar_url("ftp://ftp.cali.gov.co/x.pdf") == "ftp://ftp.cali.gov.co/x.pdf"
+
+
+import json
+from datetime import datetime, timedelta, timezone
+
+from core.cali_decretos import (
+    MAX_LISTA,
+    ahora_iso,
+    escribir_estado,
+    estado_inicial,
+    leer_estado,
+    recortar_listas,
+    ruta_estado,
+    tarea_viva,
+)
+
+
+def test_leer_estado_returns_none_when_missing(tmp_path):
+    assert leer_estado(tmp_path) is None
+
+
+def test_escribir_then_leer_roundtrips_and_is_atomic(tmp_path):
+    estado = estado_inicial()
+    estado["descargados"] = 7
+    escribir_estado(tmp_path, estado)
+    assert not (ruta_estado(tmp_path).with_name("_descarga_estado.json.tmp")).exists()
+    vuelto = leer_estado(tmp_path)
+    assert vuelto["descargados"] == 7
+    assert vuelto["estado"] == "en_curso"
+    assert vuelto["actualizado"]  # touched on write
+
+
+def test_estado_inicial_shape():
+    estado = estado_inicial()
+    for clave in (
+        "version", "estado", "iniciado", "actualizado", "terminado",
+        "total_registros_sitio", "total_paginas", "ultima_pagina_completada",
+        "descargados", "ya_existian", "duplicados", "fallidos_count",
+        "detener_solicitado", "concurrencia_actual", "avisos", "fallidos",
+    ):
+        assert clave in estado
+    assert estado["estado"] == "en_curso"
+    assert estado["ultima_pagina_completada"] == 0
+    assert estado["concurrencia_actual"] == 8
+
+
+def test_recortar_listas_caps_at_max():
+    estado = estado_inicial()
+    estado["avisos"] = [{"tipo": "duplicado"}] * (MAX_LISTA + 50)
+    estado["fallidos"] = [{"url": "x"}] * (MAX_LISTA + 50)
+    recortar_listas(estado)
+    assert len(estado["avisos"]) == MAX_LISTA
+    assert len(estado["fallidos"]) == MAX_LISTA
+
+
+def test_tarea_viva():
+    ahora = datetime(2026, 9, 2, 15, 0, 0, tzinfo=timezone.utc)
+    reciente = estado_inicial()
+    reciente["actualizado"] = (ahora - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert tarea_viva(reciente, ahora) is True
+
+    viejo = estado_inicial()
+    viejo["actualizado"] = (ahora - timedelta(seconds=600)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert tarea_viva(viejo, ahora) is False
+
+    terminado = estado_inicial()
+    terminado["estado"] = "terminado"
+    terminado["actualizado"] = ahora.strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert tarea_viva(terminado, ahora) is False

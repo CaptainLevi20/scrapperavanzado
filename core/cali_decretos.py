@@ -109,3 +109,74 @@ def ruta_destino(destino: Path, numero: str, anio: int, sufijo: int = 0) -> Path
 
 def es_pdf_valido(head_bytes: bytes, size: int) -> bool:
     return size > 1024 and head_bytes[:4] == b"%PDF"
+
+
+import json
+import os
+from datetime import datetime, timezone
+
+NOMBRE_ESTADO = "_descarga_estado.json"
+MAX_LISTA = 1000
+TAREA_VIVA_SEGUNDOS = 300
+
+
+def ruta_estado(destino: Path) -> Path:
+    return destino / NOMBRE_ESTADO
+
+
+def ahora_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def estado_inicial() -> dict:
+    ahora = ahora_iso()
+    return {
+        "version": 1,
+        "estado": "en_curso",
+        "iniciado": ahora,
+        "actualizado": ahora,
+        "terminado": None,
+        "total_registros_sitio": None,
+        "total_paginas": None,
+        "ultima_pagina_completada": 0,
+        "descargados": 0,
+        "ya_existian": 0,
+        "duplicados": 0,
+        "fallidos_count": 0,
+        "detener_solicitado": False,
+        "concurrencia_actual": 8,
+        "avisos": [],
+        "fallidos": [],
+    }
+
+
+def leer_estado(destino: Path) -> dict | None:
+    ruta = ruta_estado(destino)
+    if not ruta.is_file():
+        return None
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+def escribir_estado(destino: Path, estado: dict) -> None:
+    estado["actualizado"] = ahora_iso()
+    ruta = ruta_estado(destino)
+    tmp = ruta.with_name(ruta.name + ".tmp")
+    tmp.write_text(json.dumps(estado, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, ruta)
+
+
+def recortar_listas(estado: dict) -> None:
+    estado["avisos"] = estado["avisos"][:MAX_LISTA]
+    estado["fallidos"] = estado["fallidos"][:MAX_LISTA]
+
+
+def tarea_viva(estado: dict, ahora: datetime) -> bool:
+    if estado.get("estado") != "en_curso":
+        return False
+    try:
+        actualizado = datetime.strptime(estado["actualizado"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except (KeyError, ValueError, TypeError):
+        return False
+    return (ahora - actualizado).total_seconds() < TAREA_VIVA_SEGUNDOS
