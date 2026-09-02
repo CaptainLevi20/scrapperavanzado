@@ -251,7 +251,12 @@ def _descargar_un_pdf(url: str, destino_final: Path, tmp_dir: Path) -> str | Non
     """Descarga un PDF con reintentos. Devuelve None si quedó guardado y validado
     en `destino_final`; si no, un string con el motivo del último fallo."""
     es_ftp = url.lower().startswith("ftp://")
-    tmp = tmp_dir / f"descarga_{abs(hash(url))}.part"
+    # Nombre único por llamada: dos descargas concurrentes de URLs distintas
+    # nunca deben escribir el mismo archivo temporal (antes se derivaba de
+    # hash(url), que colisiona entre hilos si la misma URL se reintenta).
+    fd, tmp_str = tempfile.mkstemp(dir=tmp_dir, suffix=".part")
+    os.close(fd)
+    tmp = Path(tmp_str)
     motivo = "error"
     for espera in (0, *_CALI_ESPERAS):
         if espera:
@@ -799,3 +804,207 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
         )
     finally:
         db.close()
+
+
+_CALI_INTENTOS_PAGINA = 4
+_CALI_FALLOS_PARA_BAJAR_CONCURRENCIA = 5
+_CALI_CONCURRENCIA_REDUCIDA = 3
+
+
+def _pedir_pagina(sesion: requests.Session, pag: int) -> "cali.PaginaParseada | None":
+    url = f"{cali.BASE_PAGINADOR}?pag={pag}"
+    for espera in (0, *_CALI_ESPERAS):
+        if espera:
+            time.sleep(espera)
+        try:
+            respuesta = sesion.get(url, timeout=30, allow_redirects=True)
+            respuesta.raise_for_status()
+        except Exception:  # noqa: BLE001 — se reintenta cualquier fallo de red
+            continue
+        return cali.parse_pagina(respuesta.text)
+    return None
+
+
+def _preparar_trabajos(pagina, destino: Path, vistos: set, estado: dict) -> list[tuple[str, Path]]:
+    trabajos: list[tuple[str, Path]] = []
+    for fila in pagina.filas:
+        if fila.pdf_url is None:
+            estado["avisos"].append(
+                {"tipo": "fila_sin_enlace", "numero": fila.numero_raw or None, "anio": None}
+            )
+            continue
+        numero = cali.normalizar_numero(fila.numero_raw)
+        if numero is None:
+            estado["avisos"].append({"tipo": "sin_numero", "anio": None, "url": fila.pdf_url})
+            continue
+        anio = cali.resolver_anio(fila.anio_raw, fila.fecha)
+        if anio is None:
+            estado["avisos"].append({"tipo": "sin_anio", "numero": numero, "url": fila.pdf_url})
+            continue
+
+        clave = (numero, anio)
+        sufijo = 0
+        if clave in vistos:
+            sufijo = 2
+            destino_final = cali.ruta_destino(destino, numero, anio, sufijo)
+            while destino_final.exists():
+                sufijo += 1
+                destino_final = cali.ruta_destino(destino, numero, anio, sufijo)
+            estado["duplicados"] += 1
+            estado["avisos"].append(
+                {
+                    "tipo": "duplicado",
+                    "numero": numero,
+                    "anio": anio,
+                    "guardado_como": destino_final.name,
+                }
+            )
+        else:
+            vistos.add(clave)
+            destino_final = cali.ruta_destino(destino, numero, anio)
+            if destino_final.exists() and destino_final.stat().st_size > 1024:
+                estado["ya_existian"] += 1
+                continue
+
+        trabajos.append((fila.pdf_url, destino_final))
+    return trabajos
+
+
+def _ejecutar_trabajos(trabajos, tmp_dir: Path, estado: dict, fallos_seguidos: int) -> int:
+    if not trabajos:
+        return fallos_seguidos
+    with ThreadPoolExecutor(max_workers=estado["concurrencia_actual"]) as executor:
+        futuros = {
+            executor.submit(_descargar_un_pdf, url, destino_final, tmp_dir): (url, destino_final)
+            for url, destino_final in trabajos
+        }
+        for futuro in as_completed(futuros):
+            url, destino_final = futuros[futuro]
+            motivo = futuro.result()
+            if motivo is None:
+                estado["descargados"] += 1
+                fallos_seguidos = 0
+                continue
+            numero_anio = _numero_anio_de_ruta(destino_final)
+            estado["fallidos"].append(
+                {
+                    "numero": numero_anio[0],
+                    "anio": numero_anio[1],
+                    "url": url,
+                    "motivo": motivo,
+                    "intentos": len(_CALI_ESPERAS) + 1,
+                }
+            )
+            estado["fallidos_count"] += 1
+            fallos_seguidos += 1
+            if (
+                fallos_seguidos >= _CALI_FALLOS_PARA_BAJAR_CONCURRENCIA
+                and estado["concurrencia_actual"] != _CALI_CONCURRENCIA_REDUCIDA
+            ):
+                estado["concurrencia_actual"] = _CALI_CONCURRENCIA_REDUCIDA
+                estado["avisos"].append(
+                    {"tipo": "concurrencia_reducida", "numero": None, "anio": None}
+                )
+    return fallos_seguidos
+
+
+def _numero_anio_de_ruta(ruta: Path) -> tuple[str | None, int | None]:
+    # D_ALCACALI_{numero}_{anio}[_n].pdf  → (numero, anio)
+    partes = ruta.stem.split("_")
+    if len(partes) >= 4 and partes[0] == cali.PREFIJO_TIPO:
+        anio = partes[3] if partes[3].isdigit() else None
+        return partes[2], int(anio) if anio else None
+    return None, None
+
+
+def _pasada_final_fallidos(destino: Path, estado: dict, tmp_dir: Path) -> None:
+    pendientes = estado["fallidos"]
+    estado["fallidos"] = []
+    estado["fallidos_count"] = 0
+    for entrada in pendientes:
+        numero, anio = entrada.get("numero"), entrada.get("anio")
+        if numero and anio:
+            destino_final = cali.ruta_destino(destino, numero, anio)
+        else:
+            destino_final = tmp_dir / "reintento.pdf"
+        motivo = _descargar_un_pdf(entrada["url"], destino_final, tmp_dir)
+        if motivo is None and numero and anio:
+            estado["descargados"] += 1
+        else:
+            estado["fallidos"].append({**entrada, "motivo": motivo or entrada["motivo"]})
+            estado["fallidos_count"] += 1
+    cali.recortar_listas(estado)
+    cali.escribir_estado(destino, estado)
+
+
+@celery_app.task(name="worker.descargar_decretos_cali_task")
+def descargar_decretos_cali_task(destino_str: str) -> None:
+    destino = Path(destino_str)
+    estado = cali.leer_estado(destino) or cali.estado_inicial()
+    estado["estado"] = "en_curso"
+    estado["detener_solicitado"] = False
+    cali.escribir_estado(destino, estado)
+
+    sesion = requests.Session()
+    sesion.headers.update({"User-Agent": _CALI_USER_AGENT})
+    vistos: set[tuple[str, int]] = set()
+    fallos_seguidos = 0
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="cali_decretos_") as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+
+            primera = _pedir_pagina(sesion, 1)
+            if primera is not None:
+                if primera.total_paginas:
+                    estado["total_paginas"] = primera.total_paginas
+                if primera.total_registros:
+                    estado["total_registros_sitio"] = primera.total_registros
+                cali.escribir_estado(destino, estado)
+
+            total_paginas = estado["total_paginas"] or 0
+            inicio = estado["ultima_pagina_completada"] + 1
+
+            for pag in range(inicio, total_paginas + 1):
+                fresco = cali.leer_estado(destino)
+                if fresco and fresco.get("detener_solicitado"):
+                    estado["detener_solicitado"] = True
+                    estado["estado"] = "detenido"
+                    cali.escribir_estado(destino, estado)
+                    return
+
+                pagina = primera if pag == 1 else _pedir_pagina(sesion, pag)
+                if pagina is None:
+                    estado["fallidos"].append(
+                        {
+                            "numero": None,
+                            "anio": None,
+                            "url": f"{cali.BASE_PAGINADOR}?pag={pag}",
+                            "motivo": "pagina",
+                            "intentos": _CALI_INTENTOS_PAGINA,
+                        }
+                    )
+                    estado["fallidos_count"] += 1
+                    estado["ultima_pagina_completada"] = pag
+                    cali.recortar_listas(estado)
+                    cali.escribir_estado(destino, estado)
+                    continue
+
+                trabajos = _preparar_trabajos(pagina, destino, vistos, estado)
+                fallos_seguidos = _ejecutar_trabajos(trabajos, tmp_dir, estado, fallos_seguidos)
+                estado["ultima_pagina_completada"] = pag
+                cali.recortar_listas(estado)
+                cali.escribir_estado(destino, estado)
+
+            _pasada_final_fallidos(destino, estado, tmp_dir)
+
+        estado["estado"] = "terminado_con_fallos" if estado["fallidos"] else "terminado"
+        estado["terminado"] = cali.ahora_iso()
+        cali.recortar_listas(estado)
+        cali.escribir_estado(destino, estado)
+    except Exception as exc:  # noqa: BLE001 — nunca dejar el estado en "en_curso"
+        logger.exception("descargar_decretos_cali_task falló")
+        estado["estado"] = "terminado_con_fallos"
+        estado["avisos"].append({"tipo": "error_inesperado", "numero": None, "anio": None, "url": str(exc)})
+        cali.recortar_listas(estado)
+        cali.escribir_estado(destino, estado)
