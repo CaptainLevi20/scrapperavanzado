@@ -112,8 +112,12 @@ de datos**: su estado vive en un archivo JSON en la carpeta destino.
 4. El panel llama `GET /cali-decretos/status` cada ~3 s y muestra el
    progreso leyendo ese mismo archivo. La pestaña se puede cerrar; la
    tarea sigue.
-5. **Detener** escribe `detener_solicitado: true` en el estado; la tarea
-   lo ve entre páginas y corta limpio.
+5. **Detener** escribe `detener_solicitado: true` en el estado. La tarea
+   revisa esa marca al terminar cada página (incluida la última) y antes
+   de cada reintento de la pasada final, y corta limpio dejando
+   `estado: "detenido"`. Toda escritura de la tarea pasa por un guardado
+   que preserva la marca: nunca la pisa a `false` mientras estaba
+   trabajando.
 6. Si la tarea muere, volver a pulsar **Iniciar** retoma desde la última
    página guardada y reintenta la lista de fallidos.
 
@@ -322,8 +326,12 @@ terminar cada página, con **escritura atómica** (escribe a `.tmp` y
 - Helpers privados: `_leer_estado` / `_escribir_estado_atomico` /
   `_descargar_un_pdf` (http con `requests`, ftp con `ftplib`,
   validación, 3 reintentos con backoff) / `_ajustar_concurrencia`.
-- Respeta `detener_solicitado` entre páginas.
-- Al final: pasada única sobre `fallidos`, luego fija `estado`.
+- Respeta `detener_solicitado`: lo revisa al terminar cada página
+  (incluida la última) y antes de cada reintento de la pasada final.
+  `_guardar_estado` es la única vía de escritura de la tarea y preserva
+  la marca puesta por `/stop`.
+- Al final: pasada única sobre `fallidos` (interrumpible por
+  `detener_solicitado`), luego fija `estado`.
 
 ### `api/routers/cali_decretos.py`
 
@@ -401,8 +409,9 @@ Esquemas en `api/schemas.py`: `CaliDecretosStartRequest { dest_path: str }`,
 - Un PDF cuyo destino ya existe → `ya_existian`, no se vuelve a bajar.
 - Segundo `(numero, anio)` repetido → sufijo `_2` + aviso `duplicado`.
 - Respuesta HTML (no PDF) → cuenta como fallo.
-- `detener_solicitado: true` → corta entre páginas, deja
-  `estado: "detenido"`.
+- `detener_solicitado: true` → corta al terminar la página en curso
+  (aunque sea la última) y también si llega durante la pasada final;
+  deja `estado: "detenido"` y no pisa la marca a `false`.
 - Reanudar desde `ultima_pagina_completada` no re-recorre las páginas
   previas.
 
