@@ -39,7 +39,7 @@ describe("CaliDecretosPanel", () => {
     const user = userEvent.setup();
     render(<CaliDecretosPanel />);
 
-    await user.type(screen.getByLabelText("Carpeta de destino"), "D:\\DESCARGA CALI");
+    await user.type(screen.getByLabelText("Carpeta de destino"), "/descargas/cali");
     await user.click(screen.getByRole("button", { name: "Iniciar" }));
 
     expect(await screen.findByText(/Página 100 de 7\.195/)).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe("CaliDecretosPanel", () => {
     );
     const user = userEvent.setup();
     render(<CaliDecretosPanel />);
-    await user.type(screen.getByLabelText("Carpeta de destino"), "D:\\DESCARGA CALI");
+    await user.type(screen.getByLabelText("Carpeta de destino"), "/descargas/cali");
     await user.tab(); // triggers onBlur → status fetch
 
     expect(await screen.findByText(/Terminado con fallos/)).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("CaliDecretosPanel", () => {
     );
     const user = userEvent.setup();
     render(<CaliDecretosPanel />);
-    await user.type(screen.getByLabelText("Carpeta de destino"), "D:\\DESCARGA CALI");
+    await user.type(screen.getByLabelText("Carpeta de destino"), "/descargas/cali");
     await user.tab();
 
     await user.click(await screen.findByRole("button", { name: "Detener" }));

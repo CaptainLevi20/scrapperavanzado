@@ -23,6 +23,12 @@ la tercera.
 - **A disco, no al almacén de la app.** Escribe una carpeta local en la
   máquina donde corre el backend, igual que el Reorganizador escribe
   sobre `D:\LOTE 2`. No crea una Fuente ni usa el pipeline de Runs.
+  En producción (contenedores) esa carpeta tiene que estar montada en
+  `api` y `worker`: `docker-compose.prod.yml` monta
+  `${CALI_DESCARGAS_DIR:-./descargas}` en `/descargas`, y el panel pide
+  la ruta interna (`/descargas` o una subcarpeta). Los PDF quedan en el
+  servidor; llevarlos a otra parte (disco de red, equipo del usuario) es
+  un paso manual aparte, fuera del alcance de esta herramienta.
 - **Herramienta interna.** Solo la usa el desarrollador/admin, en la
   máquina donde va a quedar el lote. Endpoints protegidos con
   `require_admin`.
@@ -340,7 +346,7 @@ terminar cada página, con **escritura atómica** (escribe a `.tmp` y
 
 | Endpoint | Entrada | Respuesta |
 |---|---|---|
-| `POST /cali-decretos/start` | `{ dest_path }` | `404` si la carpeta no existe. `409` si hay tarea viva (`estado: en_curso` y `actualizado` < 5 min) para esa carpeta. Si no: inicializa/actualiza el estado (marca reanudación si corresponde), `descargar_decretos_cali_task.delay(dest_path)`, devuelve el estado. |
+| `POST /cali-decretos/start` | `{ dest_path }` | Si la carpeta no existe pero su carpeta padre sí (y no es la raíz del disco), la crea; si el padre tampoco existe → `404`. `409` si hay tarea viva (`estado: en_curso` y `actualizado` < 5 min) para esa carpeta. Si no: inicializa/actualiza el estado (marca reanudación si corresponde), `descargar_decretos_cali_task.delay(dest_path)`, devuelve el estado. |
 | `GET /cali-decretos/status?dest_path=` | — | Contenido de `_descarga_estado.json`. `404` si no existe. |
 | `POST /cali-decretos/stop` | `{ dest_path }` | Escribe `detener_solicitado: true`. Devuelve el estado. `404` si no hay estado. |
 
@@ -372,8 +378,9 @@ Esquemas en `api/schemas.py`: `CaliDecretosStartRequest { dest_path: str }`,
 
 ## Manejo de errores
 
-- Carpeta destino inexistente → `404` "La ruta no existe o no es una
-  carpeta".
+- Carpeta destino inexistente **y su padre tampoco** → `404` "La ruta no
+  existe o no es una carpeta". Si el padre existe, la hoja se crea (así el
+  admin apunta a `/descargas/lote-x` sin crearla a mano en el contenedor).
 - Usuario sin `is_admin` → `403` (igual que `require_admin` en
   `sources.py` / `reorganize.py`).
 - Página de `paginador.php` que falla tras 3 reintentos → se anota en
@@ -418,7 +425,8 @@ Esquemas en `api/schemas.py`: `CaliDecretosStartRequest { dest_path: str }`,
 ### `tests/test_api_cali_decretos.py`
 
 - No-admin → `403` en los tres endpoints.
-- `start` con carpeta inexistente → `404`.
+- `start` con carpeta hoja inexistente pero padre válido → la crea, `200`.
+- `start` con el padre también inexistente → `404`, no crea nada.
 - `start` con estado `en_curso` reciente → `409`.
 - `status` sin archivo → `404`; con archivo → devuelve su contenido.
 - `stop` escribe `detener_solicitado: true`.

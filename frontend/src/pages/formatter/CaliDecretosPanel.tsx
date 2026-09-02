@@ -108,8 +108,9 @@ export function CaliDecretosPanel() {
         Descarga todos los decretos publicados en{" "}
         <code>cali.gov.co/&hellip;/consulta-de-decretos</code> a la carpeta indicada, organizados como{" "}
         <code>DECRETOS/ALCACALI/&#123;año&#125;/D_ALCACALI_&#123;número&#125;_&#123;año&#125;.pdf</code>.
-        Son ~72.000 archivos: puede ocupar decenas o cientos de GB y tardar varias horas. Podés cerrar
-        esta pestaña mientras corre; la descarga sigue en el servidor.
+        Son ~72.000 archivos: del orden de 5 a 30 GB y varias horas. La carpeta es del servidor, no de
+        tu computador (en producción, <code>/descargas</code> o una subcarpeta). Podés cerrar esta
+        pestaña mientras corre; la descarga sigue en el servidor.
       </p>
 
       <div className="flex flex-wrap items-end gap-2">
@@ -119,7 +120,7 @@ export function CaliDecretosPanel() {
             value={path}
             onChange={(ev) => setPath(ev.target.value)}
             onBlur={() => void refrescar(path)}
-            placeholder="D:\DESCARGA CALI"
+            placeholder="/descargas"
           />
         </label>
         <Button

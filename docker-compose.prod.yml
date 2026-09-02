@@ -38,6 +38,13 @@ services:
         condition: service_started
       minio:
         condition: service_started
+    # Carpeta de la máquina servidor donde el Laboratorio > "Decretos Cali" deja
+    # los PDF. CALI_DESCARGAS_DIR (en .env.production) decide qué carpeta real
+    # queda detrás; por defecto ./descargas, junto a este archivo. Tiene que
+    # estar montada IGUAL en api y worker: el worker escribe los PDF, la api
+    # valida la ruta y sirve el progreso.
+    volumes:
+      - "${CALI_DESCARGAS_DIR:-./descargas}:/descargas"
     restart: unless-stopped
 
   worker:
@@ -50,6 +57,8 @@ services:
         condition: service_started
       minio:
         condition: service_started
+    volumes:
+      - "${CALI_DESCARGAS_DIR:-./descargas}:/descargas"
     restart: unless-stopped
 
   beat:
