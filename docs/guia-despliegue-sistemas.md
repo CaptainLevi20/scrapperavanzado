@@ -341,3 +341,39 @@ la empresa.
 Restaurar es una operación delicada (puede sobreescribir datos actuales) —
 si llega a necesitarse de verdad, contacta al equipo de desarrollo antes de
 ejecutar nada, con la fecha del respaldo que quieres restaurar a la mano.
+
+## 9. Carpeta para "Descarga masiva de Decretos de Cali" (opcional)
+
+Dentro de la herramienta, en **Laboratorio → Decretos Cali**, un administrador
+puede bajar de una vez los ~72.000 decretos de la Alcaldía de Cali. Esos PDF se
+guardan en una carpeta **de la máquina servidor** (no del computador de quien
+usa la herramienta). Ocupan del orden de **5 a 30 GB** y la descarga tarda
+varias horas.
+
+Como la herramienta corre dentro de Docker, no ve las carpetas del servidor por
+su cuenta: hay que indicarle una. Ya viene preparada:
+
+- Por defecto, los PDF caen en una subcarpeta **`descargas`** dentro de la
+  misma carpeta donde copiaste los archivos de instalación (por ejemplo
+  `C:\iurisync\descargas`). Docker la crea sola la primera vez.
+- Si esa unidad no tiene 30 GB libres, edita `.env.production` y cambia la
+  línea `CALI_DESCARGAS_DIR` a otra carpeta con espacio, con **barras
+  normales**, por ejemplo:
+
+  ```
+  CALI_DESCARGAS_DIR=D:/descargas-cali
+  ```
+
+  Luego aplica el cambio con:
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml up -d api worker
+  ```
+
+- **En el campo "Carpeta de destino" de la herramienta se escribe `/descargas`**
+  (así, con barra al inicio), o una subcarpeta nueva como `/descargas/lote-2026`
+  — la herramienta la crea sola. No se escribe la ruta de Windows.
+
+Cuando termine, los PDF quedan en esa carpeta del servidor organizados como
+`DECRETOS\ALCACALI\{año}\...`. Desde ahí, cópialos a donde deban vivir (por
+ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.

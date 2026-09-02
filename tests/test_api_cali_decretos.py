@@ -29,11 +29,29 @@ def test_endpoints_reject_non_admin(api_client, auth_header, tmp_path):
     ).status_code == 403
 
 
-def test_start_404_for_missing_directory(api_client, admin_auth_header, tmp_path):
+def test_start_creates_missing_leaf_directory(api_client, admin_auth_header, tmp_path):
+    # El admin apunta a una subcarpeta nueva de una carpeta ya conectada
+    # (ej. /descargas/lote-marzo): la herramienta la crea sola, no exige que
+    # exista de antes.
+    destino = tmp_path / "lote-marzo"
     resp = api_client.post(
-        "/cali-decretos/start", json={"dest_path": str(tmp_path / "nope")}, headers=admin_auth_header
+        "/cali-decretos/start", json={"dest_path": str(destino)}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200
+    assert destino.is_dir()
+    assert (destino / "_descarga_estado.json").is_file()
+
+
+def test_start_404_when_parent_directory_missing(api_client, admin_auth_header, tmp_path):
+    # El padre NO existe (ruta mal escrita, o la carpeta base no está conectada
+    # al contenedor): sigue siendo 404, no se crea nada.
+    resp = api_client.post(
+        "/cali-decretos/start",
+        json={"dest_path": str(tmp_path / "no-existe" / "cali")},
+        headers=admin_auth_header,
     )
     assert resp.status_code == 404
+    assert not (tmp_path / "no-existe").exists()
 
 
 def test_start_creates_state_and_enqueues(api_client, admin_auth_header, tmp_path):
