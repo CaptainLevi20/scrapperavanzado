@@ -210,7 +210,12 @@ recorrido actual**:
 
 1. Si el archivo destino ya existe y pesa > 1 KB → **saltar**
    (`ya_existian += 1`). Esto es la reanudación.
-2. Descargar a un temporal:
+2. Descargar a un temporal. El temporal se crea **dentro de la carpeta
+   destino** (un subdirectorio `.cali_tmp_*`), no en el `/tmp` del
+   sistema: así el `os.replace` del paso 4 es un rename dentro del mismo
+   sistema de archivos. En producción `destino` es un volumen montado y
+   `/tmp` del contenedor es otro sistema de archivos; cruzarlos con
+   `os.replace` da `EXDEV` "Invalid cross-device link".
    - `http(s)://` → `requests`, siguiendo redirecciones, timeout 60 s,
      `User-Agent` de navegador.
    - `ftp://` → `ftplib` (modo pasivo, timeout 60 s).
