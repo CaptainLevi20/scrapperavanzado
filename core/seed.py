@@ -83,19 +83,24 @@ def seed_source_families_and_sources(db) -> None:
     for key, (display_name, description) in _FAMILIES.items():
         repository.create_source_family_if_missing(db, key=key, display_name=display_name, description=description)
 
-    # El equipo de fuentes confirma que todo lo que trae la Corte Constitucional
-    # es útil, así que sus documentos deben entrar ya revisados como "useful" en
-    # vez de "pending" (worker.scrape_source_task lee este auto_review_status).
+    # El equipo de fuentes confirma que todo lo que traen la Corte
+    # Constitucional, la CSJ y el Consejo de Estado es útil, así que sus
+    # documentos deben entrar ya revisados como "useful" en vez de "pending"
+    # (worker.scrape_source_task lee este auto_review_status). Dentro de samai
+    # solo aplica a Consejo de Estado, no a los Tribunales Administrativos.
     repository.create_source_if_missing(
         db, family_key="constitucional", name="Corte Constitucional", family_params={"auto_review_status": "useful"}
     )
 
     for corp_code, corp_name in SAMAI_CORPS.items():
-        repository.create_source_if_missing(
-            db, family_key="samai", name=corp_name, family_params={"corp_code": corp_code, "corp_name": corp_name}
-        )
+        params = {"corp_code": corp_code, "corp_name": corp_name}
+        if corp_name == "Consejo de Estado":
+            params["auto_review_status"] = "useful"
+        repository.create_source_if_missing(db, family_key="samai", name=corp_name, family_params=params)
 
-    repository.create_source_if_missing(db, family_key="corte_suprema", name="CSJ", family_params={})
+    repository.create_source_if_missing(
+        db, family_key="corte_suprema", name="CSJ", family_params={"auto_review_status": "useful"}
+    )
 
     repository.create_source_if_missing(db, family_key="jep", name="JEP", family_params={})
 
