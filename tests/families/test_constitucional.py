@@ -49,6 +49,10 @@ def test_scrap_returns_expected_rawdocmodel():
     assert doc.f_providencia == "2024-01-25"
     assert doc.link["url"] == "https://www.corteconstitucional.gov.co/sentencias/t-065-24.rtf"
     assert doc.link["body"] == {"path": "T-065/24"}
+    # El servidor de la Corte Constitucional presenta una cadena de certificados
+    # que `certifi` no puede validar (funciona con el almacén del SO, no con el
+    # de Python) — la descarga tiene que saltarse la verificación TLS.
+    assert doc.link["verify"] is False
     assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST-065-24(extension)"
 
 

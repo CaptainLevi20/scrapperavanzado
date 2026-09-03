@@ -3,11 +3,20 @@ from datetime import datetime, timedelta
 from typing import List
 
 import requests
+import urllib3
 
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
+
+# El servidor de www.corteconstitucional.gov.co presenta una cadena de
+# certificados que `certifi` (el almacén que usa `requests`) no logra validar
+# — `curl`/el navegador, que usan el almacén del sistema operativo, sí. Como
+# no hay forma de arreglarlo del lado del servidor, se salta la verificación
+# TLS para este host (búsqueda aquí y descarga vía link["verify"] = False);
+# es un endpoint público de solo lectura, sin credenciales ni datos sensibles.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _DOWNLOAD_URL = "https://www.corteconstitucional.gov.co/sentencias/"
 
@@ -76,7 +85,7 @@ class ScrapConstitucional(BaseScrapper):
             fecha_final = min(fecha_local + timedelta(days=365), fecha_final_global)
 
             url = _search_url(fecha_inicial, fecha_final.strftime("%Y-%m-%d"), q, limit)
-            response = requests.get(url)
+            response = requests.get(url, verify=False)
 
             if response.status_code != 200:
                 raise Exception(
@@ -97,7 +106,7 @@ class ScrapConstitucional(BaseScrapper):
                 docs.append(
                     RawDocModel(
                         source=self.source,
-                        link={"url": link, "method": "GET", "body": {"path": raw["prov_sentencia"]}},
+                        link={"url": link, "method": "GET", "body": {"path": raw["prov_sentencia"]}, "verify": False},
                         title=title,
                         tipo=tipo,
                         f_public=fecha_p,
