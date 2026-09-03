@@ -1033,15 +1033,49 @@ def count_documents_by_month(db: Session, year: int) -> list[int]:
     return counts
 
 
+def _expandir_a_grupos(db: Session, document_ids: list[int]) -> list[int]:
+    """Devuelve `document_ids` más los ids de todas las actuaciones hermanas
+    (mismo family_key + mismo título) de los documentos que pertenezcan a una
+    familia con actuaciones (ver es_familia_con_actuaciones). Un documento
+    suelto se devuelve tal cual; los ids inexistentes se conservan (el UPDATE
+    que los recibe simplemente no los encuentra). Sin repetidos, ordenada."""
+    if not document_ids:
+        return []
+    documentos = list(db.scalars(select(Document).where(Document.id.in_(document_ids))).all())
+    family_keys = get_source_family_keys(db, [d.source_id for d in documentos])
+    ids: set[int] = set(document_ids)
+    grupos_vistos: set[tuple[str, str]] = set()
+    for d in documentos:
+        fam = family_keys.get(d.source_id)
+        if not es_familia_con_actuaciones(fam, d.title):
+            continue
+        if (fam, d.title) in grupos_vistos:
+            continue
+        grupos_vistos.add((fam, d.title))
+        for hermano in list_documents_by_title_within_family(db, fam, d.title):
+            ids.add(hermano.id)
+    return sorted(ids)
+
+
 def update_document_review_status(db: Session, document_id: int, review_status: str) -> Optional[Document]:
     document = db.get(Document, document_id)
     if document is None:
         return None
-    document.review_status = review_status
-    document.reviewed_at = datetime.now(timezone.utc)
-    # A fresh review decision makes the document eligible for bulk download
-    # again, even if an earlier version of it was already delivered.
-    document.bulk_download_id = None
+    # Una decisión de revisión se aplica a TODO el caso: marcar (o desmarcar)
+    # una actuación arrastra a sus hermanas, para que la descarga masiva traiga
+    # el caso completo. Un documento suelto solo se afecta a sí mismo.
+    ids = _expandir_a_grupos(db, [document_id])
+    db.execute(
+        update(Document)
+        .where(Document.id.in_(ids))
+        .values(
+            review_status=review_status,
+            reviewed_at=datetime.now(timezone.utc),
+            # Una decisión fresca vuelve a habilitar el documento para descarga
+            # masiva, aunque una versión anterior ya se haya entregado.
+            bulk_download_id=None,
+        )
+    )
     db.commit()
     db.refresh(document)
     return document
