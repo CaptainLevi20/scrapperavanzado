@@ -1041,7 +1041,7 @@ def _expandir_a_grupos(db: Session, document_ids: list[int]) -> list[int]:
     que los recibe simplemente no los encuentra). Sin repetidos, ordenada."""
     if not document_ids:
         return []
-    documentos = list(db.scalars(select(Document).where(Document.id.in_(document_ids))).all())
+    documentos = db.scalars(select(Document).where(Document.id.in_(document_ids))).all()
     family_keys = get_source_family_keys(db, [d.source_id for d in documentos])
     ids: set[int] = set(document_ids)
     grupos_vistos: set[tuple[str, str]] = set()
@@ -1184,8 +1184,12 @@ def purge_documents_for_source(db: Session, source_id: int) -> dict:
 
 
 def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:
-    # Cada id de la selección arrastra a su caso completo (ver _expandir_a_grupos
-    # y update_document_review_status): la descarga masiva necesita el caso entero.
+    """Versión masiva de update_document_review_status: expande cada id de la
+    selección a su caso completo (todas las actuaciones hermanas — ver
+    _expandir_a_grupos) y aplica `review_status` a todas esas filas en un solo
+    UPDATE, devolviendo el rowcount real (cuántas filas se tocaron, incluidas
+    las hermanas que el llamador no seleccionó). Como una decisión fresca,
+    reabre esos documentos para descarga masiva (bulk_download_id = NULL)."""
     ids = _expandir_a_grupos(db, document_ids)
     stmt = (
         update(Document)

@@ -24,6 +24,7 @@ from core.db import repository
 from core.db.models import Document, Source
 from core.db.session import SessionLocal
 from core.scrapers.families.corte_suprema import _CODIGO_RE
+from core.utils import rekey_filename
 from core import storage_sync
 
 logger = logging.getLogger(__name__)
@@ -58,13 +59,44 @@ def backfill(db) -> dict:
         select(Document).join(Source, Source.id == Document.source_id).where(Source.family_key == _FAMILY_KEY)
     ).all()
 
+    # Empareja cada documento migrable con su título nuevo.
+    pares = [
+        (documento, nuevo)
+        for documento in documentos
+        if (nuevo := nuevo_titulo_csj(documento.title)) is not None
+    ]
+
+    # Antes de renombrar nada, detecta colisiones de clave calculada (mismo
+    # espíritu que core/storage_sync.py::_grupos_en_colision). Dos documentos
+    # CSJ que hoy solo se diferencian por el "_<año>" del final (mismo código
+    # de providencia, distinto año de f_public — ambos sobrevivieron al dedup
+    # del scraper) normalizan al mismo título nuevo y, como las claves CSJ son
+    # CSJ/<sala>/<título>.<ext> sin carpeta de fecha, a la misma clave destino.
+    # Renombrar los dos haría que el segundo copy_object sobrescriba el archivo
+    # del primero — pérdida silenciosa de datos. Se omiten ambos lados de cada
+    # colisión: ni se actualiza el título ni se reconcilia.
+    grupos_por_key: dict[tuple[str, str], list[tuple[Document, str]]] = {}
+    for documento, nuevo in pares:
+        nueva_key = rekey_filename(documento.storage_key, nuevo)
+        grupos_por_key.setdefault((documento.storage_bucket, nueva_key), []).append((documento, nuevo))
+
+    colisiones_omitidas = 0
+    pares_sin_colision: list[tuple[Document, str]] = []
+    for (_bucket, nueva_key), grupo in grupos_por_key.items():
+        if len(grupo) > 1:
+            logger.warning(
+                "Colisión de clave calculada en el backfill CSJ: los documentos %s calcularían "
+                "la misma clave %r — se omiten, sin cambios.",
+                [documento.id for documento, _ in grupo], nueva_key,
+            )
+            colisiones_omitidas += len(grupo)
+            continue
+        pares_sin_colision.extend(grupo)
+
     documentos_actualizados = 0
     archivos_renombrados = 0
     versiones_renombradas = 0
-    for documento in documentos:
-        nuevo = nuevo_titulo_csj(documento.title)
-        if nuevo is None:
-            continue
+    for documento, nuevo in pares_sin_colision:
         try:
             documento = repository.update_document_title(db, documento.id, nuevo)
             documentos_actualizados += 1
@@ -82,6 +114,7 @@ def backfill(db) -> dict:
         "documentos_actualizados": documentos_actualizados,
         "archivos_renombrados": archivos_renombrados,
         "versiones_renombradas": versiones_renombradas,
+        "colisiones_omitidas": colisiones_omitidas,
     }
 
 
@@ -92,10 +125,11 @@ def main() -> None:
         resultado = backfill(db)
         logger.info(
             "Backfill CSJ: %s títulos actualizados, %s archivos renombrados, "
-            "%s versiones archivadas renombradas",
+            "%s versiones archivadas renombradas, %s documentos omitidos por colisión de clave",
             resultado["documentos_actualizados"],
             resultado["archivos_renombrados"],
             resultado["versiones_renombradas"],
+            resultado["colisiones_omitidas"],
         )
     finally:
         db.close()

@@ -63,14 +63,35 @@ eliminó — el título nuevo no lleva ni sala ni año.
 ## Cómo aplicar en producción
 
 1. Merge a `master` → CI construye las imágenes en GHCR.
-2. En el servidor de la oficina:
+2. **Antes de correr el backfill**, verificar que no haya dos documentos que
+   quedarían con el mismo nombre (mismo código de providencia y misma sala,
+   distinto año). Chequeo previo, en plano SQL:
+   ```sql
+   SELECT
+     -- expresión del título nuevo: código a secas, sin el prefijo "CSJ_<sala>_"
+     -- ni el "_<año>" del final
+     regexp_replace(d.title, '^CSJ_(SCT|SCL|SCC|SCP)_(.+?)_[0-9]{4}(-v[0-9]+)?$', '\2\3'),
+     d.storage_bucket,
+     COUNT(*)
+   FROM documents d
+   JOIN sources s ON s.id = d.source_id
+   WHERE s.family_key = 'corte_suprema'
+   GROUP BY 1, d.storage_bucket
+   HAVING COUNT(*) > 1;
+   ```
+   Si esa consulta devuelve filas, esos documentos calcularían la misma clave
+   de almacenamiento. **El backfill los omite y los deja anotados en el log**
+   (`... documentos omitidos por colisión de clave`), sin tocar su título ni su
+   archivo — hay que resolverlos a mano (revisar cuál conservar) y volver a
+   correr el backfill.
+3. En el servidor de la oficina:
    ```powershell
    docker compose pull
    docker compose up -d
    docker compose run --rm api python -m core.backfill_csj_titles
    ```
-   El script imprime cuántos títulos y archivos tocó. Se puede repetir sin
-   efectos secundarios.
+   El script imprime cuántos títulos y archivos tocó, y cuántos omitió por
+   colisión. Se puede repetir sin efectos secundarios.
 
 ## Pruebas
 

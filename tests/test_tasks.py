@@ -1855,6 +1855,60 @@ def test_build_bulk_download_zip_includes_archived_versions_of_a_useful_document
         assertion_session.close()
 
 
+def test_build_bulk_download_zip_does_not_mark_a_document_delivered_when_one_of_its_versions_fails(db_session, test_engine, monkeypatch):
+    """Regresión: si el archivo vigente de un documento útil entra al ZIP pero
+    una de sus versiones archivadas falla al descargarse, el documento NO debe
+    marcarse como entregado — si no, esa versión que quedó fuera se pierde para
+    siempre de las descargas masivas futuras. El documento se mantiene elegible
+    para la próxima (su vigente se vuelve a zipear, aceptable)."""
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vigente = Path(tmp) / "v.pdf"
+        vigente.write_bytes(b"contenido vigente")
+        upload_file(vigente, "JEP/2026-06-01/Auto/vigente.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+    # La versión archivada apuntará a una clave que nunca se subió — su download_file falla.
+
+    doc = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+        f_public=date(2026, 6, 1), tipo="Auto",
+    )
+    repository.archive_and_replace_document(
+        db_session, doc.id, review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+    )
+    [version] = repository.list_document_versions(db_session, doc.id)
+    version.storage_key = "JEP/2026-06-01/Auto/no-existe.pdf"
+    db_session.commit()
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        # El vigente sí se zipeó, así que la descarga termina "completed".
+        assert refreshed.status == "completed"
+        assert refreshed.failed_count == 1
+        # Pero el documento no se marca entregado: su versión archivada quedó fuera.
+        assert repository.get_document(assertion_session, doc.id).bulk_download_id is None
+    finally:
+        assertion_session.close()
+
+
 def test_build_bulk_download_zip_excludes_documents_already_included_in_a_previous_bulk_download(db_session, test_engine, monkeypatch):
     """Regression test: a second bulk download used to re-include every document
     still marked 'useful', even ones already delivered in an earlier zip. Only

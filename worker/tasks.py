@@ -766,6 +766,13 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             # si todos terminan fallando, el mensaje de error diga cuáles
             # investigar en vez de tener que reconstruir esa lista a mano.
             failed_documents: list[tuple[int, str]] = []
+            # Documentos con AL MENOS una entrada fallida (su vigente o alguna
+            # de sus versiones archivadas). Aunque otra entrada del mismo
+            # documento sí haya entrado al ZIP, el documento NO se marca como
+            # entregado: así la versión que quedó fuera sigue elegible para la
+            # próxima descarga masiva (ver más abajo, antes de
+            # mark_documents_bulk_downloaded).
+            fallidos_por_documento: set[int] = set()
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for entrada in entradas:
                     # Re-validated here even though the key was already checked when
@@ -779,6 +786,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                         )
                         failed_count += 1
                         failed_documents.append((entrada.document_id, titulo_por_doc_id.get(entrada.document_id, "")))
+                        fallidos_por_documento.add(entrada.document_id)
                         continue
                     local_path = downloads_dir / entrada.storage_key
                     local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -791,6 +799,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
                         logger.warning("No se pudo incluir %s en la descarga masiva: %s", entrada.storage_key, exc)
                         failed_count += 1
                         failed_documents.append((entrada.document_id, titulo_por_doc_id.get(entrada.document_id, "")))
+                        fallidos_por_documento.add(entrada.document_id)
                     finally:
                         # Freed as soon as it's zipped instead of kept around until the
                         # whole batch finishes — otherwise disk usage peaks at roughly
@@ -817,6 +826,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             db,
             bulk_download_id,
             "completed",
+            # downloaded_count cuenta ARCHIVOS zipeados (vigentes + versiones archivadas), no documentos.
             document_count=downloaded_count,
             failed_count=failed_count,
             zip_storage_key=zip_key,
@@ -826,7 +836,13 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
         # Only mark documents as delivered once the zip has actually been
         # uploaded successfully — if upload_file() above had failed, these
         # would stay eligible and get retried by the next bulk download.
-        repository.mark_documents_bulk_downloaded(db, included_document_ids, bulk_download_id)
+        # Además, se excluye cualquier documento que haya tenido alguna entrada
+        # fallida (su vigente o una versión archivada): marcarlo entregado
+        # dejaría esa versión fuera de toda descarga masiva futura. Su vigente
+        # se volverá a zipear en la próxima — aceptable, es el contrato de
+        # "documento atómico" previo a este cambio.
+        entregados = [doc_id for doc_id in included_document_ids if doc_id not in fallidos_por_documento]
+        repository.mark_documents_bulk_downloaded(db, entregados, bulk_download_id)
     except Exception as exc:
         repository.set_bulk_download_status(
             db, bulk_download_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)

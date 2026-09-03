@@ -77,6 +77,49 @@ def test_backfill_es_idempotente(db_session, monkeypatch):
     assert segunda["documentos_actualizados"] == 0
 
 
+def test_backfill_omite_documentos_que_colisionarian_en_la_misma_clave(db_session, monkeypatch):
+    # Dos documentos que hoy solo se diferencian por el "_<año>" del final
+    # (mismo código de providencia, distinto año de f_public) normalizan al
+    # mismo título nuevo "AP1-2025" y, como las claves CSJ no llevan carpeta de
+    # fecha, a la misma clave "CSJ/SCP/AP1-2025.pdf". Renombrar los dos haría
+    # que el segundo copy_object sobrescriba el archivo del primero.
+    source = _fuente_csj(db_session)
+    doc_2024 = repository.insert_document(
+        db_session, doc_id="csj-col-2024", source_id=source.id, title="CSJ_SCP_AP1-2025_2024",
+        storage_bucket="iurisync-test", storage_key="CSJ/SCP/CSJ_SCP_AP1-2025_2024.pdf",
+    )
+    doc_2026 = repository.insert_document(
+        db_session, doc_id="csj-col-2026", source_id=source.id, title="CSJ_SCP_AP1-2025_2026",
+        storage_bucket="iurisync-test", storage_key="CSJ/SCP/CSJ_SCP_AP1-2025_2026.pdf",
+    )
+    # Un tercero que no colisiona con nadie: sí debe migrarse.
+    doc_ok = repository.insert_document(
+        db_session, doc_id="csj-ok", source_id=source.id, title="CSJ_SCT_STL9-2026_2024",
+        storage_bucket="iurisync-test", storage_key="CSJ/SCT/CSJ_SCT_STL9-2026_2024.pdf",
+    )
+    copiados = []
+    monkeypatch.setattr(bf.storage_sync, "copy_object", lambda bucket, old, new: copiados.append((old, new)))
+    monkeypatch.setattr(bf.storage_sync, "delete_object", lambda *a: None)
+
+    resultado = backfill(db_session)
+
+    # Los dos que colisionan quedan intactos (título y storage_key sin cambios).
+    refrescado_2024 = repository.get_document(db_session, doc_2024.id)
+    refrescado_2026 = repository.get_document(db_session, doc_2026.id)
+    assert refrescado_2024.title == "CSJ_SCP_AP1-2025_2024"
+    assert refrescado_2024.storage_key == "CSJ/SCP/CSJ_SCP_AP1-2025_2024.pdf"
+    assert refrescado_2026.title == "CSJ_SCP_AP1-2025_2026"
+    assert refrescado_2026.storage_key == "CSJ/SCP/CSJ_SCP_AP1-2025_2026.pdf"
+    assert resultado["colisiones_omitidas"] == 2
+
+    # El tercero sí se migró.
+    refrescado_ok = repository.get_document(db_session, doc_ok.id)
+    assert refrescado_ok.title == "STL9-2026"
+    assert refrescado_ok.storage_key == "CSJ/SCT/STL9-2026.pdf"
+    assert resultado["documentos_actualizados"] == 1
+    assert copiados == [("CSJ/SCT/CSJ_SCT_STL9-2026_2024.pdf", "CSJ/SCT/STL9-2026.pdf")]
+
+
 def test_backfill_no_toca_documentos_de_otras_fuentes(db_session, monkeypatch):
     _fuente_csj(db_session)
     repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
