@@ -95,10 +95,26 @@ export function DocumentPreviewDialog({
     enabled: open && !!currentDocument,
   });
 
+  // El backend propaga un cambio de estado de revisión a TODAS las actuaciones
+  // hermanas del mismo caso (mismo título + misma fuente). El visor debe reflejar
+  // eso localmente: cualquier fila del snapshot que comparta (title, source_id)
+  // con la actuación marcada pasa al nuevo review_status/reviewed_at, no sólo la
+  // fila tocada.
+  function aplicarEstadoAlCaso(updated: Document) {
+    setDocumentsSnapshot((snapshot) =>
+      snapshot.map((doc) =>
+        doc.title === updated.title && doc.source_id === updated.source_id
+          ? { ...doc, review_status: updated.review_status, reviewed_at: updated.reviewed_at }
+          : doc
+      )
+    );
+  }
+
   const markMutation = useMutation({
     mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       setMarkError(null);
+      aplicarEstadoAlCaso(updated);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       if (isLast) {
         onOpenChange(false);
@@ -110,19 +126,16 @@ export function DocumentPreviewDialog({
   });
 
   // Marking a SIBLING actuación from the list (not the currently-displayed
-  // document) must only update that row in place — unlike the footer's
-  // markMutation, it never advances currentIndex or closes the dialog, since
-  // the user is still looking at a different document.
+  // document) never advances currentIndex or closes the dialog — unlike the
+  // footer's markMutation — since the user is still looking at a different
+  // document. The status change itself, though, propagates to every actuación of
+  // the same case (see aplicarEstadoAlCaso), matching the backend.
   const markOtherMutation = useMutation({
     mutationFn: ({ id, status }: { id: number; status: DocumentReviewStatus }) => updateDocumentReviewStatus(id, status),
     onSuccess: (updated) => {
       setMarkOtherError(null);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      setDocumentsSnapshot((snapshot) =>
-        snapshot.map((doc) =>
-          doc.id === updated.id ? { ...doc, review_status: updated.review_status, reviewed_at: updated.reviewed_at } : doc
-        )
-      );
+      aplicarEstadoAlCaso(updated);
     },
     onError: () => setMarkOtherError("Error al marcar la actuación"),
   });
