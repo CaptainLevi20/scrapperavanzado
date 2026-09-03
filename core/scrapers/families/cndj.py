@@ -1,8 +1,10 @@
 import re
+import time
 from datetime import datetime, timedelta
 from typing import List
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.models import RawDocModel
@@ -12,6 +14,16 @@ from core.utils import storage_path
 
 _CNDJ_BASE_URL = "https://relatoria.cndj.gov.co/"
 _CNDJ_DOWNLOAD_URL = "https://relatoria.cndj.gov.co/docs_relatoria/"
+
+# relatoria.cndj.gov.co presenta (de forma intermitente, según el nodo que
+# responda) una cadena de certificados que `certifi` no puede validar — igual
+# que la Corte Constitucional. Se salta la verificación TLS para este host
+# (sesión aquí + link["verify"] = False para la descarga). Además, la página
+# Index a veces responde 200 sin el token CSRF; se reintenta.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_MAX_INTENTOS_INDEX = 3
+_ESPERA_REINTENTO_SEG = 5
 
 _MESES = {
     "ENERO": "01", "FEBRERO": "02", "MARZO": "03", "ABRIL": "04",
@@ -64,17 +76,31 @@ class ScrapCNDJ(BaseScrapper):
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         docs: List[RawDocModel] = []
         session = requests.Session()
+        session.verify = False
         session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
-        # 1. Obtener token CSRF y lista de magistrados desde la página principal
-        index_resp = session.get(_CNDJ_BASE_URL + "Index", timeout=30)
-        index_resp.raise_for_status()
-        token_m = _TOKEN_PATTERN.search(index_resp.text)
-        if not token_m:
+        # 1. Obtener token CSRF y lista de magistrados desde la página principal.
+        # Index falla de a ratos (TLS de un nodo malo, o un 200 sin el token) —
+        # se reintenta antes de darse por vencido.
+        token = None
+        index_html = ""
+        for intento in range(_MAX_INTENTOS_INDEX):
+            try:
+                index_resp = session.get(_CNDJ_BASE_URL + "Index", timeout=30)
+                index_resp.raise_for_status()
+                token_m = _TOKEN_PATTERN.search(index_resp.text)
+                if token_m:
+                    token = token_m.group(1)
+                    index_html = index_resp.text
+                    break
+            except requests.exceptions.RequestException:
+                pass
+            if intento < _MAX_INTENTOS_INDEX - 1:
+                time.sleep(_ESPERA_REINTENTO_SEG)
+        if token is None:
             raise Exception(f"No se encontró el token de verificación en {self.source}")
-        token = token_m.group(1)
 
-        index_soup = BeautifulSoup(index_resp.text, "html.parser")
+        index_soup = BeautifulSoup(index_html, "html.parser")
         magistrados = [
             opt["value"].strip()
             for opt in index_soup.select("#ddlMagistrado option[value]")
@@ -213,7 +239,7 @@ class ScrapCNDJ(BaseScrapper):
 
             docs.append(RawDocModel(
                 source=self.source,
-                link={"url": url, "method": "GET", "body": {"path": dedup_key}},
+                link={"url": url, "method": "GET", "body": {"path": dedup_key}, "verify": False},
                 title=safe_num,
                 tipo="Magistrado",
                 magistrado=magistrado_fmt,

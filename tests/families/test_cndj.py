@@ -1,11 +1,18 @@
 import json
 
+import pytest
 import responses
 
+import core.scrapers.families.cndj as cndj_module
 from core.scrapers.families.cndj import ScrapCNDJ, _format_radicado
 from core.scrapers.registry import FAMILY_REGISTRY
 
 _BASE = "https://relatoria.cndj.gov.co/"
+
+
+@pytest.fixture(autouse=True)
+def _no_reintento_sleep(monkeypatch):
+    monkeypatch.setattr(cndj_module.time, "sleep", lambda *_a: None)
 
 _INDEX_HTML = """
 <html><body>
@@ -52,10 +59,43 @@ def test_scrap_full_flow_returns_expected_document():
     assert doc.f_providencia == "2024-01-15"
     assert doc.link["url"] == "https://relatoria.cndj.gov.co/docs_relatoria/ALGO_ADJUNTA20240120103000.pdf"
     assert doc.link["body"] == {"path": "05001250200020210021501_3"}
+    # El certificado de relatoria.cndj.gov.co no lo valida certifi -> descarga sin verificar TLS.
+    assert doc.link["verify"] is False
     assert doc.save_path == (
         "Comisión Nacional de Disciplina Judicial/Juan Perez/2024-01-20/"
         "F05001-25-02-000-2021-00215-01_2024(extension)"
     )
+
+
+@responses.activate
+def test_scrap_reintenta_index_cuando_la_primera_respuesta_no_trae_token():
+    # La página Index responde de a ratos 200 sin el token CSRF; el scraper
+    # debe reintentar en vez de abortar con "No se encontró el token".
+    responses.add(responses.GET, _BASE + "Index", body="<html><body>sin token</body></html>", status=200)
+    responses.add(responses.GET, _BASE + "Index", body=_INDEX_HTML, status=200)
+    responses.add(responses.POST, _BASE + "Resultados?handler=RecibirBusqueda", json={"success": True}, status=200)
+    responses.add(responses.GET, _BASE + "Resultados", body=_RESULTS_HTML, status=200)
+    responses.add(
+        responses.POST,
+        _BASE + "Resultados?handler=RecibirDataResumen",
+        json={"archivo": "ALGO_ADJUNTA20240120103000"},
+        status=200,
+    )
+
+    scraper = ScrapCNDJ()
+    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
+
+    assert len(docs) == 1
+    assert docs[0].title == "F05001-25-02-000-2021-00215-01_2024"
+
+
+@responses.activate
+def test_scrap_falla_si_ningun_intento_de_index_trae_token():
+    responses.add(responses.GET, _BASE + "Index", body="<html><body>sin token</body></html>", status=200)
+
+    scraper = ScrapCNDJ()
+    with pytest.raises(Exception, match="No se encontró el token de verificación"):
+        scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
 
 
 @responses.activate

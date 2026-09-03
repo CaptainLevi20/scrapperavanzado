@@ -1,4 +1,5 @@
 import re
+import time
 from typing import List, Optional, Tuple
 from urllib.parse import urljoin
 
@@ -31,6 +32,12 @@ _CATEGORIAS = {
 }
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
+
+# El sitio de minvivienda devuelve 503 (Service Temporarily Unavailable) de
+# forma intermitente — distintos tipos fallan en distintas corridas. Se
+# reintenta con espera; sin esto, un 503 aislado perdía todo un tipo.
+_MAX_INTENTOS = 3
+_ESPERA_REINTENTO_SEG = 5
 
 # Número corto pegado a su año, en cualquier parte del título (no anclado al
 # final): cubre tanto "Resolución 0786 - 2026" (numero al final) como
@@ -116,13 +123,21 @@ class ScrapMinvivienda(BaseScrapper):
         # urllib.parse.quote) lo codifica dos veces (ej. "ó" -> "%C3%B3" ->
         # "%25C3%25B3"), lo que el sitio real no reconoce y devuelve 0
         # resultados. Confirmado con un chequeo en vivo contra el sitio.
-        resp = session.get(
-            _LISTADO_URL,
-            params={"tipo": tipo, "page": page},
-            timeout=60,
-        )
-        resp.raise_for_status()
-        return resp.text
+        ultimo_error = None
+        for intento in range(_MAX_INTENTOS):
+            try:
+                resp = session.get(
+                    _LISTADO_URL,
+                    params={"tipo": tipo, "page": page},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                return resp.text
+            except requests.exceptions.RequestException as e:
+                ultimo_error = e
+                if intento < _MAX_INTENTOS - 1:
+                    time.sleep(_ESPERA_REINTENTO_SEG)
+        raise ultimo_error
 
     def _extraer_fila(self, fila, tipo_categoria: str, letra_categoria: str) -> Optional[RawDocModel]:
         enlace_titulo = fila.select_one(".listing-title a")

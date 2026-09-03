@@ -1,6 +1,9 @@
+import pytest
 import requests
 import responses
 from responses import matchers
+
+import core.scrapers.families.minvivienda as minvivienda_module
 
 from core.scrapers.registry import FAMILY_REGISTRY
 from core.scrapers.families.minvivienda import (
@@ -12,6 +15,13 @@ from core.scrapers.families.minvivienda import (
 )
 
 _LISTADO_URL = "https://minvivienda.gov.co/normativa"
+
+
+@pytest.fixture(autouse=True)
+def _no_reintento_sleep(monkeypatch):
+    # _fetch_pagina reintenta con time.sleep(5) sobre errores 5xx/conexión; en
+    # los tests eso no debe esperar de verdad.
+    monkeypatch.setattr(minvivienda_module.time, "sleep", lambda *_a: None)
 
 
 def _fila(titulo, fecha_iso, creado_texto="Mié, 05/08/2026 - 19:03", pdf_url="https://minvivienda.gov.co/sites/default/files/normativa/doc.pdf", resumen="Por la cual se resuelve algo", con_archivo=True):
@@ -153,6 +163,30 @@ def test_fetch_pagina_does_not_double_encode_the_tipo_param():
     sent_url = responses.calls[0].request.url
     assert "%C3%B3" in sent_url
     assert "%25C3%25B3" not in sent_url
+
+
+@responses.activate
+def test_fetch_pagina_retries_on_a_5xx_then_succeeds():
+    # El sitio de minvivienda devuelve 503 de forma intermitente; una sola
+    # petición fallaba y se perdía todo ese tipo. Ahora se reintenta.
+    responses.add(responses.GET, _LISTADO_URL, status=503, match=[_matcher("Decreto", 0)])
+    responses.add(responses.GET, _LISTADO_URL, body="<html>ok</html>", status=200, match=[_matcher("Decreto", 0)])
+
+    html = ScrapMinvivienda()._fetch_pagina(requests.Session(), "Decreto", 0)
+
+    assert "ok" in html
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_fetch_pagina_raises_after_exhausting_retries():
+    for _ in range(3):
+        responses.add(responses.GET, _LISTADO_URL, status=503, match=[_matcher("Decreto", 0)])
+
+    with pytest.raises(requests.exceptions.RequestException):
+        ScrapMinvivienda()._fetch_pagina(requests.Session(), "Decreto", 0)
+
+    assert len(responses.calls) == 3
 
 
 @responses.activate

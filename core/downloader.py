@@ -8,9 +8,15 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.models import RawDocModel
+
+# Silencia el aviso de "petición sin verificar TLS": algunas fuentes
+# (Corte Constitucional) presentan un certificado que certifi no valida y su
+# descarga pasa verify=False a propósito (ver link["verify"]).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from core.utils import extract_filename, is_safe_storage_key, storage_path
 
 _VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net[^"]*)"')
@@ -153,17 +159,21 @@ class Downloader:
             requests.exceptions.ChunkedEncodingError,
         )
 
+        # Algunas fuentes (Corte Constitucional) presentan un certificado TLS que
+        # `certifi` no puede validar; su scraper marca link["verify"] = False.
+        verify = doc.link.get("verify", True)
+
         last_exc = None
         for _attempt in range(3):
             try:
                 if doc.link["method"] == "POST":
                     headers["Content-Type"] = "application/json"
                     body = doc.link.get("body", {})
-                    response = requests.post(doc.link["url"], json=body, headers=headers, stream=True, timeout=120)
+                    response = requests.post(doc.link["url"], json=body, headers=headers, stream=True, timeout=120, verify=verify)
                 elif doc.link["method"] == "jwt_indirect":
                     response = self._resolve_jwt_indirect(doc.link["url"], headers)
                 else:
-                    response = requests.get(doc.link["url"], headers=headers, stream=True, timeout=120)
+                    response = requests.get(doc.link["url"], headers=headers, stream=True, timeout=120, verify=verify)
 
                 with response as r:
                     r.raise_for_status()

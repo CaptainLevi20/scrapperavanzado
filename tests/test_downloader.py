@@ -10,10 +10,12 @@ from core.downloader import Downloader, check_remote_content_length
 from core.models import RawDocModel
 
 
-def _doc(method="GET", url="https://example.com/file.pdf", body=None, save_path=None):
+def _doc(method="GET", url="https://example.com/file.pdf", body=None, save_path=None, verify=None):
     link = {"url": url, "method": method}
     if body:
         link["body"] = body
+    if verify is not None:
+        link["verify"] = verify
     return RawDocModel(
         source="Test",
         link=link,
@@ -22,6 +24,44 @@ def _doc(method="GET", url="https://example.com/file.pdf", body=None, save_path=
         f_public="2026-01-01",
         save_path=save_path,
     )
+
+
+@responses.activate
+def test_download_verifies_tls_by_default(tmp_path, monkeypatch):
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"%PDF-1.4 x", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    verifies = []
+    real_get = downloader_module.requests.get
+    monkeypatch.setattr(
+        downloader_module.requests, "get",
+        lambda *a, **k: (verifies.append(k.get("verify")), real_get(*a, **k))[1],
+    )
+
+    Downloader().download(_doc(), tmp_path)
+
+    assert verifies == [True]
+
+
+@responses.activate
+def test_download_skips_tls_verification_when_the_link_declares_verify_false(tmp_path, monkeypatch):
+    # La Corte Constitucional presenta un certificado que certifi no valida; su
+    # scraper marca link["verify"] = False para que la descarga no falle con SSL.
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"%PDF-1.4 x", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    verifies = []
+    real_get = downloader_module.requests.get
+    monkeypatch.setattr(
+        downloader_module.requests, "get",
+        lambda *a, **k: (verifies.append(k.get("verify")), real_get(*a, **k))[1],
+    )
+
+    Downloader().download(_doc(verify=False), tmp_path)
+
+    assert verifies == [False]
 
 
 @responses.activate
