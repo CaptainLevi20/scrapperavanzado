@@ -1528,6 +1528,9 @@ def test_scrape_source_task_new_actuacion_inherits_case_review_status(db_session
     celery_app.conf.task_always_eager = True
     task_session_factory = sessionmaker(bind=test_engine, future=True)
     monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Una actuación nueva dispara reconcile_title_group_task.delay(...), que con
+    # task_always_eager=True corre de verdad y abre su propia SessionLocal.
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
 
     repository.create_source_family(db_session, key="samai", display_name="SAMAI")
