@@ -604,6 +604,45 @@ def test_bulk_update_document_review_status_ignores_nonexistent_ids(db_session):
     assert updated_count == 1
 
 
+def test_bulk_update_document_review_status_expands_each_id_to_its_case_group(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    caso_a = "11001-03-28-000-2026-00300-00"
+    caso_b = "11001-03-28-000-2026-00500-00"
+    a1 = repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=caso_a,
+        storage_bucket="iurisync-test", storage_key="a1.pdf",
+    )
+    a2 = repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=caso_a,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",
+    )
+    b1 = repository.insert_document(
+        db_session, doc_id="b1", source_id=source.id, title=caso_b,
+        storage_bucket="iurisync-test", storage_key="b1.pdf",
+    )
+    fuera = repository.insert_document(
+        db_session, doc_id="fuera", source_id=source.id, title="77777-77-77-000-2026-99999-00",
+        storage_bucket="iurisync-test", storage_key="fuera.pdf",
+    )
+
+    # La selección trae una actuación de A y la única de B; se esperan 3 filas
+    # tocadas (a1, a2 por expansión, b1), y 'fuera' intacto.
+    updated_count = repository.bulk_update_document_review_status(db_session, [a1.id, b1.id], "useful")
+
+    assert updated_count == 3
+    for d in (a1, a2, b1, fuera):
+        db_session.refresh(d)
+    assert a1.review_status == "useful"
+    assert a2.review_status == "useful"
+    assert b1.review_status == "useful"
+    assert fuera.review_status == "pending"
+
+
 def test_create_user_and_lookup_by_username(db_session):
     repository.create_user(db_session, username="ana", password_hash="hashed")
 

@@ -1184,9 +1184,12 @@ def purge_documents_for_source(db: Session, source_id: int) -> dict:
 
 
 def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:
+    # Cada id de la selección arrastra a su caso completo (ver _expandir_a_grupos
+    # y update_document_review_status): la descarga masiva necesita el caso entero.
+    ids = _expandir_a_grupos(db, document_ids)
     stmt = (
         update(Document)
-        .where(Document.id.in_(document_ids))
+        .where(Document.id.in_(ids))
         .values(review_status=review_status, reviewed_at=datetime.now(timezone.utc), bulk_download_id=None)
     )
     result = db.execute(stmt)
