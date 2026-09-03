@@ -1781,11 +1781,76 @@ def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, t
                 # Las entradas del ZIP van dentro de Fuente/Fecha/Tipo, y el nombre
                 # del archivo es el canónico (título + extensión), no la ruta interna
                 # de almacenamiento (storage_key) — ver core/naming.py y
-                # worker/tasks.py::_nombres_zip. "jep" no es una familia con
+                # worker/tasks.py::_entradas_zip. "jep" no es una familia con
                 # actuaciones, así que el nombre es solo título+ext.
                 names = set(zf.namelist())
                 assert names == {"JEP/2026-06-01/Auto/Doc 1.pdf", "JEP/2026-06-02/Sentencia/Doc 2.pdf"}
                 assert zf.read("JEP/2026-06-01/Auto/Doc 1.pdf") == b"contenido uno"
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_includes_archived_versions_of_a_useful_document(db_session, test_engine, monkeypatch):
+    from pathlib import Path
+    import tempfile
+    import zipfile
+
+    from core.storage import presigned_url, upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vigente = Path(tmp) / "v.pdf"
+        vigente.write_bytes(b"contenido vigente")
+        upload_file(vigente, "JEP/2026-06-01/Auto/vigente.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+        archivada = Path(tmp) / "a.pdf"
+        archivada.write_bytes(b"contenido archivado")
+        upload_file(archivada, "JEP/2026-06-01/Auto/archivada.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    doc = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+        f_public=date(2026, 6, 1), tipo="Auto",
+    )
+    # Deja al documento con una versión archivada (version_no del vigente pasa a 2).
+    # review_status="useful" para que la republicación no lo saque de la lista de
+    # útiles (archive_and_replace_document lo dejaría en "pending" por defecto).
+    repository.archive_and_replace_document(
+        db_session, doc.id, review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+    )
+    [version] = repository.list_document_versions(db_session, doc.id)
+    version.storage_key = "JEP/2026-06-01/Auto/archivada.pdf"
+    db_session.commit()
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"
+        url = presigned_url(TEST_S3_BUCKET, refreshed.zip_storage_key)
+        import requests
+        response = requests.get(url, timeout=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "r.zip"
+            zip_path.write_bytes(response.content)
+            with zipfile.ZipFile(zip_path) as zf:
+                names = set(zf.namelist())
+                # 'jep' no es familia con actuaciones -> nombre = titulo + [-v{n}] + ext.
+                # El vigente ya es la versión 2 (hubo una republicación), así que
+                # lleva sufijo "-v2"; la versión archivada es la "-v1".
+                assert "JEP/2026-06-01/Auto/Doc 1-v2.pdf" in names
+                assert "JEP/2026-06-01/Auto/Doc 1-v1.pdf" in names
+                assert zf.read("JEP/2026-06-01/Auto/Doc 1-v1.pdf") == b"contenido archivado"
     finally:
         assertion_session.close()
 
