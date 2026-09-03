@@ -158,6 +158,22 @@ def test_rekey_filename_falls_back_to_old_stem_when_title_sanitizes_to_nothing()
     assert rekey_filename("Dummy/2026-01-01/doc.pdf", "   ") == "Dummy/2026-01-01/doc.pdf"
 
 
+def test_rekey_filename_caps_a_very_long_title_to_the_same_length_the_scrapers_use():
+    # Regresión: algunas fuentes (p. ej. mininterior "consulta previa") tienen
+    # títulos de texto libre de 200+ caracteres. Los scrapers ya truncan el
+    # nombre del archivo a 120 caracteres al guardar, pero reconcile_all
+    # recalcula la clave a partir del título completo de la base — sin el tope
+    # produce un segmento de ruta que MinIO rechaza (XMinioInvalidObjectName).
+    titulo_largo = "EMPRESA: " + "A" * 300
+    key = rekey_filename("Ministerio del Interior/2026-07-17/Resolución/EMPRESA- corto.pdf", titulo_largo)
+    directory, _, filename = key.rpartition("/")
+    assert directory == "Ministerio del Interior/2026-07-17/Resolución"
+    stem = filename[: -len(".pdf")]
+    # Mismo criterio que los scrapers: sub de caracteres inválidos, luego [:120].
+    assert stem == ("EMPRESA- " + "A" * 300)[:120]
+    assert len(stem) == 120
+
+
 from core.utils import is_radicado_title
 
 
