@@ -1197,6 +1197,30 @@ def bulk_update_document_review_status(db: Session, document_ids: list[int], rev
     return result.rowcount
 
 
+def heredar_review_status_de_actuaciones_existentes(db: Session, family_key: str, title: str) -> int:
+    """Cuando llega una actuación nueva a un caso ya revisado, la fila nueva
+    entra en 'pending'. Si el resto del grupo (familia + título) coincide en un
+    único estado distinto de 'pending', se lo aplica también a las 'pending'.
+    Si el grupo está todo en 'pending', o los estados decididos no coinciden
+    entre sí (datos previos a esta lógica), no toca nada. Devuelve cuántas
+    filas actualizó."""
+    grupo = list_documents_by_title_within_family(db, family_key, title)
+    decididos = {d.review_status for d in grupo if d.review_status != "pending"}
+    if len(decididos) != 1:
+        return 0
+    (estado,) = decididos
+    pendientes = [d.id for d in grupo if d.review_status == "pending"]
+    if not pendientes:
+        return 0
+    db.execute(
+        update(Document)
+        .where(Document.id.in_(pendientes))
+        .values(review_status=estado, reviewed_at=datetime.now(timezone.utc), bulk_download_id=None)
+    )
+    db.commit()
+    return len(pendientes)
+
+
 def get_document(db: Session, document_id: int) -> Optional[Document]:
     return db.get(Document, document_id)
 

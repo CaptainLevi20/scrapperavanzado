@@ -643,6 +643,77 @@ def test_bulk_update_document_review_status_expands_each_id_to_its_case_group(db
     assert fuera.review_status == "pending"
 
 
+def test_heredar_review_status_aplica_el_estado_del_grupo_a_la_actuacion_pendiente(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf", review_status="useful",
+    )
+    nueva = repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",  # entra 'pending'
+    )
+
+    n = repository.heredar_review_status_de_actuaciones_existentes(db_session, "samai", titulo)
+
+    assert n == 1
+    db_session.refresh(nueva)
+    assert nueva.review_status == "useful"
+    assert nueva.reviewed_at is not None
+
+
+def test_heredar_review_status_no_hace_nada_si_el_grupo_esta_todo_pendiente(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",
+    )
+
+    assert repository.heredar_review_status_de_actuaciones_existentes(db_session, "samai", titulo) == 0
+
+
+def test_heredar_review_status_no_hace_nada_si_los_decididos_no_coinciden(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf", review_status="useful",
+    )
+    repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf", review_status="not_useful",
+    )
+    nueva = repository.insert_document(
+        db_session, doc_id="a3", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a3.pdf",
+    )
+
+    assert repository.heredar_review_status_de_actuaciones_existentes(db_session, "samai", titulo) == 0
+    db_session.refresh(nueva)
+    assert nueva.review_status == "pending"
+
+
 def test_create_user_and_lookup_by_username(db_session):
     repository.create_user(db_session, username="ana", password_hash="hashed")
 
