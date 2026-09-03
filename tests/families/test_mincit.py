@@ -66,8 +66,8 @@ def test_normalize_title_pads_short_numbers_to_four_digits():
 
 
 def test_normalize_title_uses_letter_per_tipo():
-    assert _normalize_title("L", "2094", "2021") == "L_MCIT_2094_2021"
-    assert _normalize_title("D", "1438", "2025") == "D_MCIT_1438_2025"
+    assert _normalize_title("L", "2094", "2021") == "L2094021"
+    assert _normalize_title("D", "1438", "2025") == "D1438025"
 
 
 from core.scrapers.families.mincit import _anios_del_slug, _mapa_anio_a_slug
@@ -266,7 +266,7 @@ def test_scrap_aggregates_across_categories_using_year_index():
     scraper = ScrapMINCIT()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
 
-    assert {d.title for d in docs} == {"R_MCIT_0010_2026", "D_MCIT_0020_2026"}
+    assert {d.title for d in docs} == {"R_MCIT_0010_2026", "D0020026"}
 
 
 @responses.activate
@@ -351,7 +351,7 @@ def test_scrap_continues_past_a_failing_category_index():
     scraper = ScrapMINCIT()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
 
-    assert {d.title for d in docs} == {"R_MCIT_0010_2026", "D_MCIT_0020_2026"}
+    assert {d.title for d in docs} == {"R_MCIT_0010_2026", "D0020026"}
     assert any("Error" in m and "índice de Circular" in m for m in progreso)
 
 

@@ -7,6 +7,7 @@ import requests
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
+from core.naming import codigo_ley_decreto
 from core.utils import storage_path
 
 _BASE_URL = "https://www.minjusticia.gov.co"
@@ -31,7 +32,7 @@ _CODIGO_CIRCULAR_PATTERN = re.compile(r"CIR\d{2}-\d+")
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
     if letra == "C":
         return f"C_MJ_{numero}_{anio}"
-    return f"{letra}_MJ_{int(numero):04d}_{anio}"
+    return codigo_ley_decreto(letra, numero, anio) or f"{letra}_MJ_{int(numero):04d}_{anio}"
 
 
 def _extraer_items(

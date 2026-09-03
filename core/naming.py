@@ -1,8 +1,35 @@
+import re
 from datetime import date
 from pathlib import PurePosixPath
 from typing import Optional
 
 from core.utils import is_radicado_title, is_samai_case_title
+
+
+def codigo_ley_decreto(letra: str, numero: str, anio: str) -> Optional[str]:
+    """Código canónico SIN sigla de ministerio para Leyes y Decretos, común a
+    todas las fuentes de normatividad: "<L|D>" + número (4 dígitos, ceros a la
+    izquierda) + año, sin separadores. El año va en 3 dígitos (año % 1000)
+    salvo 1900-1999, que van en 2 (año % 100): 2022 -> "022", 1901 -> "01",
+    1888 -> "888". Devuelve None para cualquier otro `letra` (R, C, A, LEST…),
+    que conserva el formato con sigla.
+
+    Ej.: ("L", "2277", "2022") -> "L2277022"; ("D", "111", "1996") -> "D011196"."""
+    if letra not in ("L", "D"):
+        return None
+    y = int(anio)
+    anio_str = f"{y % 100:02d}" if 1900 <= y <= 1999 else f"{y % 1000:03d}"
+    return f"{letra}{int(numero):04d}{anio_str}"
+
+
+# "<L|D>" + al menos 4 dígitos de número + 2 o 3 de año = 6+ dígitos en total.
+_CODIGO_LEY_DECRETO_RE = re.compile(r"^[LD]\d{6,}$")
+
+
+def es_codigo_ley_decreto(titulo: str) -> bool:
+    """True si `titulo` ya tiene la forma del código canónico de ley/decreto
+    (para deduplicar entre fuentes en el worker)."""
+    return bool(_CODIGO_LEY_DECRETO_RE.match(titulo or ""))
 
 # Familias cuyo título identifica un proceso (no una providencia puntual): sus
 # documentos "tienen actuaciones" y llevan el sufijo de fecha. Cada una trae su

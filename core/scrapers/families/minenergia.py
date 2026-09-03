@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
+from core.naming import codigo_ley_decreto
 from core.utils import storage_path
 
 _BASE_URL = "https://normativame.minenergia.gov.co"
@@ -20,7 +21,7 @@ _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MME_{int(numero):04d}_{anio}"
+    return codigo_ley_decreto(letra, numero, anio) or f"{letra}_MME_{int(numero):04d}_{anio}"
 
 
 def _parsear_fila(tr) -> Optional[dict]:

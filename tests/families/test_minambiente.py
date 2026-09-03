@@ -23,7 +23,7 @@ def test_resto_tras_numero_returns_full_text_when_number_not_found():
 
 
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("D", "766", "2026") == "D_MADS_0766_2026"
+    assert _normalize_title("D", "766", "2026") == "D0766026"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
@@ -111,7 +111,7 @@ def test_extraer_normas_parses_block_and_builds_canonical_title():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "D_MADS_0766_2026"
+    assert doc.title == "D0766026"
     assert doc.title_unverified is False
     assert doc.tipo == "Decreto"
     assert doc.f_providencia == "2026-07-15"
@@ -209,7 +209,7 @@ def test_extraer_normas_year_only_falls_back_to_january_first():
     docs = scraper._extraer_normas(_BOX_LEY_SOLO_ANIO_HTML, "Ley", "L", "2023-01-01", "2023-12-31")
 
     assert len(docs) == 1
-    assert docs[0].title == "L_MADS_2294_2023"
+    assert docs[0].title == "L2294023"
     assert docs[0].f_providencia == "2023-01-01"
 
 
@@ -355,8 +355,8 @@ def test_scrap_aggregates_across_categories_and_conceptos():
     docs = scraper.scrap(fini="2020-01-01", ffin="2026-12-31")
 
     assert {d.title for d in docs} == {
-        "D_MADS_0766_2026",
-        "L_MADS_2294_2023",
+        "D0766026",
+        "L2294023",
         "CONPES_MADS_4088_2022",
         "C_MADS_10002026E4000041_2026",
         "CONCEPTO_MADS_concep_028506",
@@ -377,9 +377,9 @@ def test_scrap_continues_past_a_failing_category():
     scraper = ScrapMinAmbiente()
     docs = scraper.scrap(fini="2020-01-01", ffin="2026-12-31", on_progress=progreso.append)
 
-    assert "D_MADS_0766_2026" not in {d.title for d in docs}
+    assert "D0766026" not in {d.title for d in docs}
     assert {d.title for d in docs} == {
-        "L_MADS_2294_2023",
+        "L2294023",
         "CONPES_MADS_4088_2022",
         "C_MADS_10002026E4000041_2026",
         "CONCEPTO_MADS_concep_028506",

@@ -33,7 +33,7 @@ def test_normalize_title_builds_canonical_code():
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("D", "6", "1996") == "D_MDEP_0006_1996"
+    assert _normalize_title("D", "6", "1996") == "D000696"
 
 
 def test_normalize_title_uses_conpes_literal_instead_of_a_single_letter():
@@ -172,7 +172,7 @@ def test_extraer_articulos_decreto_without_day_uses_year_only():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "D_MDEP_1306_2023"
+    assert doc.title == "D1306023"
     assert doc.f_public == "2023-01-01"
     # El "1085 de 2015" referenciado en el detalle no debe ganarle a la fecha
     # real del propio decreto (2023), que aparece primero en el título.
@@ -407,7 +407,7 @@ def test_scrap_flat_category_cuts_pagination_on_out_of_range_date():
     scraper = ScrapMinDeporte()
     docs = scraper.scrap(fini="2025-01-01", ffin="2025-12-31")
 
-    assert [d.title for d in docs] == ["D_MDEP_0855_2025"]
+    assert [d.title for d in docs] == ["D0855025"]
     # Se pidió page=2 (para descubrir que ya es muy viejo) pero no una page=3.
     urls_pedidas = [c.request.url for c in responses.calls]
     assert f"{_BASE}{_NORM}/normograma/decretos?page=2" in urls_pedidas
@@ -445,7 +445,7 @@ def test_scrap_continues_when_one_category_fails():
     scraper = ScrapMinDeporte()
     docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
 
-    assert [d.title for d in docs] == ["L_MDEP_0100_2024"]
+    assert [d.title for d in docs] == ["L0100024"]
 
 
 @responses.activate

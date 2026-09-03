@@ -23,7 +23,7 @@ def test_normalize_title_builds_canonical_code():
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("D", "6", "2026") == "D_MME_0006_2026"
+    assert _normalize_title("D", "6", "2026") == "D0006026"
 
 
 def test_normalize_title_keeps_longer_numbers_unpadded():
@@ -136,7 +136,7 @@ def test_scrap_parses_listing_and_fetches_detail_for_each_row():
     scraper = ScrapMinEnergia()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
 
-    assert [d.title for d in docs] == ["R_MME_1529_2026", "D_MME_1187_2026", "C_MME_40040_2026"]
+    assert [d.title for d in docs] == ["R_MME_1529_2026", "D1187026", "C_MME_40040_2026"]
     assert all(d.link["url"].endswith(".pdf") for d in docs)
 
 

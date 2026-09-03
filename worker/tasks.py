@@ -18,7 +18,7 @@ import requests
 from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
-from core.naming import es_familia_con_actuaciones, nombre_archivo_documento, nombre_archivo_version
+from core.naming import es_codigo_ley_decreto, es_familia_con_actuaciones, nombre_archivo_documento, nombre_archivo_version
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
@@ -378,6 +378,13 @@ def scrape_source_task(run_source_id: int):
                     seen_doc_ids.add(doc_id)
                     existing = repository.get_document_by_doc_id(db, doc_id)
                     if existing is None:
+                        # Leyes/Decretos: la misma norma la publican varios
+                        # ministerios. Si ese código canónico ya está en alguna
+                        # fuente de ministerio, no se descarga ni se inserta
+                        # (gana el que ya está — ver spec
+                        # 2026-09-03-formato-leyes-decretos-ministerios).
+                        if es_codigo_ley_decreto(doc.title) and repository.list_ministerio_documents_by_title(db, doc.title):
+                            continue
                         pending.append((doc_id, doc))
                         continue
                     if not scraper.checks_for_republication:

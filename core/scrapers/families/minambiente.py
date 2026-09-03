@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
+from core.naming import codigo_ley_decreto
 from core.utils import storage_path
 
 _BASE_URL = "https://www.minambiente.gov.co"
@@ -137,7 +138,7 @@ def _normalize_title(letra: str, numero: str, anio: str) -> str:
         # fijo (no es un consecutivo corto) — se usa tal cual, sin forzarlo a
         # entero ni rellenarlo con ceros.
         return f"C_MADS_{numero}_{anio}"
-    return f"{letra}_MADS_{int(numero):04d}_{anio}"
+    return codigo_ley_decreto(letra, numero, anio) or f"{letra}_MADS_{int(numero):04d}_{anio}"
 
 
 def _safe_title(title: str) -> str:

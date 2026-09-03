@@ -239,7 +239,7 @@ def test_scrap_continues_past_a_failing_category():
     scraper = ScrapMinvivienda()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
 
-    assert {d.title for d in docs} == {"D_MVCT_0772_2026"}
+    assert {d.title for d in docs} == {"D0772026"}
     assert any("Error" in m and "Resolución" in m for m in progreso)
 
 

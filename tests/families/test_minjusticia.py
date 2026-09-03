@@ -20,7 +20,7 @@ def test_minjusticia_is_registered_under_its_family_key():
 
 
 def test_normalize_title_builds_canonical_code_for_decreto():
-    assert _normalize_title("D", "254", "2025") == "D_MJ_0254_2025"
+    assert _normalize_title("D", "254", "2025") == "D0254025"
 
 
 def test_normalize_title_builds_canonical_code_for_resolucion():
@@ -63,14 +63,14 @@ def test_extraer_items_parses_decreto_and_builds_canonical_title():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "D_MJ_0254_2025"
+    assert doc.title == "D0254025"
     assert doc.title_unverified is False
     assert doc.tipo == "Decreto"
     assert doc.f_public == "2025-03-04"
     assert doc.f_providencia == "2025-03-04"
     assert doc.detalle is None  # "." se trata como ausente
     assert doc.link["url"] == "https://www.minjusticia.gov.co/normatividad-co/Decretos/DECRETO 0254 DEL 4 DE MARZO DE 2025.pdf"
-    assert doc.save_path == "Ministerio de Justicia y del Derecho/2025-03-04/Decreto/D_MJ_0254_2025(extension)"
+    assert doc.save_path == "Ministerio de Justicia y del Derecho/2025-03-04/Decreto/D0254025(extension)"
 
 
 def test_extraer_items_keeps_real_descripcion_when_present():
@@ -223,7 +223,7 @@ def test_extraer_items_follows_next_link():
             session, "Decretos", "Decreto", "D", "2025-01-01", "2025-12-31", "Ministerio de Justicia y del Derecho"
         )
 
-    assert [d.title for d in docs] == ["D_MJ_0001_2025", "D_MJ_0002_2025"]
+    assert [d.title for d in docs] == ["D0001025", "D0002025"]
 
 
 # --- scrap(): flujo completo -------------------------------------------

@@ -1,8 +1,12 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from core.naming import (
+    codigo_ley_decreto,
     construir_nombre,
+    es_codigo_ley_decreto,
     es_familia_con_actuaciones,
     nombre_archivo_documento,
     nombre_archivo_version,
@@ -126,3 +130,33 @@ def test_nombre_archivo_version_agrega_extension_del_storage_key_de_la_version()
     d = _doc(title="11001-03-28-000-2026-00300-00", f_providencia=date(2026, 7, 31), version_no=2)
     v = SimpleNamespace(version_no=1, storage_key="a/b/v1.pdf")
     assert nombre_archivo_version(d, v, "samai", tiene_actuaciones=True) == "11001-03-28-000-2026-00300-00_20260731-v1.pdf"
+
+
+@pytest.mark.parametrize(
+    "letra, numero, anio, esperado",
+    [
+        ("L", "2277", "2022", "L2277022"),   # ejemplo del usuario
+        ("L", "715", "2001", "L0715001"),    # número rellenado a 4 dígitos
+        ("D", "111", "1996", "D011196"),     # 1900-1999 -> año 2 dígitos
+        ("L", "100", "1993", "L010093"),
+        ("D", "6", "2000", "D0006000"),
+        ("L", "57", "1888", "L0057888"),     # 1800-1899 -> año 3 dígitos
+    ],
+)
+def test_codigo_ley_decreto_formato(letra, numero, anio, esperado):
+    assert codigo_ley_decreto(letra, numero, anio) == esperado
+
+
+@pytest.mark.parametrize("letra", ["R", "C", "A", "LEST", "ACTOLEG", "CONPES", "DIRECTIVA"])
+def test_codigo_ley_decreto_devuelve_none_para_otros_tipos(letra):
+    assert codigo_ley_decreto(letra, "123", "2024") is None
+
+
+@pytest.mark.parametrize("titulo", ["L2277022", "D011196", "L0057888"])
+def test_es_codigo_ley_decreto_reconoce_el_formato_nuevo(titulo):
+    assert es_codigo_ley_decreto(titulo) is True
+
+
+@pytest.mark.parametrize("titulo", ["L_MA_2277_2022", "R_ME_0715_2001", "LEST_MI_1751_2015", "", "L", "L12"])
+def test_es_codigo_ley_decreto_rechaza_lo_demas(titulo):
+    assert es_codigo_ley_decreto(titulo) is False

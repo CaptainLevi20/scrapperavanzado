@@ -1569,6 +1569,78 @@ def test_scrape_source_task_new_actuacion_inherits_case_review_status(db_session
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_skips_a_ley_already_published_by_another_ministerio(db_session, test_engine, monkeypatch):
+    """La misma ley/decreto la publican varios ministerios. Si el código
+    canónico (L2277022) ya existe en cualquier fuente de ministerio, no se
+    vuelve a descargar ni insertar — una resolución con el mismo número (que
+    sí lleva sigla) no se ve afectada."""
+    from sqlalchemy import select
+
+    from core.db.models import Document
+    from core.scrapers.registry import FAMILY_REGISTRY
+
+    monkeypatch.setitem(FAMILY_REGISTRY, "minambiente", DummyFamilyScraper)
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    # Ministerio A (madr) ya tiene la ley guardada.
+    repository.create_source_family(db_session, key="madr", display_name="MADR")
+    madr = repository.create_source(
+        db_session, family_key="madr", name="Ministerio de Agricultura y Desarrollo Rural", family_params={}
+    )
+    repository.insert_document(
+        db_session, doc_id="ya-existe", source_id=madr.id, title="L2277022",
+        storage_bucket=TEST_S3_BUCKET, storage_key="madr/2022-12-13/Ley/L2277022.pdf", f_public="2022-12-13",
+    )
+
+    # Ministerio B (minambiente, con el scraper dummy) la lista también, más una ley nueva.
+    repository.create_source_family(db_session, key="minambiente", display_name="MinAmbiente")
+    minamb = repository.create_source(
+        db_session, family_key="minambiente", name="Ministerio de Ambiente y Desarrollo Sostenible", family_params={}
+    )
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=minamb.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Ministerio de Ambiente y Desarrollo Sostenible",
+            link={"url": "https://example.com/otra-copia", "method": "GET"},
+            title="L2277022", tipo="Ley", f_public="2022-12-13",
+        ),
+        RawDocModel(
+            source="Ministerio de Ambiente y Desarrollo Sostenible",
+            link={"url": "https://example.com/ley-nueva", "method": "GET"},
+            title="L9999099", tipo="Ley", f_public="2099-01-01",
+        ),
+    ]
+    # Ambas URLs responden bien: la copia duplicada SÍ se descargaría e
+    # insertaría si no hubiera deduplicación — el test la separa de "falló la
+    # descarga" registrando también su respuesta.
+    responses.add(
+        responses.GET, "https://example.com/otra-copia",
+        body=b"copia", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    responses.add(
+        responses.GET, "https://example.com/ley-nueva",
+        body=b"contenido", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        l2277 = assertion_session.scalars(select(Document).where(Document.title == "L2277022")).all()
+        assert len(l2277) == 1  # solo la de madr; la de minambiente se omitió
+        assert l2277[0].source_id == madr.id
+        titulos = set(assertion_session.scalars(select(Document.title)).all())
+        assert "L9999099" in titulos  # la ley nueva sí entró
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

@@ -709,6 +709,28 @@ def list_documents_by_title_within_family(db: Session, family_key: str, title: s
     return list(db.scalars(stmt).all())
 
 
+# Fuentes de normatividad de ministerios: varias publican la misma ley/decreto,
+# así que el código canónico (L####YYY / D####YYY) debe ser único entre todas
+# ellas (ver worker.scrape_source_task y core/backfill_leyes_decretos.py).
+_MINISTERIO_FAMILIES = frozenset(
+    {
+        "madr", "minambiente", "mincit", "mindeporte", "mineducacion",
+        "mininterior", "minenergia", "minjusticia", "mintrabajo", "minvivienda",
+    }
+)
+
+
+def list_ministerio_documents_by_title(db: Session, title: str) -> list[Document]:
+    """Documentos con ese título exacto en CUALQUIER fuente de ministerio —
+    para deduplicar leyes/decretos que varios ministerios publican."""
+    stmt = (
+        select(Document)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key.in_(_MINISTERIO_FAMILIES), Document.title == title)
+    )
+    return list(db.scalars(stmt).all())
+
+
 def _samai_case_groups(db: Session) -> list[tuple[int, str]]:
     stmt = (
         select(Document.source_id, Document.radicado)
@@ -1181,6 +1203,37 @@ def purge_documents_for_source(db: Session, source_id: int) -> dict:
         "run_sources_deleted": len(run_source_ids),
         "storage_objects": storage_objects,
     }
+
+
+def delete_documents_by_id(db: Session, document_ids: list[int]) -> list[tuple[str, str]]:
+    """Borra los Document indicados y sus DocumentVersion. Devuelve los pares
+    (bucket, key) de almacenamiento a limpiar — esta capa solo toca la base;
+    el llamador borra los objetos en el backend de almacenamiento (mismo
+    contrato que purge_documents_for_source)."""
+    if not document_ids:
+        return []
+    doc_rows = list(
+        db.execute(
+            select(Document.storage_bucket, Document.storage_key, Document.preview_storage_key).where(
+                Document.id.in_(document_ids)
+            )
+        ).all()
+    )
+    version_rows = list(
+        db.execute(
+            select(DocumentVersion.storage_bucket, DocumentVersion.storage_key).where(
+                DocumentVersion.document_id.in_(document_ids)
+            )
+        ).all()
+    )
+    db.execute(delete(DocumentVersion).where(DocumentVersion.document_id.in_(document_ids)))
+    db.execute(delete(Document).where(Document.id.in_(document_ids)))
+    db.commit()
+
+    objetos = [(r.storage_bucket, r.storage_key) for r in doc_rows]
+    objetos += [(r.storage_bucket, r.preview_storage_key) for r in doc_rows if r.preview_storage_key]
+    objetos += [(r.storage_bucket, r.storage_key) for r in version_rows]
+    return objetos
 
 
 def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:

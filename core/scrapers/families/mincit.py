@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
+from core.naming import codigo_ley_decreto
 from core.utils import storage_path
 
 _BASE_URL = "https://www.mincit.gov.co"
@@ -52,7 +53,7 @@ def _parse_detalle(texto_archivo: str) -> Optional[str]:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MCIT_{int(numero):04d}_{anio}"
+    return codigo_ley_decreto(letra, numero, anio) or f"{letra}_MCIT_{int(numero):04d}_{anio}"
 
 
 _SLUG_ANIO_PATTERN = re.compile(r"^(\d{4})(?:-(\d{4}))?$")
