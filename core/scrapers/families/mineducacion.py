@@ -140,7 +140,7 @@ def _parse_fecha(texto: str) -> Optional[str]:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MEN_{int(numero):04d}_{anio}"
+    return f"{letra}_ME_{int(numero):04d}_{anio}"
 
 
 # Confirmado en producción (2026-08-25): una petición a este listado por año

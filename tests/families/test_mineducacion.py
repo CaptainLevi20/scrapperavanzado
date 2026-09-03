@@ -109,15 +109,15 @@ def test_resto_tras_numero_returns_full_text_when_number_not_found():
 
 
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("R", "020664", "2026") == "R_MEN_20664_2026"
+    assert _normalize_title("R", "020664", "2026") == "R_ME_20664_2026"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("A", "01", "2020") == "A_MEN_0001_2020"
+    assert _normalize_title("A", "01", "2020") == "A_ME_0001_2020"
 
 
 def test_normalize_title_uses_directiva_literal_instead_of_a_single_letter():
-    assert _normalize_title("DIRECTIVA", "005", "2026") == "DIRECTIVA_MEN_0005_2026"
+    assert _normalize_title("DIRECTIVA", "005", "2026") == "DIRECTIVA_ME_0005_2026"
 
 
 def test_parse_fecha_dia_de_mes_de_anio():
@@ -258,13 +258,13 @@ def test_scrap_parses_a_clean_resolucion_row():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "R_MEN_20664_2026"
+    assert doc.title == "R_ME_20664_2026"
     assert doc.tipo == "Resolución"
     assert doc.f_public == "2026-08-04"
     assert doc.title_unverified is False
     assert doc.detalle == "Por medio de la cual se adoptan los lineamientos."
     assert doc.link["url"] == "https://www.mineducacion.gov.co/1780/articles-430163_pdf.pdf"
-    assert doc.save_path == "Ministerio de Educación Nacional/2026-08-04/Resolución/R_MEN_20664_2026(extension)"
+    assert doc.save_path == "Ministerio de Educación Nacional/2026-08-04/Resolución/R_ME_20664_2026(extension)"
 
 
 def test_scrap_resolves_relative_links_against_the_base_tag_not_the_request_url():
@@ -376,7 +376,7 @@ def test_scrap_fetches_one_page_per_year_in_range():
     scraper = ScrapMineducacion()
     docs = scraper.scrap(fini="2025-01-01", ffin="2026-12-31")
 
-    assert {d.title for d in docs} == {"C_MEN_0001_2025", "R_MEN_20664_2026"}
+    assert {d.title for d in docs} == {"C_ME_0001_2025", "R_ME_20664_2026"}
 
 
 @responses.activate
@@ -409,7 +409,7 @@ def test_scrap_continues_past_a_failing_year(monkeypatch):
     scraper = ScrapMineducacion()
     docs = scraper.scrap(fini="2025-01-01", ffin="2026-12-31", on_progress=progreso.append)
 
-    assert {d.title for d in docs} == {"R_MEN_20664_2026"}
+    assert {d.title for d in docs} == {"R_ME_20664_2026"}
     assert any("Error" in m and "2025" in m for m in progreso)
 
 
@@ -443,7 +443,7 @@ def test_scrap_recovers_from_a_transient_404_on_retry(monkeypatch):
     scraper = ScrapMineducacion()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
 
-    assert {d.title for d in docs} == {"R_MEN_20664_2026"}
+    assert {d.title for d in docs} == {"R_ME_20664_2026"}
     assert not any("Error" in m for m in progreso)
 
 

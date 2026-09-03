@@ -29,15 +29,15 @@ def test_resto_tras_numero_returns_full_text_when_number_not_found():
 
 
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("R", "634", "2025") == "R_MDEPORTE_0634_2025"
+    assert _normalize_title("R", "634", "2025") == "R_MDEP_0634_2025"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("D", "6", "1996") == "D_MDEPORTE_0006_1996"
+    assert _normalize_title("D", "6", "1996") == "D_MDEP_0006_1996"
 
 
 def test_normalize_title_uses_conpes_literal_instead_of_a_single_letter():
-    assert _normalize_title("CONPES", "3248", "2003") == "CONPES_MDEPORTE_3248_2003"
+    assert _normalize_title("CONPES", "3248", "2003") == "CONPES_MDEP_3248_2003"
 
 
 # --- _parse_fecha: 5 niveles de cascada ------------------------------------
@@ -124,14 +124,14 @@ def test_extraer_articulos_parses_resolucion_and_builds_canonical_title():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "R_MDEPORTE_0634_2025"
+    assert doc.title == "R_MDEP_0634_2025"
     assert doc.title_unverified is False
     assert doc.tipo == "Resolución"
     assert doc.f_public == "2025-08-22"
     assert doc.f_providencia == "2025-08-22"
     assert doc.detalle == "Por la cual se conforma y adopta el Comité Institucional de Coordinación de Control Interno."
     assert doc.link["url"] == "https://www.mindeporte.gov.co/files/a160c1e9/a160c2bb/Resolucion-000634-del-22-agosto-2025.pdf"
-    assert doc.save_path == "Ministerio del Deporte/2025-08-22/Resolución/R_MDEPORTE_0634_2025(extension)"
+    assert doc.save_path == "Ministerio del Deporte/2025-08-22/Resolución/R_MDEP_0634_2025(extension)"
 
 
 def test_extraer_articulos_filters_out_of_range_dates():
@@ -172,7 +172,7 @@ def test_extraer_articulos_decreto_without_day_uses_year_only():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "D_MDEPORTE_1306_2023"
+    assert doc.title == "D_MDEP_1306_2023"
     assert doc.f_public == "2023-01-01"
     # El "1085 de 2015" referenciado en el detalle no debe ganarle a la fecha
     # real del propio decreto (2023), que aparece primero en el título.
@@ -209,7 +209,7 @@ def test_extraer_articulos_circular_has_no_separate_detalle_and_parses_trailing_
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "C_MDEPORTE_0031_2025"
+    assert doc.title == "C_MDEP_0031_2025"
     assert doc.detalle is None
     assert doc.f_providencia == "2025-12-22"
 
@@ -268,7 +268,7 @@ def test_extraer_articulos_directiva_presidencial_finds_number_after_prefix():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "DIR_MDEPORTE_0002_2019"
+    assert doc.title == "DIR_MDEP_0002_2019"
     assert doc.f_providencia == "2019-04-02"
 
 
@@ -297,7 +297,7 @@ def test_extraer_articulos_acuerdo_without_no_prefix():
     )
 
     assert len(docs) == 1
-    assert docs[0].title == "A_MDEPORTE_0006_1996"
+    assert docs[0].title == "A_MDEP_0006_1996"
 
 
 _ARTICULO_SIN_ENLACE_HTML = """
@@ -407,7 +407,7 @@ def test_scrap_flat_category_cuts_pagination_on_out_of_range_date():
     scraper = ScrapMinDeporte()
     docs = scraper.scrap(fini="2025-01-01", ffin="2025-12-31")
 
-    assert [d.title for d in docs] == ["D_MDEPORTE_0855_2025"]
+    assert [d.title for d in docs] == ["D_MDEP_0855_2025"]
     # Se pidió page=2 (para descubrir que ya es muy viejo) pero no una page=3.
     urls_pedidas = [c.request.url for c in responses.calls]
     assert f"{_BASE}{_NORM}/normograma/decretos?page=2" in urls_pedidas
@@ -426,7 +426,7 @@ def test_scrap_resoluciones_only_visits_years_within_range():
     scraper = ScrapMinDeporte()
     docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
 
-    assert [d.title for d in docs] == ["R_MDEPORTE_0010_2024"]
+    assert [d.title for d in docs] == ["R_MDEP_0010_2024"]
     urls_pedidas = [c.request.url for c in responses.calls]
     assert f"{_BASE}{_NORM}/resoluciones/2015" not in urls_pedidas
     assert f"{_BASE}{_NORM}/resoluciones/2025" not in urls_pedidas
@@ -445,7 +445,7 @@ def test_scrap_continues_when_one_category_fails():
     scraper = ScrapMinDeporte()
     docs = scraper.scrap(fini="2024-01-01", ffin="2024-12-31")
 
-    assert [d.title for d in docs] == ["L_MDEPORTE_0100_2024"]
+    assert [d.title for d in docs] == ["L_MDEP_0100_2024"]
 
 
 @responses.activate

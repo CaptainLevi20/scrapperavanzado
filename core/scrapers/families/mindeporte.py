@@ -70,7 +70,7 @@ def _resto_tras_numero(titulo: str, numero: str) -> str:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MDEPORTE_{int(numero):04d}_{anio}"
+    return f"{letra}_MDEP_{int(numero):04d}_{anio}"
 
 
 def _limpiar_detalle(texto: str) -> str:

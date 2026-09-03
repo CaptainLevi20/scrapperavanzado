@@ -30,8 +30,8 @@ _CODIGO_CIRCULAR_PATTERN = re.compile(r"CIR\d{2}-\d+")
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
     if letra == "C":
-        return f"C_MINJUSTICIA_{numero}_{anio}"
-    return f"{letra}_MINJUSTICIA_{int(numero):04d}_{anio}"
+        return f"C_MJ_{numero}_{anio}"
+    return f"{letra}_MJ_{int(numero):04d}_{anio}"
 
 
 def _extraer_items(

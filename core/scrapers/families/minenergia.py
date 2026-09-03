@@ -20,7 +20,7 @@ _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MINENERGIA_{int(numero):04d}_{anio}"
+    return f"{letra}_MME_{int(numero):04d}_{anio}"
 
 
 def _parsear_fila(tr) -> Optional[dict]:

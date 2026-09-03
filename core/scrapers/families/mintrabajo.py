@@ -34,7 +34,7 @@ _FECHA_PROSA_PATTERN = re.compile(
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MINTRABAJO_{int(numero):04d}_{anio}"
+    return f"{letra}_MTRA_{int(numero):04d}_{anio}"
 
 
 def _parse_fecha_flexible(texto: str) -> Optional[str]:

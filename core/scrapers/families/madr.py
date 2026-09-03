@@ -79,7 +79,7 @@ def _resto_tras_numero(data_title: str, numero: str) -> str:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MADR_{int(numero):04d}_{anio}"
+    return f"{letra}_MA_{int(numero):04d}_{anio}"
 
 
 def _parse_fecha(texto: str) -> Optional[str]:

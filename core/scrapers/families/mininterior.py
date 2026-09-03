@@ -50,7 +50,7 @@ _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MININT_{int(numero):04d}_{anio}"
+    return f"{letra}_MI_{int(numero):04d}_{anio}"
 
 
 def _parse_fecha(texto: str) -> Optional[str]:
