@@ -31,7 +31,7 @@ previsualización. Aplica a **todas las fuentes**.
 ### Receta del nombre
 
 ```
-{base}[_{fecha_providencia}][_v{n}]      (+ extensión del archivo al descargar)
+{base}[_{fecha_providencia}][-v{n}]      (+ extensión del archivo al descargar)
 ```
 
 - **base**: el `title` actual del documento (identificador propio de cada
@@ -39,16 +39,19 @@ previsualización. Aplica a **todas las fuentes**.
 - **`_{fecha_providencia}`** en formato `AAAAMMDD`: **solo** si el documento
   pertenece a un proceso con radicado (familias "con actuaciones": `samai`,
   `rama_judicial`) y su título tiene forma de radicado.
-- **`_v{n}`**: **solo** si el documento tiene **más de una** versión.
+- **`-v{n}`**: **solo** si el documento tiene **más de una** versión.
+  (Hasta 2026-09-03 este sufijo era `_v{n}`; se cambió a `-v{n}` junto con el
+  formato de la Corte Constitucional — ver
+  `2026-09-03-formato-nombre-constitucional-design.md`.)
 
 ### Ejemplos
 
 | Caso | Nombre |
 |---|---|
 | Sin actuaciones, 1 versión | `T-123-24` |
-| Sin actuaciones, republicado | `T-123-24_v1`, `T-123-24_v2` |
+| Sin actuaciones, republicado | `T-123-24-v1`, `T-123-24-v2` |
 | Con actuaciones | `11001-03-28-000-2026-00300-00_20260731` |
-| Con actuaciones + versión | `11001-03-28-000-2026-00300-00_20260731_v1` |
+| Con actuaciones + versión | `11001-03-28-000-2026-00300-00_20260731-v1` |
 
 ## Enfoque elegido (Opción A): nombre calculado, sin renombrar archivos
 

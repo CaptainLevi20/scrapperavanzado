@@ -32,7 +32,7 @@ def construir_nombre(
     cuando el documento ya tiene más de una actuación registrada (para poder
     distinguirlas), o solo el año cuando todavía no tiene ninguna otra
     actuación (nada que distinguir todavía, pero igual se muestra el año) —,
-    y luego "_v{n}" solo si hay más de una versión. No incluye la extensión
+    y luego "-v{n}" solo si hay más de una versión. No incluye la extensión
     del archivo."""
     nombre = base
     if es_caso and fecha is not None:
@@ -41,7 +41,7 @@ def construir_nombre(
         else:
             nombre = f"{nombre}_{fecha.strftime('%Y')}"
     if total_versiones > 1:
-        nombre = f"{nombre}_v{version_no}"
+        nombre = f"{nombre}-v{version_no}"
     return nombre
 
 

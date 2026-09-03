@@ -1451,7 +1451,7 @@ def test_scrape_source_task_dispatches_storage_sync_when_a_second_actuacion_arri
 @responses.activate
 def test_scrape_source_task_dispatches_storage_sync_after_republication(db_session, test_engine, monkeypatch):
     """Republicar un documento le agrega/actualiza el sufijo de versión
-    (_v2) en el nombre — el archivo vigente y la versión recién archivada
+    (-v2) en el nombre — el archivo vigente y la versión recién archivada
     deben quedar renombrados en MinIO sin que nadie los toque a mano."""
     from core.utils import compute_doc_id
 
@@ -1505,9 +1505,9 @@ def test_scrape_source_task_dispatches_storage_sync_after_republication(db_sessi
     try:
         refreshed = repository.get_document(assertion_session, existing_doc.id)
         assert refreshed.version_no == 2
-        assert refreshed.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v2.pdf"
+        assert refreshed.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1-v2.pdf"
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
-        assert version.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v1.pdf"
+        assert version.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1-v1.pdf"
     finally:
         assertion_session.close()
 

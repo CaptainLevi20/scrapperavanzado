@@ -88,7 +88,7 @@ def test_reconcile_document_versions_renames_each_archived_version(db_session, m
 
     assert count == 2
     versions = {v.storage_key for v in repository.list_document_versions(db_session, doc.id)}
-    assert versions == {"carpeta/T-123-24_v1.pdf", "carpeta/T-123-24_v2.pdf"}
+    assert versions == {"carpeta/T-123-24-v1.pdf", "carpeta/T-123-24-v2.pdf"}
 
 
 def test_reconcile_document_versions_returns_zero_when_document_has_no_history(db_session, monkeypatch):
@@ -481,4 +481,4 @@ def test_reconcile_document_versions_rolls_back_session_so_the_next_version_stil
     db_session.refresh(failing_version)
     db_session.refresh(other_version)
     assert failing_version.storage_key == "carpeta/v3.pdf"  # unchanged, failed
-    assert other_version.storage_key == f"carpeta/T-123-24_v{other_version.version_no}.pdf"  # reconciled
+    assert other_version.storage_key == f"carpeta/T-123-24-v{other_version.version_no}.pdf"  # reconciled

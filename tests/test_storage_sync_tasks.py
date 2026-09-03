@@ -62,9 +62,9 @@ def test_reconcile_document_task_renames_the_document_and_its_versions(db_sessio
     assertion_session = task_session_factory()
     try:
         refreshed = repository.get_document(assertion_session, doc.id)
-        assert refreshed.storage_key == "carpeta/T-123-24_v2.pdf"
+        assert refreshed.storage_key == "carpeta/T-123-24-v2.pdf"
         [version] = repository.list_document_versions(assertion_session, doc.id)
-        assert version.storage_key == "carpeta/T-123-24_v1.pdf"
+        assert version.storage_key == "carpeta/T-123-24-v1.pdf"
     finally:
         assertion_session.close()
 

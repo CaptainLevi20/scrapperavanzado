@@ -137,7 +137,7 @@ class Document(Base):
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     # Número de versión de esta actuación. 1 al crearse; se incrementa en cada
     # republicación (ver archive_and_replace_document). El nombre canónico
-    # muestra "_v{n}" solo cuando hay más de una versión (version_no > 1).
+    # muestra "-v{n}" solo cuando hay más de una versión (version_no > 1).
     version_no = Column(Integer, nullable=False, default=1, server_default="1")
     # Set once this document has been successfully delivered inside a completed
     # bulk download's zip, so list_useful_documents() can exclude it from the

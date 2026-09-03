@@ -464,7 +464,7 @@ def archive_and_replace_document(
         setattr(document, key, value)
     document.downloaded_at = datetime.now(timezone.utc)
     # La versión recién archivada conserva el número que tenía el documento; la
-    # nueva versión vigente es el siguiente entero. Así "_v{n}" del nombre
+    # nueva versión vigente es el siguiente entero. Así "-v{n}" del nombre
     # canónico refleja el orden real (la más antigua = 1, la vigente = la mayor).
     document.version_no = document.version_no + 1
     # A source configured with family_params.auto_review_status (e.g. "el equipo
