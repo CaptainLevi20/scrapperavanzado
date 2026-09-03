@@ -55,10 +55,10 @@ def test_scrap_returns_one_doc_per_tipo_within_range():
     assert {d.f_public for d in docs} == {"2024-02-01"}
     title_by_bucket = {d.save_path.split("/")[1]: d.title for d in docs}
     assert title_by_bucket == {
-        "SCT": "CSJ_SCT_SC1234-2024_2024",
-        "SCL": "CSJ_SCL_SC1234-2024_2024",
-        "SCC": "CSJ_SCC_SC1234-2024_2024",
-        "SCP": "CSJ_SCP_SC1234-2024_2024",
+        "SCT": "SC1234-2024",
+        "SCL": "SC1234-2024",
+        "SCC": "SC1234-2024",
+        "SCP": "SC1234-2024",
     }
     assert docs[0].link == {
         "url": "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/",
@@ -268,7 +268,7 @@ def test_scrap_infers_concepto_from_cp_prefix():
 
     [doc] = [d for d in docs if d.save_path.split("/")[1] == "SCP"]
     assert doc.tipo == "Concepto"
-    assert doc.title == "CSJ_SCP_CP098-2026(68539)_2024"
+    assert doc.title == "CP098-2026(68539)"
 
 
 @responses.activate
@@ -413,18 +413,18 @@ def test_scrap_strips_trailing_junk_from_the_code():
     docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
 
     title_by_bucket = {d.save_path.split("/")[1]: d.title for d in docs}
-    assert title_by_bucket["SCC"] == "CSJ_SCC_ATP346-2021_2024"
-    assert title_by_bucket["SCL"] == "CSJ_SCL_AC2794-2026 [2024-00858-00]_2024"
-    assert title_by_bucket["SCP"] == "CSJ_SCP_SP592-2022(50621)_2024"
-    assert title_by_bucket["SCT"] == "CSJ_SCT_STL5177-2026_2024"
+    assert title_by_bucket["SCC"] == "ATP346-2021"
+    assert title_by_bucket["SCL"] == "AC2794-2026 [2024-00858-00]"
+    assert title_by_bucket["SCP"] == "SP592-2022(50621)"
+    assert title_by_bucket["SCT"] == "STL5177-2026"
 
 
 @responses.activate
 def test_scrap_falls_back_to_raw_title_when_the_code_cannot_be_identified():
     # Real-world garbage titles ("doc", "(3)") that don't start with a
-    # recognizable code still get the CSJ_<bucket>_..._<año> wrapper, even
-    # though the middle part isn't the real code yet — it's flagged via
-    # title_unverified so the worker checks the file's first page later
+    # recognizable code still get the "<relleno>_<año>" shape, even though the
+    # middle part isn't the real code yet — it's flagged via title_unverified
+    # so the worker checks the file's first page later
     # (see resolve_unverified_document).
     responses.add_callback(
         responses.POST,
@@ -445,7 +445,7 @@ def test_scrap_falls_back_to_raw_title_when_the_code_cannot_be_identified():
     docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
 
     title_by_bucket = {d.save_path.split("/")[1]: d.title for d in docs}
-    assert title_by_bucket["SCC"] == "CSJ_SCC_doc_2024"
+    assert title_by_bucket["SCC"] == "doc_2024"
     unverified_by_bucket = {d.save_path.split("/")[1]: d.title_unverified for d in docs}
     assert unverified_by_bucket["SCC"] is True
 
@@ -466,14 +466,14 @@ def test_resolve_unverified_document_recovers_the_title_and_tipo_from_the_files_
     monkeypatch.setattr(csj_module, "_extraer_texto_primera_pagina", lambda *_a, **_k: "Radicado No. ATP1800-2019")
 
     class _Doc:
-        title = "CSJ_SCT_doc_2019"
+        title = "doc_2019"
         tipo = "Desconocido"
 
     doc = _Doc()
     scraper = ScrapCorteSuprema()
     scraper.resolve_unverified_document(doc, Path("fake.docx"), "application/vnd.openxmlformats")
 
-    assert doc.title == "CSJ_SCT_ATP1800-2019_2019"
+    assert doc.title == "ATP1800-2019"
     assert doc.tipo == "Auto"
 
 
@@ -481,14 +481,14 @@ def test_resolve_unverified_document_leaves_doc_untouched_when_no_code_is_found(
     monkeypatch.setattr(csj_module, "_extraer_texto_primera_pagina", lambda *_a, **_k: "sin ningún código aquí")
 
     class _Doc:
-        title = "CSJ_SCT_doc_2019"
+        title = "doc_2019"
         tipo = "Desconocido"
 
     doc = _Doc()
     scraper = ScrapCorteSuprema()
     scraper.resolve_unverified_document(doc, Path("fake.docx"), "application/vnd.openxmlformats")
 
-    assert doc.title == "CSJ_SCT_doc_2019"
+    assert doc.title == "doc_2019"
     assert doc.tipo == "Desconocido"
 
 
@@ -499,7 +499,7 @@ def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatc
     monkeypatch.setattr(csj_module, "_extraer_texto_primera_pagina", _raise)
 
     class _Doc:
-        title = "CSJ_SCT_doc_2019"
+        title = "doc_2019"
         tipo = "Desconocido"
 
     doc = _Doc()
@@ -507,7 +507,7 @@ def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatc
     with caplog.at_level("WARNING", logger="core.scrapers.families.corte_suprema"):
         scraper.resolve_unverified_document(doc, Path("fake.docx"), "application/vnd.openxmlformats")  # no debe lanzar
 
-    assert doc.title == "CSJ_SCT_doc_2019"
+    assert doc.title == "doc_2019"
     # Regression test: this used to be a bare print(), invisible to server logs —
     # now it must go through the logging module like the rest of the project.
     assert any("No se pudo leer la primera página" in r.message for r in caplog.records)
@@ -544,7 +544,7 @@ def test_scrap_deduplicates_docx_and_pdf_of_the_same_providencia_preferring_pdf(
 
     tutelas_docs = [d for d in docs if d.save_path.split("/")[1] == "SCT"]
     assert len(tutelas_docs) == 1
-    assert tutelas_docs[0].title == "CSJ_SCT_STL4467-2026_2024"
+    assert tutelas_docs[0].title == "STL4467-2026"
     assert tutelas_docs[0].link["body"] == {"path": "path/pdf"}
 
 
@@ -607,7 +607,7 @@ def test_scrap_skips_malformed_item_without_aborting_the_rest():
     docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
 
     assert len(docs) == 4  # el item malformado se salta, uno válido por cada uno de los 4 tipos
-    assert {d.title.split("_", 2)[-1] for d in docs} == {"SC9999-2024_2024"}
+    assert {d.title for d in docs} == {"SC9999-2024"}
     # Regression test: this used to be a bare print(), invisible to the worker —
     # now it must be reported via on_progress so worker/tasks.py can surface it
     # as a RunError instead of silently discarding it.
