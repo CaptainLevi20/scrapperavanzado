@@ -1512,6 +1512,63 @@ def test_scrape_source_task_dispatches_storage_sync_after_republication(db_sessi
         assertion_session.close()
 
 
+@responses.activate
+def test_scrape_source_task_new_actuacion_inherits_case_review_status(db_session, test_engine, monkeypatch):
+    """Un caso 'samai' ya marcado 'useful' recibe una actuación nueva en un
+    run posterior: la fila nueva debe quedar 'useful', no 'pending', para que
+    la descarga masiva traiga el caso completo sin re-marcar a mano."""
+    from sqlalchemy import select
+
+    from core.db.models import Document
+    from core.scrapers.registry import FAMILY_REGISTRY
+    from core.utils import compute_doc_id
+
+    monkeypatch.setitem(FAMILY_REGISTRY, "samai", DummyFamilyScraper)
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="existente", source_id=source.id, title=titulo,
+        storage_bucket=TEST_S3_BUCKET, storage_key="Consejo de Estado/x/existente.pdf",
+        review_status="useful", f_public="2026-01-01",
+    )
+
+    nueva = RawDocModel(
+        source="Consejo de Estado",
+        link={"url": "https://example.com/nueva", "method": "GET"},
+        title=titulo,
+        tipo="Auto",
+        f_public="2026-02-01",
+    )
+    DummyFamilyScraper.docs_to_return = [nueva]
+    responses.add(
+        responses.GET, "https://example.com/nueva",
+        body=b"contenido nuevo", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        nuevo_doc_id = compute_doc_id(nueva, include_publication_date=True)
+        fila = assertion_session.scalars(
+            select(Document).where(Document.doc_id == nuevo_doc_id)
+        ).first()
+        assert fila is not None
+        assert fila.review_status == "useful"
+    finally:
+        assertion_session.close()
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

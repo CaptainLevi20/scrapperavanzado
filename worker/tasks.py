@@ -538,6 +538,11 @@ def scrape_source_task(run_source_id: int):
             return
 
         for family_key, title in titulos_con_actuacion_nueva:
+            # La actuación recién insertada entra 'pending'; si el caso ya
+            # estaba revisado, que herede ese estado (ver spec
+            # 2026-09-03-propagar-util-actuaciones). Síncrono sobre la misma
+            # sesión: las filas nuevas ya se commitearon en el bucle de arriba.
+            repository.heredar_review_status_de_actuaciones_existentes(db, family_key, title)
             reconcile_title_group_task.delay(family_key, title)
         for document_id in documentos_republicados:
             reconcile_document_task.delay(document_id)
