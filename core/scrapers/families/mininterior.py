@@ -29,7 +29,7 @@ _TIPOS_EN_ALCANCE = {
     "Circular Interna": "C",
     "Ley": "L",
     "Ley Estatutaria": "LEST",
-    "Directiva": "DIRECTIVA",
+    "Directiva": "DIR",
     "Acuerdo": "A",
     "Concepto": "CONCEPTO",
     "Acto Administrativo": "ACTOADM",

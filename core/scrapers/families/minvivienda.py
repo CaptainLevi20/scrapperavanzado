@@ -25,7 +25,7 @@ _CATEGORIAS = {
     "leyes": ("Ley", "L"),
     "conpes": ("CONPES", "CONPES"),
     "acuerdos": ("Acuerdo", "A"),
-    "directivas": ("Directiva", "DIRECTIVA"),
+    "directivas": ("Directiva", "DIR"),
     "circulares": ("Circular", "C"),
     "autos": ("Auto", "AU"),
 }

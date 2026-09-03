@@ -66,7 +66,7 @@ def test_clasificar_tipo_circular():
 
 
 def test_clasificar_tipo_directiva_uses_literal_letra():
-    assert _clasificar_tipo("Directiva 005 del 24 de julio de 2026") == ("Directiva", "DIRECTIVA")
+    assert _clasificar_tipo("Directiva 005 del 24 de julio de 2026") == ("Directiva", "DIR")
 
 
 def test_clasificar_tipo_acuerdo():
@@ -117,7 +117,7 @@ def test_normalize_title_pads_short_numbers_to_four_digits():
 
 
 def test_normalize_title_uses_directiva_literal_instead_of_a_single_letter():
-    assert _normalize_title("DIRECTIVA", "005", "2026") == "DIRECTIVA_ME_0005_2026"
+    assert _normalize_title("DIR", "005", "2026") == "DIR_ME_0005_2026"
 
 
 def test_parse_fecha_dia_de_mes_de_anio():

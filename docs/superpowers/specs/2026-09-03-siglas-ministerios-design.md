@@ -79,3 +79,15 @@ nueva)` para las 7 familias que cambian. Por cada familia:
   guarda de colisión, y que no toca familias sin cambio ni otras fuentes.
 - `tests/test_core_reorganize.py` — las siglas viejas resuelven a la nueva vía
   `_ENTITY_ALIASES`.
+
+## Anexo: prefijo de Directivas DIRECTIVA -> DIR
+
+Además del cambio de siglas, el prefijo de las Directivas pasa de `DIRECTIVA`
+a `DIR` en los scrapers que lo usaban (`mineducacion`, `mininterior`,
+`minvivienda`; `mindeporte` ya usaba `DIR`). Ej.
+`DIRECTIVA_ME_0005_2026` -> `DIR_ME_0005_2026`.
+
+Backfill: `core/backfill_directiva_prefix.py` (corrida única, idempotente).
+Recorre las fuentes de ministerio, cambia el prefijo `DIRECTIVA_` -> `DIR_` en
+el título y renombra el archivo, con guarda de colisión. No toca otros tipos
+ni otras familias.

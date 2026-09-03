@@ -25,7 +25,7 @@ def test_normalize_title_pads_short_numbers_to_four_digits():
 
 
 def test_normalize_title_uses_multi_letter_literal_for_directiva():
-    assert _normalize_title("DIRECTIVA", "12", "2025") == "DIRECTIVA_MI_0012_2025"
+    assert _normalize_title("DIR", "12", "2025") == "DIR_MI_0012_2025"
 
 
 def test_parse_fecha_dia_sin_cero():

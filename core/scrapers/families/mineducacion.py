@@ -32,7 +32,7 @@ _TIPOS = {
     "decreto": ("Decreto", "D"),
     "ley": ("Ley", "L"),
     "circular": ("Circular", "C"),
-    "directiva": ("Directiva", "DIRECTIVA"),
+    "directiva": ("Directiva", "DIR"),
     "acuerdo": ("Acuerdo", "A"),
 }
 
