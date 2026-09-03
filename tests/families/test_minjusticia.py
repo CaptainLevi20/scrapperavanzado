@@ -20,15 +20,15 @@ def test_minjusticia_is_registered_under_its_family_key():
 
 
 def test_normalize_title_builds_canonical_code_for_decreto():
-    assert _normalize_title("D", "254", "2025") == "D_MINJUSTICIA_0254_2025"
+    assert _normalize_title("D", "254", "2025") == "D0254025"
 
 
 def test_normalize_title_builds_canonical_code_for_resolucion():
-    assert _normalize_title("R", "1510", "2026") == "R_MINJUSTICIA_1510_2026"
+    assert _normalize_title("R", "1510", "2026") == "R_MJ_1510_2026"
 
 
 def test_normalize_title_keeps_circular_code_as_is_without_padding():
-    assert _normalize_title("C", "CIR26-0000002", "2026") == "C_MINJUSTICIA_CIR26-0000002_2026"
+    assert _normalize_title("C", "CIR26-0000002", "2026") == "C_MJ_CIR26-0000002_2026"
 
 
 def _sp_response(results, next_url=None):
@@ -63,14 +63,14 @@ def test_extraer_items_parses_decreto_and_builds_canonical_title():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "D_MINJUSTICIA_0254_2025"
+    assert doc.title == "D0254025"
     assert doc.title_unverified is False
     assert doc.tipo == "Decreto"
     assert doc.f_public == "2025-03-04"
     assert doc.f_providencia == "2025-03-04"
     assert doc.detalle is None  # "." se trata como ausente
     assert doc.link["url"] == "https://www.minjusticia.gov.co/normatividad-co/Decretos/DECRETO 0254 DEL 4 DE MARZO DE 2025.pdf"
-    assert doc.save_path == "Ministerio de Justicia y del Derecho/2025-03-04/Decreto/D_MINJUSTICIA_0254_2025(extension)"
+    assert doc.save_path == "Ministerio de Justicia y del Derecho/2025-03-04/Decreto/D0254025(extension)"
 
 
 def test_extraer_items_keeps_real_descripcion_when_present():
@@ -126,7 +126,7 @@ def test_extraer_items_resolucion_outlier_still_extracts_a_number():
         )
 
     assert len(docs) == 1
-    assert docs[0].title == "R_MINJUSTICIA_0002_2026"
+    assert docs[0].title == "R_MJ_0002_2026"
 
 
 def test_extraer_items_circular_with_recognizable_code():
@@ -147,7 +147,7 @@ def test_extraer_items_circular_with_recognizable_code():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "C_MINJUSTICIA_CIR26-0000002_2026"
+    assert doc.title == "C_MJ_CIR26-0000002_2026"
     assert doc.title_unverified is False
 
 
@@ -169,7 +169,7 @@ def test_extraer_items_circular_uses_real_expedition_year_not_code_year():
             session, "Circulares", "Circular", "C", "2026-01-01", "2026-12-31", "Ministerio de Justicia y del Derecho"
         )
 
-    assert docs[0].title == "C_MINJUSTICIA_CIR24-0000056_2026"
+    assert docs[0].title == "C_MJ_CIR24-0000056_2026"
 
 
 def test_extraer_items_circular_without_code_falls_back_to_raw_title():
@@ -223,7 +223,7 @@ def test_extraer_items_follows_next_link():
             session, "Decretos", "Decreto", "D", "2025-01-01", "2025-12-31", "Ministerio de Justicia y del Derecho"
         )
 
-    assert [d.title for d in docs] == ["D_MINJUSTICIA_0001_2025", "D_MINJUSTICIA_0002_2025"]
+    assert [d.title for d in docs] == ["D0001025", "D0002025"]
 
 
 # --- scrap(): flujo completo -------------------------------------------
@@ -245,7 +245,7 @@ def test_scrap_queries_the_three_lists_and_continues_when_one_fails():
     scraper = ScrapMinJusticia()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
 
-    assert [d.title for d in docs] == ["R_MINJUSTICIA_1510_2026"]
+    assert [d.title for d in docs] == ["R_MJ_1510_2026"]
 
 
 @responses.activate

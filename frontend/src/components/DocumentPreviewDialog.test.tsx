@@ -566,6 +566,36 @@ describe("DocumentPreviewDialog", () => {
     expect(screen.getByTitle("Vista previa de Actual")).toBeInTheDocument();
   });
 
+  it("marking one actuación from the list reflects the new status on every sibling of the same case", async () => {
+    const user = userEvent.setup();
+    const documents = [
+      makeDocument({ id: 60, title: "Caso X", source_id: 7, detalle: "Auto Actual", review_status: "pending" }),
+      makeDocument({ id: 61, title: "Caso X", source_id: 7, detalle: "Auto Anterior", review_status: "pending" }),
+      makeDocument({ id: 62, title: "Caso X", source_id: 7, detalle: "Auto Primero", review_status: "pending" }),
+    ];
+    mockPreviewUrl(60);
+    server.use(
+      http.patch(`${BASE_URL}/documents/61`, async () =>
+        HttpResponse.json({ ...documents[1], review_status: "useful", reviewed_at: "2026-09-03T00:00:00Z" })
+      )
+    );
+
+    renderDialog(documents, 0, vi.fn(), true);
+
+    // Marca "Útil" en la primera actuación de la lista (id 61).
+    const fila = (await screen.findByText(/Auto Anterior/)).closest("li")!;
+    await user.click(within(fila).getByRole("button", { name: "Útil" }));
+
+    // La otra hermana de la lista (id 62) también aparece ahora como marcada: su
+    // fila muestra el botón "Sin revisar", que el componente sólo renderiza para
+    // actuaciones cuyo review_status !== "pending" (mismo patrón que el test
+    // "lets the user set a sibling actuación back to pending from the list").
+    await waitFor(() => {
+      const filaPrimero = screen.getByText(/Auto Primero/).closest("li")!;
+      expect(within(filaPrimero).getByRole("button", { name: /sin revisar/i })).toBeInTheDocument();
+    });
+  });
+
   it("shows an error banner when marking another actuación from the list fails, without disturbing the current document", async () => {
     const documents = [
       makeDocument({ id: 62, title: "Actual" }),

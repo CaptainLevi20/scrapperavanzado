@@ -1451,7 +1451,7 @@ def test_scrape_source_task_dispatches_storage_sync_when_a_second_actuacion_arri
 @responses.activate
 def test_scrape_source_task_dispatches_storage_sync_after_republication(db_session, test_engine, monkeypatch):
     """Republicar un documento le agrega/actualiza el sufijo de versión
-    (_v2) en el nombre — el archivo vigente y la versión recién archivada
+    (-v2) en el nombre — el archivo vigente y la versión recién archivada
     deben quedar renombrados en MinIO sin que nadie los toque a mano."""
     from core.utils import compute_doc_id
 
@@ -1505,9 +1505,141 @@ def test_scrape_source_task_dispatches_storage_sync_after_republication(db_sessi
     try:
         refreshed = repository.get_document(assertion_session, existing_doc.id)
         assert refreshed.version_no == 2
-        assert refreshed.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v2.pdf"
+        assert refreshed.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1-v2.pdf"
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
-        assert version.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1_v1.pdf"
+        assert version.storage_key == "Dummy Source/2026-01-01/Auto/Documento 1-v1.pdf"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_new_actuacion_inherits_case_review_status(db_session, test_engine, monkeypatch):
+    """Un caso 'samai' ya marcado 'useful' recibe una actuación nueva en un
+    run posterior: la fila nueva debe quedar 'useful', no 'pending', para que
+    la descarga masiva traiga el caso completo sin re-marcar a mano."""
+    from sqlalchemy import select
+
+    from core.db.models import Document
+    from core.scrapers.registry import FAMILY_REGISTRY
+    from core.utils import compute_doc_id
+
+    monkeypatch.setitem(FAMILY_REGISTRY, "samai", DummyFamilyScraper)
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    # Una actuación nueva dispara reconcile_title_group_task.delay(...), que con
+    # task_always_eager=True corre de verdad y abre su propia SessionLocal.
+    monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(db_session, family_key="samai", name="Consejo de Estado", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="existente", source_id=source.id, title=titulo,
+        storage_bucket=TEST_S3_BUCKET, storage_key="Consejo de Estado/x/existente.pdf",
+        review_status="useful", f_public="2026-01-01",
+    )
+
+    nueva = RawDocModel(
+        source="Consejo de Estado",
+        link={"url": "https://example.com/nueva", "method": "GET"},
+        title=titulo,
+        tipo="Auto",
+        f_public="2026-02-01",
+    )
+    DummyFamilyScraper.docs_to_return = [nueva]
+    responses.add(
+        responses.GET, "https://example.com/nueva",
+        body=b"contenido nuevo", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        nuevo_doc_id = compute_doc_id(nueva, include_publication_date=True)
+        fila = assertion_session.scalars(
+            select(Document).where(Document.doc_id == nuevo_doc_id)
+        ).first()
+        assert fila is not None
+        assert fila.review_status == "useful"
+    finally:
+        assertion_session.close()
+
+
+@responses.activate
+def test_scrape_source_task_skips_a_ley_already_published_by_another_ministerio(db_session, test_engine, monkeypatch):
+    """La misma ley/decreto la publican varios ministerios. Si el código
+    canónico (L2277022) ya existe en cualquier fuente de ministerio, no se
+    vuelve a descargar ni insertar — una resolución con el mismo número (que
+    sí lleva sigla) no se ve afectada."""
+    from sqlalchemy import select
+
+    from core.db.models import Document
+    from core.scrapers.registry import FAMILY_REGISTRY
+
+    monkeypatch.setitem(FAMILY_REGISTRY, "minambiente", DummyFamilyScraper)
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    # Ministerio A (madr) ya tiene la ley guardada.
+    repository.create_source_family(db_session, key="madr", display_name="MADR")
+    madr = repository.create_source(
+        db_session, family_key="madr", name="Ministerio de Agricultura y Desarrollo Rural", family_params={}
+    )
+    repository.insert_document(
+        db_session, doc_id="ya-existe", source_id=madr.id, title="L2277022",
+        storage_bucket=TEST_S3_BUCKET, storage_key="madr/2022-12-13/Ley/L2277022.pdf", f_public="2022-12-13",
+    )
+
+    # Ministerio B (minambiente, con el scraper dummy) la lista también, más una ley nueva.
+    repository.create_source_family(db_session, key="minambiente", display_name="MinAmbiente")
+    minamb = repository.create_source(
+        db_session, family_key="minambiente", name="Ministerio de Ambiente y Desarrollo Sostenible", family_params={}
+    )
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=minamb.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Ministerio de Ambiente y Desarrollo Sostenible",
+            link={"url": "https://example.com/otra-copia", "method": "GET"},
+            title="L2277022", tipo="Ley", f_public="2022-12-13",
+        ),
+        RawDocModel(
+            source="Ministerio de Ambiente y Desarrollo Sostenible",
+            link={"url": "https://example.com/ley-nueva", "method": "GET"},
+            title="L9999099", tipo="Ley", f_public="2099-01-01",
+        ),
+    ]
+    # Ambas URLs responden bien: la copia duplicada SÍ se descargaría e
+    # insertaría si no hubiera deduplicación — el test la separa de "falló la
+    # descarga" registrando también su respuesta.
+    responses.add(
+        responses.GET, "https://example.com/otra-copia",
+        body=b"copia", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    responses.add(
+        responses.GET, "https://example.com/ley-nueva",
+        body=b"contenido", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        l2277 = assertion_session.scalars(select(Document).where(Document.title == "L2277022")).all()
+        assert len(l2277) == 1  # solo la de madr; la de minambiente se omitió
+        assert l2277[0].source_id == madr.id
+        titulos = set(assertion_session.scalars(select(Document.title)).all())
+        assert "L9999099" in titulos  # la ley nueva sí entró
     finally:
         assertion_session.close()
 
@@ -1724,11 +1856,130 @@ def test_build_bulk_download_zip_uploads_zip_using_canonical_names(db_session, t
                 # Las entradas del ZIP van dentro de Fuente/Fecha/Tipo, y el nombre
                 # del archivo es el canónico (título + extensión), no la ruta interna
                 # de almacenamiento (storage_key) — ver core/naming.py y
-                # worker/tasks.py::_nombres_zip. "jep" no es una familia con
+                # worker/tasks.py::_entradas_zip. "jep" no es una familia con
                 # actuaciones, así que el nombre es solo título+ext.
                 names = set(zf.namelist())
                 assert names == {"JEP/2026-06-01/Auto/Doc 1.pdf", "JEP/2026-06-02/Sentencia/Doc 2.pdf"}
                 assert zf.read("JEP/2026-06-01/Auto/Doc 1.pdf") == b"contenido uno"
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_includes_archived_versions_of_a_useful_document(db_session, test_engine, monkeypatch):
+    from pathlib import Path
+    import tempfile
+    import zipfile
+
+    from core.storage import presigned_url, upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vigente = Path(tmp) / "v.pdf"
+        vigente.write_bytes(b"contenido vigente")
+        upload_file(vigente, "JEP/2026-06-01/Auto/vigente.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+        archivada = Path(tmp) / "a.pdf"
+        archivada.write_bytes(b"contenido archivado")
+        upload_file(archivada, "JEP/2026-06-01/Auto/archivada.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+
+    doc = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+        f_public=date(2026, 6, 1), tipo="Auto",
+    )
+    # Deja al documento con una versión archivada (version_no del vigente pasa a 2).
+    # review_status="useful" para que la republicación no lo saque de la lista de
+    # útiles (archive_and_replace_document lo dejaría en "pending" por defecto).
+    repository.archive_and_replace_document(
+        db_session, doc.id, review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+    )
+    [version] = repository.list_document_versions(db_session, doc.id)
+    version.storage_key = "JEP/2026-06-01/Auto/archivada.pdf"
+    db_session.commit()
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        assert refreshed.status == "completed"
+        url = presigned_url(TEST_S3_BUCKET, refreshed.zip_storage_key)
+        import requests
+        response = requests.get(url, timeout=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "r.zip"
+            zip_path.write_bytes(response.content)
+            with zipfile.ZipFile(zip_path) as zf:
+                names = set(zf.namelist())
+                # 'jep' no es familia con actuaciones -> nombre = titulo + [-v{n}] + ext.
+                # El vigente ya es la versión 2 (hubo una republicación), así que
+                # lleva sufijo "-v2"; la versión archivada es la "-v1".
+                assert "JEP/2026-06-01/Auto/Doc 1-v2.pdf" in names
+                assert "JEP/2026-06-01/Auto/Doc 1-v1.pdf" in names
+                assert zf.read("JEP/2026-06-01/Auto/Doc 1-v1.pdf") == b"contenido archivado"
+    finally:
+        assertion_session.close()
+
+
+def test_build_bulk_download_zip_does_not_mark_a_document_delivered_when_one_of_its_versions_fails(db_session, test_engine, monkeypatch):
+    """Regresión: si el archivo vigente de un documento útil entra al ZIP pero
+    una de sus versiones archivadas falla al descargarse, el documento NO debe
+    marcarse como entregado — si no, esa versión que quedó fuera se pierde para
+    siempre de las descargas masivas futuras. El documento se mantiene elegible
+    para la próxima (su vigente se vuelve a zipear, aceptable)."""
+    from pathlib import Path
+    import tempfile
+
+    from core.storage import upload_file
+    from worker.tasks import build_bulk_download_zip
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vigente = Path(tmp) / "v.pdf"
+        vigente.write_bytes(b"contenido vigente")
+        upload_file(vigente, "JEP/2026-06-01/Auto/vigente.pdf", bucket=TEST_S3_BUCKET, content_type="application/pdf")
+    # La versión archivada apuntará a una clave que nunca se subió — su download_file falla.
+
+    doc = repository.insert_document(
+        db_session, doc_id="doc-1", source_id=source.id, title="Doc 1", review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+        f_public=date(2026, 6, 1), tipo="Auto",
+    )
+    repository.archive_and_replace_document(
+        db_session, doc.id, review_status="useful",
+        storage_bucket=TEST_S3_BUCKET, storage_key="JEP/2026-06-01/Auto/vigente.pdf",
+    )
+    [version] = repository.list_document_versions(db_session, doc.id)
+    version.storage_key = "JEP/2026-06-01/Auto/no-existe.pdf"
+    db_session.commit()
+
+    bulk_download = repository.create_bulk_download(db_session)
+    build_bulk_download_zip(bulk_download.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_bulk_download(assertion_session, bulk_download.id)
+        # El vigente sí se zipeó, así que la descarga termina "completed".
+        assert refreshed.status == "completed"
+        assert refreshed.failed_count == 1
+        # Pero el documento no se marca entregado: su versión archivada quedó fuera.
+        assert repository.get_document(assertion_session, doc.id).bulk_download_id is None
     finally:
         assertion_session.close()
 

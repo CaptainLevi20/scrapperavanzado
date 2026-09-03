@@ -88,3 +88,33 @@ def test_seed_marks_corte_constitucional_documents_useful_on_entry(db_session):
     constitucional = repository.list_sources(db_session, family_key="constitucional")
     assert len(constitucional) == 1
     assert constitucional[0].family_params.get("auto_review_status") == "useful"
+
+
+def test_seed_marks_csj_documents_useful_on_entry(db_session):
+    """Igual que Corte Constitucional: el equipo de fuentes confirma que todo lo
+    que trae la CSJ es útil, así que la fuente se siembra con
+    auto_review_status="useful"."""
+    seed_source_families_and_sources(db_session)
+
+    csj = repository.list_sources(db_session, family_key="corte_suprema")
+    assert len(csj) == 1
+    assert csj[0].family_params.get("auto_review_status") == "useful"
+
+
+def test_seed_marks_only_consejo_de_estado_useful_within_samai(db_session):
+    """Dentro de la familia samai solo Consejo de Estado entra como útil; los
+    Tribunales Administrativos siguen en "pending" (revisión manual)."""
+    seed_source_families_and_sources(db_session)
+
+    samai = repository.list_sources(db_session, family_key="samai")
+    consejo = [s for s in samai if s.name == "Consejo de Estado"]
+    tribunales = [s for s in samai if s.name != "Consejo de Estado"]
+
+    assert len(consejo) == 1
+    assert consejo[0].family_params.get("auto_review_status") == "useful"
+    # los datos propios del corp se conservan
+    assert consejo[0].family_params.get("corp_code")
+    assert consejo[0].family_params.get("corp_name") == "Consejo de Estado"
+
+    assert tribunales, "el seed debe crear también los Tribunales Administrativos"
+    assert all(s.family_params.get("auto_review_status") is None for s in tribunales)

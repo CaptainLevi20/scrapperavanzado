@@ -19,11 +19,11 @@ def test_mintrabajo_is_registered_under_its_family_key():
 
 
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("D", "1040", "2026") == "D_MINTRABAJO_1040_2026"
+    assert _normalize_title("D", "1040", "2026") == "D1040026"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("C", "96", "2026") == "C_MINTRABAJO_0096_2026"
+    assert _normalize_title("C", "96", "2026") == "C_MTRA_0096_2026"
 
 
 # --- _parse_fecha_flexible: 3 formatos --------------------------------
@@ -183,7 +183,7 @@ def test_scrap_parses_all_rows_and_filters_by_date_range():
     scraper = ScrapMinTrabajo()
     docs = scraper.scrap(fini="2026-01-01", ffin="2026-12-31")
 
-    assert [d.title for d in docs] == ["D_MINTRABAJO_1040_2026"]
+    assert [d.title for d in docs] == ["D1040026"]
     assert len(responses.calls) == 1
 
 
@@ -195,7 +195,7 @@ def test_scrap_excludes_out_of_scope_types_and_out_of_range_dates():
     docs = scraper.scrap(fini="1900-01-01", ffin="2100-12-31")
 
     # La fila "Códigos" nunca aparece pese al rango de fechas amplísimo.
-    assert [d.title for d in docs] == ["D_MINTRABAJO_1040_2026", "R_MINTRABAJO_2714_2020"]
+    assert [d.title for d in docs] == ["D1040026", "R_MTRA_2714_2020"]
 
 
 @responses.activate

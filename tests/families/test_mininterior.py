@@ -17,15 +17,15 @@ def test_mininterior_is_registered_under_its_family_key():
 
 
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("D", "1028", "2026") == "D_MININT_1028_2026"
+    assert _normalize_title("D", "1028", "2026") == "D1028026"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("R", "7", "2026") == "R_MININT_0007_2026"
+    assert _normalize_title("R", "7", "2026") == "R_MI_0007_2026"
 
 
 def test_normalize_title_uses_multi_letter_literal_for_directiva():
-    assert _normalize_title("DIRECTIVA", "12", "2025") == "DIRECTIVA_MININT_0012_2025"
+    assert _normalize_title("DIR", "12", "2025") == "DIR_MI_0012_2025"
 
 
 def test_parse_fecha_dia_sin_cero():
@@ -79,7 +79,7 @@ def test_extraer_item_parses_real_markup_shape():
     doc = _extraer_item(_parse_item(_ITEM_DECRETO_HTML), source="Ministerio del Interior")
 
     assert doc is not None
-    assert doc.title == "D_MININT_1028_2026"
+    assert doc.title == "D1028026"
     assert doc.title_unverified is False
     assert doc.tipo == "Decreto"
     assert doc.f_public == "2026-08-05"
@@ -87,7 +87,7 @@ def test_extraer_item_parses_real_markup_shape():
     assert doc.link["url"] == (
         "https://www.mininterior.gov.co/wp-content/uploads/2026/08/decreto-no.-1028-del-5-de-agosto-de-2026.pdf"
     )
-    assert doc.save_path == "Ministerio del Interior/2026-08-05/Decreto/D_MININT_1028_2026(extension)"
+    assert doc.save_path == "Ministerio del Interior/2026-08-05/Decreto/D1028026(extension)"
 
 
 def test_extraer_item_skips_when_tipo_out_of_scope():
@@ -190,7 +190,7 @@ def test_scrap_paginates_and_stops_once_a_doc_is_older_than_fini():
     # descarta y detiene la paginación ahí. El "Informe" (fuera de alcance)
     # se descarta sin detener nada.
     assert {d.title for d in docs} == {
-        "R_MININT_0100_2026", "R_MININT_0099_2026", "D_MININT_0500_2026",
+        "R_MI_0100_2026", "R_MI_0099_2026", "D0500026",
     }
     # Nunca se pidió una tercera página.
     assert len(responses.calls) == 2
@@ -204,7 +204,7 @@ def test_scrap_stops_when_a_page_has_no_items():
     scraper = ScrapMininterior()
     docs = scraper.scrap(fini="2020-01-01", ffin="2026-12-31")
 
-    assert {d.title for d in docs} == {"R_MININT_0100_2026", "R_MININT_0099_2026"}
+    assert {d.title for d in docs} == {"R_MI_0100_2026", "R_MI_0099_2026"}
     assert len(responses.calls) == 2
 
 
@@ -242,7 +242,7 @@ def test_scrap_returns_partial_results_on_request_error():
     scraper = ScrapMininterior()
     docs = scraper.scrap(fini="2026-08-01", ffin="2026-08-31", on_progress=progreso.append)
 
-    assert {d.title for d in docs} == {"R_MININT_0100_2026", "R_MININT_0099_2026"}
+    assert {d.title for d in docs} == {"R_MI_0100_2026", "R_MI_0099_2026"}
     assert any("Error" in m for m in progreso)
 
 

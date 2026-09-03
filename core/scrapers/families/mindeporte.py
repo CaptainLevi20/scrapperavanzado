@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
+from core.naming import codigo_ley_decreto
 from core.utils import storage_path
 
 _BASE_URL = "https://www.mindeporte.gov.co"
@@ -70,7 +71,7 @@ def _resto_tras_numero(titulo: str, numero: str) -> str:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MDEPORTE_{int(numero):04d}_{anio}"
+    return codigo_ley_decreto(letra, numero, anio) or f"{letra}_MDEP_{int(numero):04d}_{anio}"
 
 
 def _limpiar_detalle(texto: str) -> str:

@@ -17,15 +17,15 @@ def test_resto_tras_numero_returns_full_text_when_number_not_found():
 
 
 def test_normalize_title_builds_canonical_code():
-    assert _normalize_title("D", "765", "2026") == "D_MADR_0765_2026"
+    assert _normalize_title("D", "765", "2026") == "D0765026"
 
 
 def test_normalize_title_pads_short_numbers_to_four_digits():
-    assert _normalize_title("R", "179", "2026") == "R_MADR_0179_2026"
+    assert _normalize_title("R", "179", "2026") == "R_MA_0179_2026"
 
 
 def test_normalize_title_uses_conpes_literal_instead_of_a_single_letter():
-    assert _normalize_title("CONPES", "4076", "2022") == "CONPES_MADR_4076_2022"
+    assert _normalize_title("CONPES", "4076", "2022") == "CONPES_MA_4076_2022"
 
 
 def test_parse_fecha_dia_de_mes_del_anio():
@@ -179,7 +179,7 @@ def test_extraer_articulos_parses_article_and_builds_canonical_title():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "D_MADR_0765_2026"
+    assert doc.title == "D0765026"
     assert doc.title_unverified is False
     assert doc.tipo == "Decreto"
     assert doc.f_public == "2026-07-15"
@@ -189,7 +189,7 @@ def test_extraer_articulos_parses_article_and_builds_canonical_title():
         "https://www.minagricultura.gov.co/fileadmin/normatividad/decretos/"
         "DECRETO_No._0765_DEL_15_DE_JULIO_DE_2026.pdf"
     )
-    assert doc.save_path == "Ministerio de Agricultura y Desarrollo Rural/2026-07-15/Decreto/D_MADR_0765_2026(extension)"
+    assert doc.save_path == "Ministerio de Agricultura y Desarrollo Rural/2026-07-15/Decreto/D0765026(extension)"
 
 
 def test_extraer_articulos_filters_out_of_range_dates():
@@ -224,7 +224,7 @@ def test_extraer_articulos_conpes_uses_year_only_and_conpes_literal():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "CONPES_MADR_4076_2022"
+    assert doc.title == "CONPES_MA_4076_2022"
     assert doc.f_public == "2022-01-01"
 
 
@@ -350,7 +350,7 @@ def test_extraer_articulos_parses_multiple_articles_in_one_page():
     # articles here get letra "D". This test just verifies BOTH articles in
     # the HTML are found and parsed (i.e. a second <article> doesn't get
     # dropped or overwrite the first), not that each infers its own tipo.
-    assert {d.title for d in docs} == {"D_MADR_0765_2026", "D_MADR_2311_2023"}
+    assert {d.title for d in docs} == {"D0765026", "D2311023"}
 
 
 import responses
@@ -380,7 +380,7 @@ def test_scrap_aggregates_across_the_four_categories():
     scraper = ScrapMADR()
     docs = scraper.scrap(fini="2023-01-01", ffin="2023-12-31")
 
-    assert {d.title for d in docs} == {"L_MADR_2311_2023", "D_MADR_0212_2023"}
+    assert {d.title for d in docs} == {"L2311023", "D0212023"}
 
 
 @responses.activate
@@ -394,7 +394,7 @@ def test_scrap_continues_past_a_failing_category():
     scraper = ScrapMADR()
     docs = scraper.scrap(fini="2023-01-01", ffin="2023-12-31", on_progress=progreso.append)
 
-    assert {d.title for d in docs} == {"L_MADR_2311_2023"}
+    assert {d.title for d in docs} == {"L2311023"}
     assert any("Error" in m and "decretos" in m for m in progreso)
 
 

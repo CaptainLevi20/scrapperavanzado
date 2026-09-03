@@ -548,7 +548,7 @@ def test_get_document_stats_accepts_explicit_year(api_client, auth_header, db_se
 
 def test_document_out_incluye_nombre_con_version(api_client, auth_header, db_session):
     # SAMAI (familia con actuaciones) + f_providencia + una republicación → nombre
-    # con "_v2". La republicación es una nueva VERSIÓN del mismo documento, no una
+    # con "-v2". La republicación es una nueva VERSIÓN del mismo documento, no una
     # actuación distinta (sigue siendo la única fila con este título), así que la
     # fecha lleva solo el año — ver test_document_out_con_otra_actuacion_usa_fecha_completa
     # para el caso con más de una actuación real.
@@ -566,7 +566,7 @@ def test_document_out_incluye_nombre_con_version(api_client, auth_header, db_ses
 
     response = api_client.get(f"/documents/{doc.id}", headers=auth_header)
     assert response.status_code == 200
-    assert response.json()["nombre"] == "11001-03-28-000-2026-00300-00_2026_v2"
+    assert response.json()["nombre"] == "11001-03-28-000-2026-00300-00_2026-v2"
 
 
 def test_document_out_sin_otra_actuacion_usa_solo_el_anio(api_client, auth_header, db_session):

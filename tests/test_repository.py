@@ -269,6 +269,85 @@ def test_update_document_review_status_returns_none_when_missing(db_session):
     assert repository.update_document_review_status(db_session, 999999, "useful") is None
 
 
+def test_update_document_review_status_propagates_to_sibling_actuaciones(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    a1 = repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf",
+    )
+    a2 = repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",
+    )
+    otro = repository.insert_document(
+        db_session, doc_id="otro", source_id=source.id, title="99999-99-99-000-2026-11111-00",
+        storage_bucket="iurisync-test", storage_key="otro.pdf",
+    )
+
+    devuelto = repository.update_document_review_status(db_session, a1.id, "useful")
+
+    assert devuelto.id == a1.id
+    for d in (a1, a2, otro):
+        db_session.refresh(d)
+    assert a1.review_status == "useful"
+    assert a2.review_status == "useful"          # hermana arrastrada
+    assert a2.reviewed_at is not None
+    assert a2.bulk_download_id is None
+    assert otro.review_status == "pending"       # otro caso, intacto
+
+
+def test_update_document_review_status_is_symmetric_for_all_states(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Rama Judicial", family_params={}
+    )
+    titulo = "T_BTA_11001_31_03_022_2019_00814_02"
+    a1 = repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf", review_status="useful",
+    )
+    a2 = repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf", review_status="useful",
+    )
+
+    repository.update_document_review_status(db_session, a2.id, "pending")
+
+    db_session.refresh(a1)
+    assert a1.review_status == "pending"   # desmarcar también propaga
+
+
+def test_update_document_review_status_standalone_document_only_affects_itself(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(
+        db_session, family_key="constitucional", name="Corte Constitucional", family_params={}
+    )
+    d1 = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="C-034-26",
+        storage_bucket="iurisync-test", storage_key="d1.pdf",
+    )
+    d2 = repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title="C-034-26",
+        storage_bucket="iurisync-test", storage_key="d2.pdf",
+    )
+
+    repository.update_document_review_status(db_session, d1.id, "useful")
+
+    db_session.refresh(d2)
+    # 'constitucional' no es familia con actuaciones: mismo título no es el mismo caso.
+    assert d2.review_status == "pending"
+
+
 def test_list_documents_filters_by_review_status(db_session):
     from core.db import repository
 
@@ -523,6 +602,116 @@ def test_bulk_update_document_review_status_ignores_nonexistent_ids(db_session):
     updated_count = repository.bulk_update_document_review_status(db_session, [doc1.id, 999999], "not_useful")
 
     assert updated_count == 1
+
+
+def test_bulk_update_document_review_status_expands_each_id_to_its_case_group(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    caso_a = "11001-03-28-000-2026-00300-00"
+    caso_b = "11001-03-28-000-2026-00500-00"
+    a1 = repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=caso_a,
+        storage_bucket="iurisync-test", storage_key="a1.pdf",
+    )
+    a2 = repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=caso_a,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",
+    )
+    b1 = repository.insert_document(
+        db_session, doc_id="b1", source_id=source.id, title=caso_b,
+        storage_bucket="iurisync-test", storage_key="b1.pdf",
+    )
+    fuera = repository.insert_document(
+        db_session, doc_id="fuera", source_id=source.id, title="77777-77-77-000-2026-99999-00",
+        storage_bucket="iurisync-test", storage_key="fuera.pdf",
+    )
+
+    # La selección trae una actuación de A y la única de B; se esperan 3 filas
+    # tocadas (a1, a2 por expansión, b1), y 'fuera' intacto.
+    updated_count = repository.bulk_update_document_review_status(db_session, [a1.id, b1.id], "useful")
+
+    assert updated_count == 3
+    for d in (a1, a2, b1, fuera):
+        db_session.refresh(d)
+    assert a1.review_status == "useful"
+    assert a2.review_status == "useful"
+    assert b1.review_status == "useful"
+    assert fuera.review_status == "pending"
+
+
+def test_heredar_review_status_aplica_el_estado_del_grupo_a_la_actuacion_pendiente(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf", review_status="useful",
+    )
+    nueva = repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",  # entra 'pending'
+    )
+
+    n = repository.heredar_review_status_de_actuaciones_existentes(db_session, "samai", titulo)
+
+    assert n == 1
+    db_session.refresh(nueva)
+    assert nueva.review_status == "useful"
+    assert nueva.reviewed_at is not None
+
+
+def test_heredar_review_status_no_hace_nada_si_el_grupo_esta_todo_pendiente(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf",
+    )
+    repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf",
+    )
+
+    assert repository.heredar_review_status_de_actuaciones_existentes(db_session, "samai", titulo) == 0
+
+
+def test_heredar_review_status_no_hace_nada_si_los_decididos_no_coinciden(db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="samai", display_name="SAMAI")
+    source = repository.create_source(
+        db_session, family_key="samai", name="Consejo de Estado", family_params={}
+    )
+    titulo = "11001-03-28-000-2026-00300-00"
+    repository.insert_document(
+        db_session, doc_id="a1", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a1.pdf", review_status="useful",
+    )
+    repository.insert_document(
+        db_session, doc_id="a2", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a2.pdf", review_status="not_useful",
+    )
+    nueva = repository.insert_document(
+        db_session, doc_id="a3", source_id=source.id, title=titulo,
+        storage_bucket="iurisync-test", storage_key="a3.pdf",
+    )
+
+    assert repository.heredar_review_status_de_actuaciones_existentes(db_session, "samai", titulo) == 0
+    db_session.refresh(nueva)
+    assert nueva.review_status == "pending"
 
 
 def test_create_user_and_lookup_by_username(db_session):

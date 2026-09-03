@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import docx
+import pytest
 
 import core.reorganize as reorganize_module
 from core.reorganize import analyze_batch, apply_folder_renames, apply_moves
@@ -305,6 +306,30 @@ def test_men_filename_token_is_recognized_as_me_and_causes_no_exception(tmp_path
     result = analyze_batch(tmp_path)
 
     assert result.exceptions == []
+
+
+@pytest.mark.parametrize(
+    "sigla_vieja, sigla_nueva, tipo",
+    [
+        ("MADR", "MA", "DECRETOS"),
+        ("MDEPORTE", "MDEP", "RESOLUCIONES"),
+        ("MINENERGIA", "MME", "RESOLUCIONES"),
+        ("MININT", "MI", "DECRETOS"),
+        ("MINJUSTICIA", "MJ", "DECRETOS"),
+        ("MINTRABAJO", "MTRA", "DECRETOS"),
+    ],
+)
+def test_old_ministerio_sigla_tokens_resolve_to_the_new_one(tmp_path, sigla_vieja, sigla_nueva, tipo):
+    # Cambio de siglas 2026-09-03 (ver core/backfill_ministerios_siglas.py):
+    # un archivo viejo cuyo nombre trae la sigla anterior, ya ubicado en la
+    # carpeta de la sigla nueva, no debe marcarse como entity_mismatch.
+    _touch(tmp_path / tipo / sigla_nueva / "2024" / f"D_{sigla_vieja}_0001_2024.pdf")
+    _touch(tmp_path / tipo / sigla_nueva / "2024" / f"D_{sigla_vieja}_0002_2024.pdf")
+
+    result = analyze_batch(tmp_path)
+
+    assert result.exceptions == []
+    assert result.folder_renames == []
     assert result.folder_renames == []
 
 

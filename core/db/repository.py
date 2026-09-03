@@ -464,7 +464,7 @@ def archive_and_replace_document(
         setattr(document, key, value)
     document.downloaded_at = datetime.now(timezone.utc)
     # La versión recién archivada conserva el número que tenía el documento; la
-    # nueva versión vigente es el siguiente entero. Así "_v{n}" del nombre
+    # nueva versión vigente es el siguiente entero. Así "-v{n}" del nombre
     # canónico refleja el orden real (la más antigua = 1, la vigente = la mayor).
     document.version_no = document.version_no + 1
     # A source configured with family_params.auto_review_status (e.g. "el equipo
@@ -705,6 +705,28 @@ def list_documents_by_title_within_family(db: Session, family_key: str, title: s
         select(Document)
         .join(Source, Source.id == Document.source_id)
         .where(Source.family_key == family_key, Document.title == title)
+    )
+    return list(db.scalars(stmt).all())
+
+
+# Fuentes de normatividad de ministerios: varias publican la misma ley/decreto,
+# así que el código canónico (L####YYY / D####YYY) debe ser único entre todas
+# ellas (ver worker.scrape_source_task y core/backfill_leyes_decretos.py).
+_MINISTERIO_FAMILIES = frozenset(
+    {
+        "madr", "minambiente", "mincit", "mindeporte", "mineducacion",
+        "mininterior", "minenergia", "minjusticia", "mintrabajo", "minvivienda",
+    }
+)
+
+
+def list_ministerio_documents_by_title(db: Session, title: str) -> list[Document]:
+    """Documentos con ese título exacto en CUALQUIER fuente de ministerio —
+    para deduplicar leyes/decretos que varios ministerios publican."""
+    stmt = (
+        select(Document)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key.in_(_MINISTERIO_FAMILIES), Document.title == title)
     )
     return list(db.scalars(stmt).all())
 
@@ -1033,15 +1055,49 @@ def count_documents_by_month(db: Session, year: int) -> list[int]:
     return counts
 
 
+def _expandir_a_grupos(db: Session, document_ids: list[int]) -> list[int]:
+    """Devuelve `document_ids` más los ids de todas las actuaciones hermanas
+    (mismo family_key + mismo título) de los documentos que pertenezcan a una
+    familia con actuaciones (ver es_familia_con_actuaciones). Un documento
+    suelto se devuelve tal cual; los ids inexistentes se conservan (el UPDATE
+    que los recibe simplemente no los encuentra). Sin repetidos, ordenada."""
+    if not document_ids:
+        return []
+    documentos = db.scalars(select(Document).where(Document.id.in_(document_ids))).all()
+    family_keys = get_source_family_keys(db, [d.source_id for d in documentos])
+    ids: set[int] = set(document_ids)
+    grupos_vistos: set[tuple[str, str]] = set()
+    for d in documentos:
+        fam = family_keys.get(d.source_id)
+        if not es_familia_con_actuaciones(fam, d.title):
+            continue
+        if (fam, d.title) in grupos_vistos:
+            continue
+        grupos_vistos.add((fam, d.title))
+        for hermano in list_documents_by_title_within_family(db, fam, d.title):
+            ids.add(hermano.id)
+    return sorted(ids)
+
+
 def update_document_review_status(db: Session, document_id: int, review_status: str) -> Optional[Document]:
     document = db.get(Document, document_id)
     if document is None:
         return None
-    document.review_status = review_status
-    document.reviewed_at = datetime.now(timezone.utc)
-    # A fresh review decision makes the document eligible for bulk download
-    # again, even if an earlier version of it was already delivered.
-    document.bulk_download_id = None
+    # Una decisión de revisión se aplica a TODO el caso: marcar (o desmarcar)
+    # una actuación arrastra a sus hermanas, para que la descarga masiva traiga
+    # el caso completo. Un documento suelto solo se afecta a sí mismo.
+    ids = _expandir_a_grupos(db, [document_id])
+    db.execute(
+        update(Document)
+        .where(Document.id.in_(ids))
+        .values(
+            review_status=review_status,
+            reviewed_at=datetime.now(timezone.utc),
+            # Una decisión fresca vuelve a habilitar el documento para descarga
+            # masiva, aunque una versión anterior ya se haya entregado.
+            bulk_download_id=None,
+        )
+    )
     db.commit()
     db.refresh(document)
     return document
@@ -1149,15 +1205,77 @@ def purge_documents_for_source(db: Session, source_id: int) -> dict:
     }
 
 
+def delete_documents_by_id(db: Session, document_ids: list[int]) -> list[tuple[str, str]]:
+    """Borra los Document indicados y sus DocumentVersion. Devuelve los pares
+    (bucket, key) de almacenamiento a limpiar — esta capa solo toca la base;
+    el llamador borra los objetos en el backend de almacenamiento (mismo
+    contrato que purge_documents_for_source)."""
+    if not document_ids:
+        return []
+    doc_rows = list(
+        db.execute(
+            select(Document.storage_bucket, Document.storage_key, Document.preview_storage_key).where(
+                Document.id.in_(document_ids)
+            )
+        ).all()
+    )
+    version_rows = list(
+        db.execute(
+            select(DocumentVersion.storage_bucket, DocumentVersion.storage_key).where(
+                DocumentVersion.document_id.in_(document_ids)
+            )
+        ).all()
+    )
+    db.execute(delete(DocumentVersion).where(DocumentVersion.document_id.in_(document_ids)))
+    db.execute(delete(Document).where(Document.id.in_(document_ids)))
+    db.commit()
+
+    objetos = [(r.storage_bucket, r.storage_key) for r in doc_rows]
+    objetos += [(r.storage_bucket, r.preview_storage_key) for r in doc_rows if r.preview_storage_key]
+    objetos += [(r.storage_bucket, r.storage_key) for r in version_rows]
+    return objetos
+
+
 def bulk_update_document_review_status(db: Session, document_ids: list[int], review_status: str) -> int:
+    """Versión masiva de update_document_review_status: expande cada id de la
+    selección a su caso completo (todas las actuaciones hermanas — ver
+    _expandir_a_grupos) y aplica `review_status` a todas esas filas en un solo
+    UPDATE, devolviendo el rowcount real (cuántas filas se tocaron, incluidas
+    las hermanas que el llamador no seleccionó). Como una decisión fresca,
+    reabre esos documentos para descarga masiva (bulk_download_id = NULL)."""
+    ids = _expandir_a_grupos(db, document_ids)
     stmt = (
         update(Document)
-        .where(Document.id.in_(document_ids))
+        .where(Document.id.in_(ids))
         .values(review_status=review_status, reviewed_at=datetime.now(timezone.utc), bulk_download_id=None)
     )
     result = db.execute(stmt)
     db.commit()
     return result.rowcount
+
+
+def heredar_review_status_de_actuaciones_existentes(db: Session, family_key: str, title: str) -> int:
+    """Cuando llega una actuación nueva a un caso ya revisado, la fila nueva
+    entra en 'pending'. Si el resto del grupo (familia + título) coincide en un
+    único estado distinto de 'pending', se lo aplica también a las 'pending'.
+    Si el grupo está todo en 'pending', o los estados decididos no coinciden
+    entre sí (datos previos a esta lógica), no toca nada. Devuelve cuántas
+    filas actualizó."""
+    grupo = list_documents_by_title_within_family(db, family_key, title)
+    decididos = {d.review_status for d in grupo if d.review_status != "pending"}
+    if len(decididos) != 1:
+        return 0
+    (estado,) = decididos
+    pendientes = [d.id for d in grupo if d.review_status == "pending"]
+    if not pendientes:
+        return 0
+    db.execute(
+        update(Document)
+        .where(Document.id.in_(pendientes))
+        .values(review_status=estado, reviewed_at=datetime.now(timezone.utc), bulk_download_id=None)
+    )
+    db.commit()
+    return len(pendientes)
 
 
 def get_document(db: Session, document_id: int) -> Optional[Document]:

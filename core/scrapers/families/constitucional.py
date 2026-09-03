@@ -37,14 +37,22 @@ def _normalize_tipo(prov_sentencia: str, prov_tipo: str) -> str:
 
 
 def _normalize_title(prov_sentencia: str, tipo: str) -> str:
-    # e.g. "T-206/26" -> "T206_26", "A. 846/26" -> "A846_26": drop everything
-    # but letters/digits/the providencia-number separator, then turn that
-    # separator into an underscore so the result is safe to use as a filename.
-    normalized = re.sub(r"[^A-Za-z0-9/]", "", prov_sentencia).replace("/", "_")
-    # Every "Sentencia ..." tipo gets an "S" prefix (e.g. "T206_26" ->
-    # "ST206_26", "C034_26" -> "SC034_26") unless it already has one —
+    # e.g. "T-206/26" -> "T-206-26", "A. 846/26" -> "A-846-26",
+    # "SU.066/26" -> "SU-066-26": split the letter prefix, the providencia
+    # number and the year, and rejoin them with hyphens — dropping whatever
+    # punctuation the Corte used between them ("-", ". ", "."), which it is
+    # not consistent about. Anything that doesn't fit that shape falls back
+    # to a plain alphanumeric-only slug so the result is still a safe filename.
+    match = re.match(r"\s*([A-Za-z]+)\D*(\d+)\D+(\d+)\s*$", prov_sentencia)
+    if match:
+        letras, numero, anio = match.groups()
+        normalized = f"{letras}-{numero}-{anio}"
+    else:
+        normalized = re.sub(r"[^A-Za-z0-9]+", "-", prov_sentencia).strip("-")
+    # Every "Sentencia ..." tipo gets an "S" prefix (e.g. "T-206-26" ->
+    # "ST-206-26", "C-034-26" -> "SC-034-26") unless it already has one —
     # Sentencia de Unificación providencias are numbered "SU..." to begin
-    # with, so "SU066_26" is left as-is rather than becoming "SSU066_26".
+    # with, so "SU-066-26" is left as-is rather than becoming "SSU-066-26".
     if tipo in _SENTENCIA_DISPLAY_TIPOS and not normalized.startswith("S"):
         return f"S{normalized}"
     return normalized

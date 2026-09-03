@@ -41,13 +41,6 @@ def _codigo_from_titulo(titulo: str) -> Optional[str]:
 # content when the title metadata was unusable (e.g. "doc", "(3)").
 _CODIGO_EN_TEXTO_RE = re.compile(r"\b([A-Za-z]{1,4}\d{1,6}-\d{4})\b")
 
-# Matches the placeholder title scrap() builds ("CSJ_SCT_doc_2019") so its
-# bucket/año can be recovered once resolve_unverified_document finds the real
-# code — anchored to the known bucket codes rather than a naive "_" split, so
-# it doesn't break if the placeholder name itself happens to contain "_".
-_TITULO_PLACEHOLDER_RE = re.compile(r"^CSJ_(SCT|SCL|SCC|SCP)_.*_(\d{4})$")
-
-
 def _codigo_desde_texto(texto: str) -> Optional[str]:
     match = _CODIGO_EN_TEXTO_RE.search(texto or "")
     return match.group(1).upper() if match else None
@@ -194,12 +187,10 @@ class ScrapCorteSuprema(BaseScrapper):
         if not codigo:
             return
 
-        match = _TITULO_PLACEHOLDER_RE.match(doc.title)
-        if not match:
-            return
-        bucket, anio = match.group(1), match.group(2)
-
-        doc.title = f"CSJ_{bucket}_{codigo}_{anio}"
+        # El título es el código a secas: el año que llevaba el relleno
+        # ("doc_2019") era solo un desempate provisional, y el bucket vive en
+        # la carpeta de guardado, no en el nombre del archivo.
+        doc.title = codigo
         tipo_recuperado = _tipo_from_titulo(codigo)
         if tipo_recuperado:
             doc.tipo = tipo_recuperado
@@ -282,7 +273,12 @@ class ScrapCorteSuprema(BaseScrapper):
                             # Una tutela usa la sala que realmente la resolvió (seccion) como
                             # su bucket, no el genérico "SCT" de la búsqueda — ver _bucket_real.
                             bucket = _bucket_real(self.tipos[tipo], seccion)
-                            titulo = f"CSJ_{bucket}_{nombre_base}_{fecha_obj.year}"
+                            # El título es el código a secas. El bucket (sala) va
+                            # solo en la carpeta de guardado (CSJ/<bucket>/...).
+                            # Cuando el código no se pudo identificar, el relleno
+                            # lleva "_<año>" como desempate provisional hasta que
+                            # resolve_unverified_document lea el código real.
+                            titulo = nombre_base if codigo else f"{nombre_base}_{fecha_obj.year}"
 
                             clave = (bucket, nombre_base, fecha)
                             if clave in indice_por_clave:

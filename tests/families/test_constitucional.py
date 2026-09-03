@@ -43,13 +43,13 @@ def test_scrap_returns_expected_rawdocmodel():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.title == "ST065_24"
+    assert doc.title == "ST-065-24"
     assert doc.tipo == "Sentencia de Tutela"
     assert doc.f_public == "2024-02-01"
     assert doc.f_providencia == "2024-01-25"
     assert doc.link["url"] == "https://www.corteconstitucional.gov.co/sentencias/t-065-24.rtf"
     assert doc.link["body"] == {"path": "T-065/24"}
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST065_24(extension)"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST-065-24(extension)"
 
 
 @responses.activate
@@ -65,7 +65,7 @@ def test_scrap_classifies_t_series_as_sentencia_de_tutela_even_when_prov_tipo_sa
     assert len(docs) == 1
     doc = docs[0]
     assert doc.tipo == "Sentencia de Tutela"
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST065_24(extension)"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Tutela/ST-065-24(extension)"
 
 
 @responses.activate
@@ -78,8 +78,8 @@ def test_scrap_classifies_c_series_as_sentencia_constitucional():
     assert len(docs) == 1
     doc = docs[0]
     assert doc.tipo == "Sentencia Constitucional"
-    assert doc.title == "SC034_26"
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia Constitucional/SC034_26(extension)"
+    assert doc.title == "SC-034-26"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia Constitucional/SC-034-26(extension)"
 
 
 @responses.activate
@@ -93,9 +93,9 @@ def test_scrap_classifies_su_series_as_sentencia_de_unificacion():
     doc = docs[0]
     assert doc.tipo == "Sentencia de Unificación"
     # Already starts with "S" ("SU" = Sentencia de Unificación), so it isn't
-    # prefixed again — must not become "SSU066_26".
-    assert doc.title == "SU066_26"
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Unificación/SU066_26(extension)"
+    # prefixed again — must not become "SSU-066-26".
+    assert doc.title == "SU-066-26"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Sentencia de Unificación/SU-066-26(extension)"
 
 
 @responses.activate
@@ -108,9 +108,9 @@ def test_scrap_normalizes_title_with_period_and_space():
     assert len(docs) == 1
     doc = docs[0]
     assert doc.tipo == "Auto"
-    assert doc.title == "A846_26"
+    assert doc.title == "A-846-26"
     assert doc.link["body"] == {"path": "A. 846/26"}
-    assert doc.save_path == "Corte Constitucional/2024-02-01/Auto/A846_26(extension)"
+    assert doc.save_path == "Corte Constitucional/2024-02-01/Auto/A-846-26(extension)"
 
 
 def test_constitucional_is_registered_under_its_family_key():

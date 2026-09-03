@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -17,7 +18,7 @@ import requests
 from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
-from core.naming import es_familia_con_actuaciones, nombre_archivo_documento
+from core.naming import es_codigo_ley_decreto, es_familia_con_actuaciones, nombre_archivo_documento, nombre_archivo_version
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
@@ -42,29 +43,38 @@ def _carpeta_zip(document, source_names: dict) -> str:
     return "/".join(_INVALID_PATH_SEGMENT_CHARS.sub("-", segmento) for segmento in (fuente, fecha, tipo))
 
 
-def _nombres_zip(documents, family_keys, actuacion_counts, source_names) -> list[str]:
-    """Ruta de cada entrada del ZIP = Fuente/Fecha/Tipo/nombre_canónico +
-    extensión. Desambigua colisiones dentro de la misma carpeta agregando
-    ' (2)', ' (3)'… antes de la extensión, para no sobrescribir un archivo con
-    otro dentro del mismo ZIP. actuacion_counts (de
-    repository.actuacion_counts_by_title) decide si la fecha del nombre va
-    completa (hay otra actuación con el mismo título) o solo el año (todavía
-    no)."""
+_EntradaZip = namedtuple("_EntradaZip", "storage_bucket storage_key arcname document_id")
+
+
+def _entradas_zip(documents, versions_by_doc, family_keys, actuacion_counts, source_names) -> list["_EntradaZip"]:
+    """Una entrada por cada archivo que va al ZIP: el archivo vigente de cada
+    documento y, a continuación, cada una de sus versiones archivadas. La ruta
+    es Fuente/Fecha/Tipo/nombre_canónico(+ext). Desambigua colisiones dentro de
+    la misma carpeta agregando ' (2)', ' (3)'… antes de la extensión.
+    actuacion_counts (de repository.actuacion_counts_by_title) decide si la
+    fecha del nombre va completa o solo el año."""
     usados: dict[str, int] = {}
-    nombres: list[str] = []
-    for d in documents:
-        tiene_actuaciones = actuacion_counts.get(d.title, 0) > 1
-        base = nombre_archivo_documento(d, family_keys.get(d.source_id), tiene_actuaciones)
-        carpeta = _carpeta_zip(d, source_names)
+    entradas: list[_EntradaZip] = []
+
+    def _ruta_unica(carpeta: str, base: str) -> str:
         ruta = f"{carpeta}/{base}"
         if ruta not in usados:
             usados[ruta] = 1
-            nombres.append(ruta)
-        else:
-            usados[ruta] += 1
-            p = PurePosixPath(base)
-            nombres.append(f"{carpeta}/{p.stem} ({usados[ruta]}){p.suffix}")
-    return nombres
+            return ruta
+        usados[ruta] += 1
+        p = PurePosixPath(base)
+        return f"{carpeta}/{p.stem} ({usados[ruta]}){p.suffix}"
+
+    for d in documents:
+        fam = family_keys.get(d.source_id)
+        tiene_actuaciones = actuacion_counts.get(d.title, 0) > 1
+        carpeta = _carpeta_zip(d, source_names)
+        base_doc = nombre_archivo_documento(d, fam, tiene_actuaciones)
+        entradas.append(_EntradaZip(d.storage_bucket, d.storage_key, _ruta_unica(carpeta, base_doc), d.id))
+        for v in versions_by_doc.get(d.id, []):
+            base_v = nombre_archivo_version(d, v, fam, tiene_actuaciones)
+            entradas.append(_EntradaZip(v.storage_bucket, v.storage_key, _ruta_unica(carpeta, base_v), d.id))
+    return entradas
 
 
 class _ScrapProgressCollector:
@@ -368,6 +378,13 @@ def scrape_source_task(run_source_id: int):
                     seen_doc_ids.add(doc_id)
                     existing = repository.get_document_by_doc_id(db, doc_id)
                     if existing is None:
+                        # Leyes/Decretos: la misma norma la publican varios
+                        # ministerios. Si ese código canónico ya está en alguna
+                        # fuente de ministerio, no se descarga ni se inserta
+                        # (gana el que ya está — ver spec
+                        # 2026-09-03-formato-leyes-decretos-ministerios).
+                        if es_codigo_ley_decreto(doc.title) and repository.list_ministerio_documents_by_title(db, doc.title):
+                            continue
                         pending.append((doc_id, doc))
                         continue
                     if not scraper.checks_for_republication:
@@ -538,6 +555,11 @@ def scrape_source_task(run_source_id: int):
             return
 
         for family_key, title in titulos_con_actuacion_nueva:
+            # La actuación recién insertada entra 'pending'; si el caso ya
+            # estaba revisado, que herede ese estado (ver spec
+            # 2026-09-03-propagar-util-actuaciones). Síncrono sobre la misma
+            # sesión: las filas nuevas ya se commitearon en el bucle de arriba.
+            repository.heredar_review_status_de_actuaciones_existentes(db, family_key, title)
             reconcile_title_group_task.delay(family_key, title)
         for document_id in documentos_republicados:
             reconcile_document_task.delay(document_id)
@@ -688,6 +710,10 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             )
             return
 
+        # Cada documento útil arrastra al ZIP también sus versiones archivadas
+        # (republicaciones anteriores), en la misma carpeta que el vigente.
+        versions_by_doc = {d.id: repository.list_document_versions(db, d.id) for d in documents}
+
         with tempfile.TemporaryDirectory(prefix=f"bulk_download_{bulk_download_id}_") as tmp_dir:
             tmp_path = Path(tmp_dir)
 
@@ -697,9 +723,18 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             # below — the only extra room ever needed beyond that is for whichever
             # single file happens to be downloading at the time. Documents saved
             # by an older version of the code may have no recorded size; the
-            # check is skipped rather than guessed at in that case.
+            # check is skipped rather than guessed at in that case. Las versiones
+            # archivadas también ocupan espacio, así que cuentan aquí igual que
+            # los documentos vigentes.
             known_sizes = [d.file_size_bytes for d in documents if d.file_size_bytes]
-            if known_sizes and len(known_sizes) == len(documents):
+            known_sizes += [
+                v.file_size_bytes
+                for vs in versions_by_doc.values()
+                for v in vs
+                if v.file_size_bytes
+            ]
+            total_items = len(documents) + sum(len(vs) for vs in versions_by_doc.values())
+            if known_sizes and len(known_sizes) == total_items:
                 required_bytes = sum(known_sizes) + max(known_sizes)
                 free_bytes = shutil.disk_usage(tmp_path).free
                 if free_bytes < required_bytes:
@@ -722,46 +757,56 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             zip_path = tmp_path / "bulk_download.zip"
             downloaded_count = 0
             failed_count = 0
-            # Ruta de cada documento dentro del ZIP: Fuente/Fecha/Tipo/nombre
+            # Ruta de cada entrada dentro del ZIP: Fuente/Fecha/Tipo/nombre
             # canónico (el mismo nombre que se ve en la app), no la ruta interna
-            # de almacenamiento (storage_key). Se calcula una sola vez, en el
-            # mismo orden que `documents`, así que zip(documents, arcnames)
-            # mantiene la correspondencia aunque el bucle se salte algún
-            # documento después.
+            # de almacenamiento (storage_key). Se calcula una sola vez para todos
+            # los archivos — documento vigente y sus versiones archivadas — así
+            # que el bucle solo tiene que recorrer `entradas` en orden, aunque se
+            # salte alguna después.
             family_keys = repository.get_source_family_keys(db, [d.source_id for d in documents])
             actuacion_counts = repository.actuacion_counts_by_title(db, documents, family_keys)
             source_names = repository.get_source_names(db, [d.source_id for d in documents])
-            arcnames = _nombres_zip(documents, family_keys, actuacion_counts, source_names)
+            entradas = _entradas_zip(documents, versions_by_doc, family_keys, actuacion_counts, source_names)
+            titulo_por_doc_id = {d.id: d.title for d in documents}
             included_document_ids: list[int] = []
             # Documentos concretos que fallaron — no solo el conteo — para que,
             # si todos terminan fallando, el mensaje de error diga cuáles
             # investigar en vez de tener que reconstruir esa lista a mano.
             failed_documents: list[tuple[int, str]] = []
+            # Documentos con AL MENOS una entrada fallida (su vigente o alguna
+            # de sus versiones archivadas). Aunque otra entrada del mismo
+            # documento sí haya entrado al ZIP, el documento NO se marca como
+            # entregado: así la versión que quedó fuera sigue elegible para la
+            # próxima descarga masiva (ver más abajo, antes de
+            # mark_documents_bulk_downloaded).
+            fallidos_por_documento: set[int] = set()
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for document, arcname in zip(documents, arcnames):
+                for entrada in entradas:
                     # Re-validated here even though the key was already checked when
                     # it was first written (see core/downloader.py): this document
                     # may have been saved by an older version of the code, or its
                     # row edited directly, and storage_key is about to be joined
                     # onto a real local directory — a ".." would actually do damage.
-                    if not is_safe_storage_key(document.storage_key):
+                    if not is_safe_storage_key(entrada.storage_key):
                         logger.warning(
-                            "Clave de almacenamiento no segura, se omite de la descarga masiva: %s", document.storage_key
+                            "Clave de almacenamiento no segura, se omite de la descarga masiva: %s", entrada.storage_key
                         )
                         failed_count += 1
-                        failed_documents.append((document.id, document.title))
+                        failed_documents.append((entrada.document_id, titulo_por_doc_id.get(entrada.document_id, "")))
+                        fallidos_por_documento.add(entrada.document_id)
                         continue
-                    local_path = downloads_dir / document.storage_key
+                    local_path = downloads_dir / entrada.storage_key
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        download_file(document.storage_bucket, document.storage_key, local_path)
-                        zf.write(local_path, arcname=arcname)
+                        download_file(entrada.storage_bucket, entrada.storage_key, local_path)
+                        zf.write(local_path, arcname=entrada.arcname)
                         downloaded_count += 1
-                        included_document_ids.append(document.id)
+                        included_document_ids.append(entrada.document_id)
                     except Exception as exc:
-                        logger.warning("No se pudo incluir %s en la descarga masiva: %s", document.storage_key, exc)
+                        logger.warning("No se pudo incluir %s en la descarga masiva: %s", entrada.storage_key, exc)
                         failed_count += 1
-                        failed_documents.append((document.id, document.title))
+                        failed_documents.append((entrada.document_id, titulo_por_doc_id.get(entrada.document_id, "")))
+                        fallidos_por_documento.add(entrada.document_id)
                     finally:
                         # Freed as soon as it's zipped instead of kept around until the
                         # whole batch finishes — otherwise disk usage peaks at roughly
@@ -788,6 +833,7 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
             db,
             bulk_download_id,
             "completed",
+            # downloaded_count cuenta ARCHIVOS zipeados (vigentes + versiones archivadas), no documentos.
             document_count=downloaded_count,
             failed_count=failed_count,
             zip_storage_key=zip_key,
@@ -797,7 +843,13 @@ def build_bulk_download_zip(bulk_download_id: int) -> None:
         # Only mark documents as delivered once the zip has actually been
         # uploaded successfully — if upload_file() above had failed, these
         # would stay eligible and get retried by the next bulk download.
-        repository.mark_documents_bulk_downloaded(db, included_document_ids, bulk_download_id)
+        # Además, se excluye cualquier documento que haya tenido alguna entrada
+        # fallida (su vigente o una versión archivada): marcarlo entregado
+        # dejaría esa versión fuera de toda descarga masiva futura. Su vigente
+        # se volverá a zipear en la próxima — aceptable, es el contrato de
+        # "documento atómico" previo a este cambio.
+        entregados = [doc_id for doc_id in included_document_ids if doc_id not in fallidos_por_documento]
+        repository.mark_documents_bulk_downloaded(db, entregados, bulk_download_id)
     except Exception as exc:
         repository.set_bulk_download_status(
             db, bulk_download_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)

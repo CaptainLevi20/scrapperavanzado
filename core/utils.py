@@ -6,6 +6,15 @@ from core.models import RawDocModel
 
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/*?:"<>|\x00-\x1f]')
 
+# Tope del segmento de nombre de archivo dentro de una clave de almacenamiento.
+# Los scrapers ya truncan el título a 120 caracteres al armar save_path (ver
+# `_INVALID_PATH_CHARS.sub(...)[:120]` en core/scrapers/families/*.py); este
+# mismo tope debe aplicarse cuando la clave se recalcula desde el título
+# completo (rekey_filename -> reconcile_document/reconcile_all), o un título de
+# texto libre largo produce un segmento que MinIO/S3 rechaza
+# (XMinioInvalidObjectName).
+_MAX_FILENAME_STEM_LEN = 120
+
 # Espejo del formato que produce core/scrapers/families/rama_judicial.py::_normalize_title
 # (T_{CODIGO}_{radicado segmentado en 23 dígitos}). Desde jul. 2026 también es el formato
 # que usa core/scrapers/families/samai.py::_normalizar_titulo para los Tribunales
@@ -72,7 +81,7 @@ def compute_doc_id(doc: RawDocModel, include_publication_date: bool = True) -> s
     return make_doc_id(key, doc.f_public)
 
 
-def _sanitize_filename_segment(name: str, fallback: str = "") -> str:
+def _sanitize_filename_segment(name: str, fallback: str = "", max_len: int | None = None) -> str:
     """Collapses a value to a single safe path segment before it's used to build
     a storage key. The filename in this function's callers always comes from a
     remote server we don't control (an HTTP header, or the URL/page title it
@@ -81,8 +90,16 @@ def _sanitize_filename_segment(name: str, fallback: str = "") -> str:
     or start with `..` and escape the storage root entirely. Strips path
     separators and control characters, and any leading/trailing dots or
     whitespace (so a lone "." or ".." segment, or a Windows-invalid trailing
-    dot, collapses to nothing and falls back instead of surviving as-is)."""
-    cleaned = _INVALID_FILENAME_CHARS.sub("-", name).strip(" .")
+    dot, collapses to nothing and falls back instead of surviving as-is).
+
+    `max_len`, when given, truncates the cleaned value to that many characters
+    (before the trailing strip) — same order the scrapers use
+    (`sub(...)[:N].strip(" .")`), so a key recomputed from a long title lands
+    on exactly the segment the scraper originally wrote."""
+    cleaned = _INVALID_FILENAME_CHARS.sub("-", name)
+    if max_len is not None:
+        cleaned = cleaned[:max_len]
+    cleaned = cleaned.strip(" .")
     return cleaned or fallback
 
 
@@ -143,7 +160,7 @@ def rekey_filename(storage_key: str, title: str) -> str:
     the wrong name even though the single-document download already shows the
     corrected one."""
     path = PurePosixPath(storage_key)
-    new_stem = _sanitize_filename_segment(title, fallback=path.stem)
+    new_stem = _sanitize_filename_segment(title, fallback=path.stem, max_len=_MAX_FILENAME_STEM_LEN)
     return str(path.with_name(f"{new_stem}{path.suffix}"))
 
 

@@ -1,8 +1,12 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from core.naming import (
+    codigo_ley_decreto,
     construir_nombre,
+    es_codigo_ley_decreto,
     es_familia_con_actuaciones,
     nombre_archivo_documento,
     nombre_archivo_version,
@@ -16,8 +20,8 @@ def test_sin_actuaciones_una_version():
 
 
 def test_sin_actuaciones_republicado():
-    assert construir_nombre("T-123-24", None, es_caso=False, tiene_actuaciones=False, version_no=1, total_versiones=2) == "T-123-24_v1"
-    assert construir_nombre("T-123-24", None, es_caso=False, tiene_actuaciones=False, version_no=2, total_versiones=2) == "T-123-24_v2"
+    assert construir_nombre("T-123-24", None, es_caso=False, tiene_actuaciones=False, version_no=1, total_versiones=2) == "T-123-24-v1"
+    assert construir_nombre("T-123-24", None, es_caso=False, tiene_actuaciones=False, version_no=2, total_versiones=2) == "T-123-24-v2"
 
 
 def test_caso_con_varias_actuaciones_usa_fecha_completa():
@@ -45,7 +49,7 @@ def test_caso_con_actuaciones_y_version():
         "11001-03-28-000-2026-00300-00", date(2026, 7, 31), es_caso=True, tiene_actuaciones=True,
         version_no=1, total_versiones=2,
     )
-    assert n == "11001-03-28-000-2026-00300-00_20260731_v1"
+    assert n == "11001-03-28-000-2026-00300-00_20260731-v1"
 
 
 def test_caso_sin_fecha_no_agrega_sufijo_fecha():
@@ -103,13 +107,13 @@ def test_nombre_documento_no_caso_ignora_fecha():
 
 def test_nombre_documento_vigente_con_varias_versiones():
     d = _doc(title="T-123-24", version_no=2)
-    assert nombre_documento(d, "constitucional", tiene_actuaciones=False) == "T-123-24_v2"
+    assert nombre_documento(d, "constitucional", tiene_actuaciones=False) == "T-123-24-v2"
 
 
 def test_nombre_version_usa_su_propio_numero_y_la_fecha_del_documento():
     d = _doc(title="11001-03-28-000-2026-00300-00", f_providencia=date(2026, 7, 31), version_no=2)
     v = SimpleNamespace(version_no=1, storage_key="v1.pdf")
-    assert nombre_version(d, v, "samai", tiene_actuaciones=True) == "11001-03-28-000-2026-00300-00_20260731_v1"
+    assert nombre_version(d, v, "samai", tiene_actuaciones=True) == "11001-03-28-000-2026-00300-00_20260731-v1"
 
 
 def test_nombre_archivo_agrega_extension_del_storage_key():
@@ -125,4 +129,34 @@ def test_nombre_archivo_documento_sin_actuaciones_agrega_solo_el_anio():
 def test_nombre_archivo_version_agrega_extension_del_storage_key_de_la_version():
     d = _doc(title="11001-03-28-000-2026-00300-00", f_providencia=date(2026, 7, 31), version_no=2)
     v = SimpleNamespace(version_no=1, storage_key="a/b/v1.pdf")
-    assert nombre_archivo_version(d, v, "samai", tiene_actuaciones=True) == "11001-03-28-000-2026-00300-00_20260731_v1.pdf"
+    assert nombre_archivo_version(d, v, "samai", tiene_actuaciones=True) == "11001-03-28-000-2026-00300-00_20260731-v1.pdf"
+
+
+@pytest.mark.parametrize(
+    "letra, numero, anio, esperado",
+    [
+        ("L", "2277", "2022", "L2277022"),   # ejemplo del usuario
+        ("L", "715", "2001", "L0715001"),    # número rellenado a 4 dígitos
+        ("D", "111", "1996", "D011196"),     # 1900-1999 -> año 2 dígitos
+        ("L", "100", "1993", "L010093"),
+        ("D", "6", "2000", "D0006000"),
+        ("L", "57", "1888", "L0057888"),     # 1800-1899 -> año 3 dígitos
+    ],
+)
+def test_codigo_ley_decreto_formato(letra, numero, anio, esperado):
+    assert codigo_ley_decreto(letra, numero, anio) == esperado
+
+
+@pytest.mark.parametrize("letra", ["R", "C", "A", "LEST", "ACTOLEG", "CONPES", "DIRECTIVA"])
+def test_codigo_ley_decreto_devuelve_none_para_otros_tipos(letra):
+    assert codigo_ley_decreto(letra, "123", "2024") is None
+
+
+@pytest.mark.parametrize("titulo", ["L2277022", "D011196", "L0057888"])
+def test_es_codigo_ley_decreto_reconoce_el_formato_nuevo(titulo):
+    assert es_codigo_ley_decreto(titulo) is True
+
+
+@pytest.mark.parametrize("titulo", ["L_MA_2277_2022", "R_ME_0715_2001", "LEST_MI_1751_2015", "", "L", "L12"])
+def test_es_codigo_ley_decreto_rechaza_lo_demas(titulo):
+    assert es_codigo_ley_decreto(titulo) is False

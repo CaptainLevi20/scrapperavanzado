@@ -33,7 +33,16 @@ _IGNORED_FILENAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
 # Keys are matched case-insensitively (see _detect_entity_from_filename).
 _ENTITY_ALIASES = {
     "SHACIENDABOG": "SDHBOG",
+    # Siglas de ministerios anteriores al cambio de 2026-09-03 (ver
+    # core/backfill_ministerios_siglas.py): archivos viejos deben resolver a
+    # la sigla nueva.
     "MEN": "ME",
+    "MADR": "MA",
+    "MDEPORTE": "MDEP",
+    "MINENERGIA": "MME",
+    "MININT": "MI",
+    "MINJUSTICIA": "MJ",
+    "MINTRABAJO": "MTRA",
     "CONBOG": "CONCBOG",
     "SHDBOG": "SDHBOG",
 }

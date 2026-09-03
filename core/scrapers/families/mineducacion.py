@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
+from core.naming import codigo_ley_decreto
 from core.utils import storage_path
 
 _BASE_URL = "https://www.mineducacion.gov.co"
@@ -31,7 +32,7 @@ _TIPOS = {
     "decreto": ("Decreto", "D"),
     "ley": ("Ley", "L"),
     "circular": ("Circular", "C"),
-    "directiva": ("Directiva", "DIRECTIVA"),
+    "directiva": ("Directiva", "DIR"),
     "acuerdo": ("Acuerdo", "A"),
 }
 
@@ -140,7 +141,7 @@ def _parse_fecha(texto: str) -> Optional[str]:
 
 
 def _normalize_title(letra: str, numero: str, anio: str) -> str:
-    return f"{letra}_MEN_{int(numero):04d}_{anio}"
+    return codigo_ley_decreto(letra, numero, anio) or f"{letra}_ME_{int(numero):04d}_{anio}"
 
 
 # Confirmado en producción (2026-08-25): una petición a este listado por año
