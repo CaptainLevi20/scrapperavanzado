@@ -124,6 +124,10 @@ def get_documents(
         d.case_document_count = count if tiene_actuaciones else None
         d.nombre = nombre_documento(d, family_keys.get(d.source_id), tiene_actuaciones)
 
+    anexo_counts = repository.anexo_counts_by_document(db, items, family_keys)
+    for d in items:
+        d.anexo_count = anexo_counts.get(d.id)
+
     case_link_status = repository.get_case_link_status_for_documents(db, [d.id for d in items])
     for d in items:
         info = case_link_status.get(d.id)
@@ -228,6 +232,18 @@ def get_document_versions(document_id: int, db: Session = Depends(get_db)):
     for v in versions:
         v.nombre = nombre_version(document, v, fam, tiene_actuaciones)
     return versions
+
+
+@router.get("/documents/{document_id}/anexos", response_model=list[DocumentOut])
+def get_document_anexos(document_id: int, db: Session = Depends(get_db)):
+    document = repository.get_document(db, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    anexos = repository.list_anexos_of_document(db, document)
+    fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    for a in anexos:
+        a.nombre = nombre_documento(a, fam, False)
+    return anexos
 
 
 @router.get("/documents/{document_id}/versions/{version_id}/download")

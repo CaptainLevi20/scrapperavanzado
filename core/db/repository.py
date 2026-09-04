@@ -745,6 +745,18 @@ def anexo_counts_by_document(
     return counts
 
 
+def list_anexos_of_document(db: Session, document: Document) -> list[Document]:
+    stmt = (
+        select(Document)
+        .where(
+            Document.source_id == document.source_id,
+            Document.title.like(f"{_escape_like(document.title)}\\_A__", escape="\\"),
+        )
+        .order_by(Document.title.asc())
+    )
+    return list(db.scalars(stmt).all())
+
+
 def list_documents_by_title_within_family(db: Session, family_key: str, title: str) -> list[Document]:
     stmt = (
         select(Document)
