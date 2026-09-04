@@ -38,6 +38,17 @@ function CaseBadge({ count }: { count: number }) {
   return <span className={CASE_BADGE_CLASS}>{count} actuaciones</span>;
 }
 
+const ANEXO_BADGE_CLASS =
+  "inline-block rounded-md border-[1.5px] border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground";
+
+function AnexoBadge({ count }: { count: number }) {
+  return (
+    <span className={ANEXO_BADGE_CLASS}>
+      {count} {count === 1 ? "anexo" : "anexos"}
+    </span>
+  );
+}
+
 function CaseLinkNote({ document }: { document: Document }) {
   if (document.case_link_id) {
     return (
@@ -84,6 +95,7 @@ export function DocumentsPage() {
   const [caseDocuments, setCaseDocuments] = useState<Document[] | null>(null);
   const [caseInitialIndex, setCaseInitialIndex] = useState(0);
   const [caseDialogError, setCaseDialogError] = useState<string | null>(null);
+  const [anexosDocument, setAnexosDocument] = useState<Document | null>(null);
   // Bumped on every openCaseDialog call so a stale response (from clicking a
   // second case before the first one's fetch resolved) can recognize it's no
   // longer the latest request and skip applying its result.
@@ -563,6 +575,13 @@ export function DocumentsPage() {
                   {!!document.case_document_count && document.case_document_count > 1 && (
                     <div className="mt-1">
                       <CaseBadge count={document.case_document_count} />
+                    </div>
+                  )}
+                  {!!document.anexo_count && document.anexo_count >= 1 && (
+                    <div className="mt-1">
+                      <button type="button" onClick={() => setAnexosDocument(document)}>
+                        <AnexoBadge count={document.anexo_count} />
+                      </button>
                     </div>
                   )}
                   <CaseLinkNote document={document} />
