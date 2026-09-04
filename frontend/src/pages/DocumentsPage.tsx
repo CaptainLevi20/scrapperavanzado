@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { AnexosDialog } from "../components/AnexosDialog";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { createBulkDownload } from "../api/bulkDownloads";
 import { fetchDocuments, fetchDocumentTipos, fetchDocumentSecciones, fetchDocumentEspecialidades, fetchDocumentMagistrados } from "../api/documents";
@@ -665,6 +666,8 @@ export function DocumentsPage() {
           }}
         />
       )}
+
+      <AnexosDialog document={anexosDocument} onClose={() => setAnexosDocument(null)} />
     </div>
   );
 }

@@ -63,6 +63,10 @@ export function fetchDocumentVersions(documentId: number): Promise<DocumentVersi
   return apiFetch<DocumentVersion[]>(`/documents/${documentId}/versions`);
 }
 
+export function fetchDocumentAnexos(documentId: number): Promise<Document[]> {
+  return apiFetch<Document[]>(`/documents/${documentId}/anexos`);
+}
+
 export function fetchDocumentVersionUrl(documentId: number, versionId: number): Promise<string> {
   return apiFetch<{ url: string }>(`/documents/${documentId}/versions/${versionId}/download`).then((data) => data.url);
 }
