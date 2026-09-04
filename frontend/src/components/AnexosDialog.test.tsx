@@ -40,3 +40,16 @@ it("no renderiza nada cuando document es null", () => {
   wrap(<AnexosDialog document={null} onClose={() => {}} />);
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
+
+it("muestra 'Sin anexos' cuando la respuesta es una lista vacía", async () => {
+  server.use(http.get(`${BASE_URL}/documents/7/anexos`, () => HttpResponse.json([])));
+
+  wrap(
+    <AnexosDialog
+      document={{ id: 7, title: "C_SF_0099_2026", nombre: "C_SF_0099_2026" } as Document}
+      onClose={() => {}}
+    />
+  );
+
+  expect(await screen.findByText("Sin anexos")).toBeInTheDocument();
+});

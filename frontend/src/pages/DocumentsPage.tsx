@@ -39,8 +39,10 @@ function CaseBadge({ count }: { count: number }) {
   return <span className={CASE_BADGE_CLASS}>{count} actuaciones</span>;
 }
 
+// Mismo tratamiento visual ("sello") que "N actuaciones", con un tono más
+// tenue para diferenciarlo sin salirse de la misma paleta.
 const ANEXO_BADGE_CLASS =
-  "inline-block rounded-md border-[1.5px] border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground";
+  "inline-block rounded-md border-[1.5px] border-sello/30 bg-sello/5 px-2 py-1 text-xs font-semibold text-sello-ink";
 
 function AnexoBadge({ count }: { count: number }) {
   return (
@@ -580,7 +582,11 @@ export function DocumentsPage() {
                   )}
                   {!!document.anexo_count && document.anexo_count >= 1 && (
                     <div className="mt-1">
-                      <button type="button" onClick={() => setAnexosDocument(document)}>
+                      <button
+                        type="button"
+                        onClick={() => setAnexosDocument(document)}
+                        className="cursor-pointer hover:opacity-80"
+                      >
                         <AnexoBadge count={document.anexo_count} />
                       </button>
                     </div>

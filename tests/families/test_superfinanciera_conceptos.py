@@ -120,6 +120,29 @@ def test_registro_a_doc_sin_concepto_parseable_usa_titulo_crudo_y_unverified():
     assert doc.f_public == "2026-05-08"
 
 
+def test_registro_a_doc_radicado_corto_no_se_confia_como_anio():
+    # Un radicado de 6 dígitos matchea _CONCEPTO_RE pero radicado[:4] = "1234"
+    # no es un año: no debe producir un CTO_SF_..._1234 "verificado".
+    reg = _RegistroConcepto(
+        "123456", "001", "5 de febrero de 2021", "AFP. Régimen de inversiones",
+        "Límite del 5%.", "https://x/loader.php?idFile=1", "123456 - 001 del 5 de febrero de 2021",
+    )
+    doc = _registro_a_doc(reg, "2021-01-01", "2021-12-31", _SOURCE, lambda m: None)
+    assert doc.title_unverified is True
+    assert not doc.title.startswith("CTO_SF_")
+    assert doc.title == "AFP. Régimen de inversiones"
+
+
+def test_registro_a_doc_radicado_con_anio_absurdo_no_se_confia():
+    reg = _RegistroConcepto(
+        "300012345678", "001", "5 de febrero de 2021", "Título temático",
+        "Resumen.", "https://x/loader.php?idFile=1", "300012345678 - 001 del 5 de febrero de 2021",
+    )
+    doc = _registro_a_doc(reg, "2021-01-01", "2021-12-31", _SOURCE, lambda m: None)
+    assert doc.title_unverified is True
+    assert not doc.title.startswith("CTO_SF_")
+
+
 def test_registro_a_doc_sin_fecha_se_descarta_con_aviso():
     avisos = []
     reg = _RegistroConcepto(None, None, "sin fecha aquí", "T", "R", "https://x/loader.php?idFile=9", "raw")
@@ -146,6 +169,19 @@ def test_scrap_conceptos_recorre_todas_las_paginas_y_filtra_por_fecha():
     assert titles == ["CTO_SF_0012412_2021_03", "CTO_SF_0041211_2021"]  # el de 2019 queda fuera de rango
     # se hicieron 2 POST (primera + página 2)
     assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_scrap_conceptos_sin_texto_de_total_emite_error():
+    # La respuesta no trae "de N registros" ni ninguna <table class="registro">:
+    # una miss total del parser no puede verse igual que "0 conceptos nuevos".
+    responses.add(responses.POST, _BUSCAR_URL, body="<html><body>formato inesperado</body></html>")
+    avisos = []
+
+    docs = scrap_conceptos("2021-01-01", "2021-12-31", _SOURCE, on_progress=avisos.append)
+
+    assert docs == []
+    assert any("Error" in a for a in avisos)
 
 
 @responses.activate

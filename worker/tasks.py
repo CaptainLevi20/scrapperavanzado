@@ -18,7 +18,7 @@ import requests
 from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
-from core.naming import es_codigo_ley_decreto, es_familia_con_actuaciones, nombre_archivo_documento, nombre_archivo_version
+from core.naming import es_anexo_title, es_codigo_ley_decreto, es_familia_con_actuaciones, nombre_archivo_documento, nombre_archivo_version
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
@@ -520,6 +520,12 @@ def scrape_source_task(run_source_id: int):
                                             docs_new += 1
                                             if es_familia_con_actuaciones(source.family_key, doc.title):
                                                 titulos_con_actuacion_nueva.add((source.family_key, doc.title))
+                                            # Un anexo SF creado después de que su
+                                            # documento padre ya fue revisado hereda
+                                            # ese estado (si no, el colapso lo oculta
+                                            # y la descarga masiva lo deja fuera).
+                                            if source.family_key == "superfinanciera" and es_anexo_title(doc.title):
+                                                repository.heredar_review_status_de_anexo(db, source.id, doc.title)
                                     else:
                                         _, existing, doc_id, doc = entry
                                         repository.archive_and_replace_document(

@@ -2028,3 +2028,31 @@ def test_marcar_util_un_anexo_no_arrastra_a_la_madre(db_session):
 
     db_session.refresh(madre)
     assert madre.review_status == "pending"
+
+
+def test_heredar_review_status_de_anexo_copia_el_estado_de_la_madre(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0040_2026")
+    repository.update_document_review_status(db_session, madre.id, "useful")
+
+    # Un anexo que llega DESPUÉS de que la madre ya fue revisada entra 'pending'.
+    anexo = _sf_doc(db_session, src.id, "C_SF_0040_2026_A01")
+    assert anexo.review_status == "pending"
+
+    changed = repository.heredar_review_status_de_anexo(db_session, src.id, "C_SF_0040_2026_A01")
+
+    assert changed is True
+    db_session.refresh(anexo)
+    assert anexo.review_status == "useful"
+
+
+def test_heredar_review_status_de_anexo_no_hace_nada_si_la_madre_esta_pending(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0041_2026")
+    anexo = _sf_doc(db_session, src.id, "C_SF_0041_2026_A01")
+
+    changed = repository.heredar_review_status_de_anexo(db_session, src.id, "C_SF_0041_2026_A01")
+
+    assert changed is False
+    db_session.refresh(anexo)
+    assert anexo.review_status == "pending"

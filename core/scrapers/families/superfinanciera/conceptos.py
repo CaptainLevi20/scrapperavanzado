@@ -96,10 +96,26 @@ def _registro_a_doc(reg, fini, ffin, source, on_progress) -> Optional[RawDocMode
             on_progress(f"[{source}] Aviso: sin «Archivo de texto» para «{reg.raw_concepto[:80]}», se omite")
         return None
 
-    if reg.radicado and reg.consecutivo:
+    # El radicado solo se puede tratar como fuente confiable del año/número
+    # canónico si de verdad tiene la forma AAAA+consecutivo: al menos 10 dígitos
+    # y los 4 primeros un año plausible. Un radicado corto como "123456" daría
+    # un título canónico equivocado (año "1234") que el pipeline creería
+    # verificado; en ese caso se cae al título crudo marcado como no verificado.
+    radicado_confiable = bool(
+        reg.radicado
+        and reg.consecutivo
+        and len(reg.radicado) >= 10
+        and 1900 <= int(reg.radicado[:4]) <= 2100
+    )
+    if radicado_confiable:
         title = _titulo_concepto(reg.radicado, reg.consecutivo)
         unverified = False
     else:
+        if reg.radicado and reg.consecutivo and on_progress:
+            on_progress(
+                f"[{source}] Aviso: radicado «{reg.radicado}» no tiene forma de año+consecutivo "
+                f"para «{reg.raw_concepto[:80]}»; se usa el título crudo sin verificar"
+            )
         title = (reg.titulo_norma or reg.raw_concepto or "concepto")[:120]
         unverified = True
 
@@ -152,18 +168,31 @@ def scrap_conceptos(fini, ffin, source, limit=10000, stop_event=None, on_progres
             on_progress(f"[{source}] Error abriendo la colección Doctrina y conceptos: {e}")
         return []
 
-    total = _total_registros(r.text) or 0
+    total = _total_registros(r.text)
+    if total is None:
+        if on_progress:
+            on_progress(
+                f"[{source}] Error: no se encontró el texto «de N registros» en la respuesta de "
+                "Doctrina y conceptos; puede haber cambiado el formato del sitio"
+            )
+        total = 0
     paginas = max(1, math.ceil(total / _POR_PAGINA))
     if on_progress:
         on_progress(f"[{source}] Doctrina y conceptos: {total} registros, {paginas} páginas")
 
-    def _procesar(html: str):
-        for reg in _parse_pagina(html, _BASE_URL):
+    def _procesar(registros):
+        for reg in registros:
             doc = _registro_a_doc(reg, fini, ffin, source, on_progress)
             if doc is not None:
                 docs.append(doc)
 
-    _procesar(r.text)
+    registros_pagina1 = _parse_pagina(r.text, _BASE_URL)
+    if not registros_pagina1 and on_progress:
+        on_progress(
+            f"[{source}] Error: la primera página de Doctrina y conceptos no trae ningún registro "
+            "(<table class=\"registro\">); puede haber cambiado el formato del sitio"
+        )
+    _procesar(registros_pagina1)
     campos = _campos_form_continuar(r.text)
 
     for pagina in range(2, paginas + 1):
@@ -187,7 +216,7 @@ def scrap_conceptos(fini, ffin, source, limit=10000, stop_event=None, on_progres
                     on_progress(f"[{source}] Error consultando la página {pagina} de conceptos: {e}")
         if html is None:
             continue
-        _procesar(html)
+        _procesar(_parse_pagina(html, _BASE_URL))
         nuevos_campos = _campos_form_continuar(html)
         if nuevos_campos:
             campos = nuevos_campos

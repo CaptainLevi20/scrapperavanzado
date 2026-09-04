@@ -79,6 +79,13 @@ def test_fecha_iso_arma_la_fecha_con_el_anio_de_la_pagina():
     assert _fecha_iso("sin fecha", 2026) is None
 
 
+def test_fecha_iso_dia_imposible_para_el_mes_devuelve_none():
+    assert _fecha_iso("Febrero 30", 2026) is None
+    assert _fecha_iso("Abril 31", 2026) is None
+    assert _fecha_iso("Febrero 29", 2025) is None  # 2025 no es bisiesto
+    assert _fecha_iso("Febrero 29", 2024) == "2024-02-29"  # 2024 sí
+
+
 def test_titulo_canonico_por_tipo():
     assert _titulo("C", "8", 2026) == ("C_SF_0008_2026", False)
     assert _titulo("CCIR", "20", 2026) == ("CCIR_SF_0020_2026", False)
@@ -174,6 +181,23 @@ def test_scrap_normativa_recorre_tipos_y_anios_en_rango():
     assert "R_SF_0007_2026" in titles
     # 2025 no se pidió (fuera de rango)
     assert all("2025" not in t for t in titles)
+
+
+@responses.activate
+def test_scrap_normativa_indice_sin_columnas_reconocibles_emite_error():
+    # El índice responde 200 pero su tabla no tiene ninguna de las columnas
+    # esperadas: no es "nada nuevo hoy", es una degradación total del parser.
+    responses.add(
+        responses.GET,
+        _INDICE_URL,
+        body="<html><body><table><tr><td>Contenido inesperado</td></tr></table></body></html>",
+    )
+    avisos = []
+
+    docs = scrap_normativa("2026-01-01", "2026-12-31", _SOURCE, on_progress=avisos.append)
+
+    assert docs == []
+    assert any("Error" in a for a in avisos)
 
 
 @responses.activate

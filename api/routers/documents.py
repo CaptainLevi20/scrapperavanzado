@@ -239,8 +239,12 @@ def get_document_anexos(document_id: int, db: Session = Depends(get_db)):
     document = repository.get_document(db, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    anexos = repository.list_anexos_of_document(db, document)
     fam = repository.get_source_family_keys(db, [document.source_id]).get(document.source_id)
+    # Los anexos solo existen en esta familia (ver _expandir_a_grupos); para
+    # cualquier otra, la respuesta es vacía sin tocar la base.
+    if fam != "superfinanciera":
+        return []
+    anexos = repository.list_anexos_of_document(db, document)
     for a in anexos:
         a.nombre = nombre_documento(a, fam, False)
     return anexos

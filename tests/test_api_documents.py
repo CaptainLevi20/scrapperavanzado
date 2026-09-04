@@ -1489,3 +1489,18 @@ def test_endpoint_anexos_de_documento(api_client, auth_header, db_session):
 
 def test_endpoint_anexos_404_si_no_existe(api_client, auth_header):
     assert api_client.get("/documents/999999/anexos", headers=auth_header).status_code == 404
+
+
+def test_endpoint_anexos_familia_no_superfinanciera_devuelve_vacio(api_client, auth_header, db_session):
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal", family_params={}
+    )
+    doc = repository.insert_document(
+        db_session, doc_id="rj-1", source_id=source.id, title="T_BTA_11001_2026",
+        storage_bucket="iurisync-test", storage_key="x.pdf",
+    )
+
+    r = api_client.get(f"/documents/{doc.id}/anexos", headers=auth_header)
+    assert r.status_code == 200
+    assert r.json() == []

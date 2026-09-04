@@ -1,3 +1,4 @@
+import datetime
 import re
 from collections import namedtuple
 from typing import Dict, List
@@ -50,7 +51,11 @@ def _fecha_iso(fecha_raw: str, anio: int):
         return None
     mes = _MESES[m.group(1).lower()]
     dia = int(m.group(2))
-    if not 1 <= dia <= 31:
+    try:
+        # Valida contra el calendario real: "Febrero 30" o "Abril 31" no existen
+        # y deben caer al respaldo (fecha None), no producir un ISO imposible.
+        datetime.date(anio, int(mes), dia)
+    except ValueError:
         return None
     return f"{anio:04d}-{mes}-{dia:02d}"
 
@@ -58,7 +63,7 @@ def _fecha_iso(fecha_raw: str, anio: int):
 def _titulo(sigla: str, numero_raw: str, anio: int):
     if numero_raw and numero_raw.isdigit():
         return f"{sigla}_SF_{int(numero_raw):04d}_{anio}", False
-    return (numero_raw or "documento"), True
+    return (numero_raw or "documento")[:120], True
 
 
 def _safe_title(title: str) -> str:
@@ -175,6 +180,14 @@ def scrap_normativa(fini, ffin, source, limit=10000, stop_event=None, on_progres
         return []
 
     indice = _parse_indice(resp.text, _BASE_URL)
+    if not indice or not any(indice.values()):
+        if on_progress:
+            on_progress(
+                f"[{source}] Error: el índice de normativa no expone ninguna columna reconocible "
+                "(Circulares Externas / Cartas Circulares / Resoluciones); no se procesó nada. "
+                "Puede haber cambiado el formato del sitio."
+            )
+        return []
     anio_ini, anio_fin = int(fini[:4]), int(ffin[:4])
     docs: List[RawDocModel] = []
 

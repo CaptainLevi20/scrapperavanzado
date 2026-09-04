@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
-from core.naming import es_anexo_title, es_familia_con_actuaciones
+from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
@@ -649,10 +650,12 @@ def list_documents(
         # listado si existe su documento padre (mismo título sin el sufijo,
         # 4 caracteres: "_A" + 2 dígitos) en la misma fuente.
         AnexoPadre = aliased(Document)
-        titulo_padre = func.substr(Document.title, 1, func.length(Document.title) - 4)
+        # greatest(..., 0) evita un SubstringError si algún título tuviera menos
+        # de 4 caracteres, sin depender de que el planner corte el AND antes.
+        titulo_padre = func.substr(Document.title, 1, func.greatest(func.length(Document.title) - 4, 0))
         es_fila_anexo = and_(
             OuterSource.family_key == "superfinanciera",
-            Document.title.op("~")(r"_A\d{2}$"),
+            Document.title.op("~")(r"_A[0-9][0-9]$"),
         )
         padre_existe = (
             select(AnexoPadre.id)
@@ -724,25 +727,41 @@ def anexo_counts_by_document(
     db: Session, documents: list[Document], family_keys: dict[int, str]
 ) -> dict[int, int]:
     """Para cada documento madre de la familia superfinanciera (título que NO
-    es de anexo), cuántas filas hijas {title}_A## existen en la misma fuente.
-    No incluye entradas con 0."""
-    counts: dict[int, int] = {}
-    for d in documents:
-        if family_keys.get(d.source_id) != "superfinanciera":
-            continue
-        if es_anexo_title(d.title):
-            continue
-        n = db.scalar(
-            select(func.count())
-            .select_from(Document)
-            .where(
-                Document.source_id == d.source_id,
-                Document.title.like(f"{_escape_like(d.title)}\\_A__", escape="\\"),
-            )
+    es de anexo), cuántas filas hijas {title}_A## (## = dos dígitos) existen en
+    la misma fuente. No incluye entradas con 0.
+
+    Una sola consulta agregada para toda la lista de entrada (antes era un
+    COUNT por documento madre — hasta 50 seq scans por página del listado, ya
+    que la collation de la columna anula la optimización de prefijo del índice
+    btree). Se agrupa por (source_id, título padre) recortando los 4 últimos
+    caracteres ("_A" + 2 dígitos) del título de cada anexo."""
+    parents = [
+        d
+        for d in documents
+        if family_keys.get(d.source_id) == "superfinanciera" and not es_anexo_title(d.title)
+    ]
+    if not parents:
+        return {}
+    titles = list({d.title for d in parents})
+    source_ids = list({d.source_id for d in parents})
+    parent_title_expr = func.substr(
+        Document.title, 1, func.greatest(func.length(Document.title) - 4, 0)
+    )
+    stmt = (
+        select(Document.source_id, parent_title_expr.label("parent_title"), func.count())
+        .where(
+            Document.source_id.in_(source_ids),
+            Document.title.op("~")(r"_A[0-9][0-9]$"),
+            parent_title_expr.in_(titles),
         )
-        if n:
-            counts[d.id] = int(n)
-    return counts
+        .group_by(Document.source_id, parent_title_expr)
+    )
+    by_key = {(source_id, parent_title): count for source_id, parent_title, count in db.execute(stmt).all()}
+    return {
+        d.id: int(by_key[(d.source_id, d.title)])
+        for d in parents
+        if by_key.get((d.source_id, d.title))
+    }
 
 
 def list_anexos_of_document(db: Session, document: Document) -> list[Document]:
@@ -750,7 +769,9 @@ def list_anexos_of_document(db: Session, document: Document) -> list[Document]:
         select(Document)
         .where(
             Document.source_id == document.source_id,
-            Document.title.like(f"{_escape_like(document.title)}\\_A__", escape="\\"),
+            # Solo hijos {título}_A## con ## de dos dígitos — consistente con
+            # es_anexo_title y con la cláusula de colapso de list_documents.
+            Document.title.op("~")(f"^{re.escape(document.title)}_A[0-9][0-9]$"),
         )
         .order_by(Document.title.asc())
     )
@@ -1115,7 +1136,9 @@ def count_documents_by_month(db: Session, year: int) -> list[int]:
 def _expandir_a_grupos(db: Session, document_ids: list[int]) -> list[int]:
     """Devuelve `document_ids` más los ids de todas las actuaciones hermanas
     (mismo family_key + mismo título) de los documentos que pertenezcan a una
-    familia con actuaciones (ver es_familia_con_actuaciones). Un documento
+    familia con actuaciones (ver es_familia_con_actuaciones). Además, para un
+    documento padre de la familia `superfinanciera` (título que no es de anexo),
+    incluye los ids de sus anexos `_A##` en la misma fuente. Un documento
     suelto se devuelve tal cual; los ids inexistentes se conservan (el UPDATE
     que los recibe simplemente no los encuentra). Sin repetidos, ordenada."""
     if not document_ids:
@@ -1336,6 +1359,34 @@ def heredar_review_status_de_actuaciones_existentes(db: Session, family_key: str
     )
     db.commit()
     return len(pendientes)
+
+
+def heredar_review_status_de_anexo(db: Session, source_id: int, anexo_title: str) -> bool:
+    """Un anexo `_A##` insertado DESPUÉS de que su documento padre ya fue
+    revisado entra en 'pending' (la propagación al marcar el padre solo alcanza
+    a los anexos que existían en ese momento) y el colapso del listado lo
+    oculta. Si el padre (mismo título sin el sufijo, misma fuente) existe con un
+    review_status ya decidido, se lo copia al anexo recién creado. Devuelve True
+    si actualizó el anexo."""
+    padre_title = titulo_padre_de_anexo(anexo_title)
+    if padre_title is None:
+        return False
+    padre = db.scalars(
+        select(Document).where(Document.source_id == source_id, Document.title == padre_title)
+    ).first()
+    if padre is None or padre.review_status == "pending":
+        return False
+    db.execute(
+        update(Document)
+        .where(Document.source_id == source_id, Document.title == anexo_title)
+        .values(
+            review_status=padre.review_status,
+            reviewed_at=datetime.now(timezone.utc),
+            bulk_download_id=None,
+        )
+    )
+    db.commit()
+    return True
 
 
 def get_document(db: Session, document_id: int) -> Optional[Document]:

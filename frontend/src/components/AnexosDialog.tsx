@@ -55,6 +55,10 @@ export function AnexosDialog({ document, onClose }: AnexosDialogProps) {
           <ErrorBanner message="No se pudieron cargar los anexos" onRetry={() => anexosQuery.refetch()} />
         )}
 
+        {!anexosQuery.isLoading && !anexosQuery.isError && anexosQuery.data?.length === 0 && (
+          <p className="text-sm text-muted-foreground">Sin anexos</p>
+        )}
+
         <ul className="flex flex-col gap-2">
           {anexosQuery.data?.map((anexo) => (
             <li key={anexo.id} className="flex items-center justify-between gap-3">
