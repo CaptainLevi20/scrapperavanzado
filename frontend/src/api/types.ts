@@ -75,6 +75,7 @@ export interface Document {
   reviewed_at: string | null;
   downloaded_at: string;
   case_document_count?: number | null;
+  anexo_count?: number | null;
   case_link_id?: number | null;
   case_link_other_source_name?: string | null;
 }

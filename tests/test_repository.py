@@ -1936,3 +1936,123 @@ def test_list_documents_by_title_within_family_returns_empty_list_when_no_match(
     repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
 
     assert repository.list_documents_by_title_within_family(db_session, "rama_judicial", "no-existe") == []
+
+
+def _sf_source(db_session):
+    repository.create_source_family(
+        db_session, key="superfinanciera", display_name="Superintendencia Financiera de Colombia"
+    )
+    return repository.create_source(
+        db_session, family_key="superfinanciera",
+        name="Superintendencia Financiera de Colombia", family_params={},
+    )
+
+
+def _sf_doc(db_session, source_id, title, doc_id=None):
+    return repository.insert_document(
+        db_session,
+        doc_id=doc_id or title,
+        source_id=source_id,
+        title=title,
+        tipo="Circular Externa",
+        storage_bucket="iurisync-test",
+        storage_key=f"Superintendencia Financiera de Colombia/2026-01-01/Circular Externa/{title}.pdf",
+    )
+
+
+def test_list_documents_oculta_anexos_con_padre_presente(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A02")
+
+    items, _ = repository.list_documents(db_session, collapse_case_families=True, limit=50, offset=0)
+    titles = {d.title for d in items}
+    assert "C_SF_0020_2026" in titles
+    assert "C_SF_0020_2026_A01" not in titles
+    assert "C_SF_0020_2026_A02" not in titles
+
+
+def test_list_documents_muestra_anexo_huerfano(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0099_2026_A01")  # sin padre
+
+    items, _ = repository.list_documents(db_session, collapse_case_families=True, limit=50, offset=0)
+    assert "C_SF_0099_2026_A01" in {d.title for d in items}
+
+
+def test_list_documents_no_colapsa_anexos_sin_collapse_case_families(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+
+    items, _ = repository.list_documents(
+        db_session, title_contains="C_SF_0020_2026", collapse_case_families=False, limit=50, offset=0
+    )
+    assert {"C_SF_0020_2026", "C_SF_0020_2026_A01"} <= {d.title for d in items}
+
+
+def test_anexo_counts_by_document(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A02")
+    sin_anexos = _sf_doc(db_session, src.id, "C_SF_0021_2026")
+
+    counts = repository.anexo_counts_by_document(
+        db_session, [madre, sin_anexos], {src.id: "superfinanciera"}
+    )
+    assert counts == {madre.id: 2}
+
+
+def test_marcar_util_una_circular_arrastra_sus_anexos(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    a1 = _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+    a2 = _sf_doc(db_session, src.id, "C_SF_0020_2026_A02")
+
+    repository.update_document_review_status(db_session, madre.id, "useful")
+
+    db_session.refresh(a1)
+    db_session.refresh(a2)
+    assert a1.review_status == "useful"
+    assert a2.review_status == "useful"
+
+
+def test_marcar_util_un_anexo_no_arrastra_a_la_madre(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0030_2026")
+    a1 = _sf_doc(db_session, src.id, "C_SF_0030_2026_A01")
+
+    repository.update_document_review_status(db_session, a1.id, "useful")
+
+    db_session.refresh(madre)
+    assert madre.review_status == "pending"
+
+
+def test_heredar_review_status_de_anexo_copia_el_estado_de_la_madre(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0040_2026")
+    repository.update_document_review_status(db_session, madre.id, "useful")
+
+    # Un anexo que llega DESPUÉS de que la madre ya fue revisada entra 'pending'.
+    anexo = _sf_doc(db_session, src.id, "C_SF_0040_2026_A01")
+    assert anexo.review_status == "pending"
+
+    changed = repository.heredar_review_status_de_anexo(db_session, src.id, "C_SF_0040_2026_A01")
+
+    assert changed is True
+    db_session.refresh(anexo)
+    assert anexo.review_status == "useful"
+
+
+def test_heredar_review_status_de_anexo_no_hace_nada_si_la_madre_esta_pending(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0041_2026")
+    anexo = _sf_doc(db_session, src.id, "C_SF_0041_2026_A01")
+
+    changed = repository.heredar_review_status_de_anexo(db_session, src.id, "C_SF_0041_2026_A01")
+
+    assert changed is False
+    db_session.refresh(anexo)
+    assert anexo.review_status == "pending"

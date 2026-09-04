@@ -68,6 +68,11 @@ _FAMILIES = {
         "Ministerio del Trabajo",
         "Normativa (decretos, resoluciones, circulares, leyes) publicada por el Ministerio del Trabajo",
     ),
+    "superfinanciera": (
+        "Superintendencia Financiera de Colombia",
+        "Normativa (circulares externas, cartas circulares, resoluciones) y doctrina y conceptos "
+        "publicados por la Superintendencia Financiera de Colombia",
+    ),
 }
 
 
@@ -171,6 +176,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="mintrabajo", name="Ministerio del Trabajo", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="superfinanciera", name="Superintendencia Financiera de Colombia", family_params={}
     )
 
 

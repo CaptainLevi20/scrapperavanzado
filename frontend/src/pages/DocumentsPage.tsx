@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Download, Eye, FileStack, Search } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { AnexosDialog } from "../components/AnexosDialog";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { createBulkDownload } from "../api/bulkDownloads";
 import { fetchDocuments, fetchDocumentTipos, fetchDocumentSecciones, fetchDocumentEspecialidades, fetchDocumentMagistrados } from "../api/documents";
@@ -36,6 +37,19 @@ const CASE_BADGE_CLASS =
 
 function CaseBadge({ count }: { count: number }) {
   return <span className={CASE_BADGE_CLASS}>{count} actuaciones</span>;
+}
+
+// Mismo tratamiento visual ("sello") que "N actuaciones", con un tono más
+// tenue para diferenciarlo sin salirse de la misma paleta.
+const ANEXO_BADGE_CLASS =
+  "inline-block rounded-md border-[1.5px] border-sello/30 bg-sello/5 px-2 py-1 text-xs font-semibold text-sello-ink";
+
+function AnexoBadge({ count }: { count: number }) {
+  return (
+    <span className={ANEXO_BADGE_CLASS}>
+      {count} {count === 1 ? "anexo" : "anexos"}
+    </span>
+  );
 }
 
 function CaseLinkNote({ document }: { document: Document }) {
@@ -84,6 +98,7 @@ export function DocumentsPage() {
   const [caseDocuments, setCaseDocuments] = useState<Document[] | null>(null);
   const [caseInitialIndex, setCaseInitialIndex] = useState(0);
   const [caseDialogError, setCaseDialogError] = useState<string | null>(null);
+  const [anexosDocument, setAnexosDocument] = useState<Document | null>(null);
   // Bumped on every openCaseDialog call so a stale response (from clicking a
   // second case before the first one's fetch resolved) can recognize it's no
   // longer the latest request and skip applying its result.
@@ -565,6 +580,17 @@ export function DocumentsPage() {
                       <CaseBadge count={document.case_document_count} />
                     </div>
                   )}
+                  {!!document.anexo_count && document.anexo_count >= 1 && (
+                    <div className="mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setAnexosDocument(document)}
+                        className="cursor-pointer hover:opacity-80"
+                      >
+                        <AnexoBadge count={document.anexo_count} />
+                      </button>
+                    </div>
+                  )}
                   <CaseLinkNote document={document} />
                 </td>
                 <td className={`${TD} whitespace-nowrap`}>{sourceNameById.get(document.source_id) ?? "—"}</td>
@@ -646,6 +672,8 @@ export function DocumentsPage() {
           }}
         />
       )}
+
+      <AnexosDialog document={anexosDocument} onClose={() => setAnexosDocument(null)} />
     </div>
   );
 }

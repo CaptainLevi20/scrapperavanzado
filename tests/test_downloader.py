@@ -125,6 +125,81 @@ def test_download_strips_charset_parameter_from_content_type(tmp_path):
 
 
 @responses.activate
+def test_download_normalizes_octet_stream_content_type_to_pdf_from_filename_extension(tmp_path):
+    """La Superintendencia Financiera (loader.php) sirve todo con
+    `Content-Type: application/octet-stream`. Guardado tal cual, la vista previa
+    404 para todos sus documentos aunque sean PDFs válidos. Cuando el servidor
+    no dio un tipo real, debe derivarse de la extensión del archivo."""
+    responses.add(
+        responses.GET,
+        "https://example.com/loader.php?id=1",
+        body=b"%PDF-1.4 contenido",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": 'attachment; filename="x.pdf"',
+        },
+        status=200,
+    )
+    result = Downloader().download(_doc(url="https://example.com/loader.php?id=1"), tmp_path)
+
+    assert result.content_type == "application/pdf"
+
+
+@responses.activate
+def test_download_normalizes_octet_stream_content_type_to_docx_from_filename_extension(tmp_path):
+    responses.add(
+        responses.GET,
+        "https://example.com/loader.php?id=2",
+        body=b"PK\x03\x04 contenido",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": 'attachment; filename="x.docx"',
+        },
+        status=200,
+    )
+    result = Downloader().download(_doc(url="https://example.com/loader.php?id=2"), tmp_path)
+
+    assert result.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+@responses.activate
+def test_download_leaves_octet_stream_content_type_untouched_for_an_unmapped_extension(tmp_path):
+    responses.add(
+        responses.GET,
+        "https://example.com/loader.php?id=3",
+        body=b"PK\x03\x04 zip",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": 'attachment; filename="x.zip"',
+        },
+        status=200,
+    )
+    result = Downloader().download(_doc(url="https://example.com/loader.php?id=3"), tmp_path)
+
+    assert result.content_type == "application/octet-stream"
+
+
+@responses.activate
+def test_download_does_not_override_a_real_server_content_type_using_the_extension(tmp_path):
+    """La normalización solo aplica al caso octet-stream / vacío. Si el servidor
+    mandó un tipo real (application/pdf), una extensión `.doc` en el nombre del
+    archivo no debe pisarlo."""
+    responses.add(
+        responses.GET,
+        "https://example.com/loader.php?id=4",
+        body=b"%PDF-1.4 contenido",
+        headers={
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="x.doc"',
+        },
+        status=200,
+    )
+    result = Downloader().download(_doc(url="https://example.com/loader.php?id=4"), tmp_path)
+
+    assert result.content_type == "application/pdf"
+
+
+@responses.activate
 def test_download_post_sends_json_body(tmp_path):
     responses.add(
         responses.POST,

@@ -88,6 +88,7 @@ class DocumentOut(BaseModel):
     reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
     case_document_count: Optional[int] = None
+    anexo_count: Optional[int] = None
     case_link_id: Optional[int] = None
     case_link_other_source_name: Optional[str] = None
 

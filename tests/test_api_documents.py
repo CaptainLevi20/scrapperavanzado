@@ -1444,3 +1444,63 @@ def test_get_documents_filters_by_seccion_especialidad_magistrado(api_client, au
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["title"] == "Coincide"
+
+
+from core.db import repository
+
+
+def _sf_src_y_docs(db_session, titulos):
+    repository.create_source_family(
+        db_session, key="superfinanciera", display_name="Superintendencia Financiera de Colombia"
+    )
+    source = repository.create_source(
+        db_session, family_key="superfinanciera",
+        name="Superintendencia Financiera de Colombia", family_params={},
+    )
+    docs = {}
+    for t in titulos:
+        docs[t] = repository.insert_document(
+            db_session, doc_id=t, source_id=source.id, title=t, tipo="Circular Externa",
+            storage_bucket="iurisync-test",
+            storage_key=f"Superintendencia Financiera de Colombia/2026-01-01/Circular Externa/{t}.pdf",
+        )
+    return source, docs
+
+
+def test_listado_documentos_incluye_anexo_count(api_client, auth_header, db_session):
+    _sf_src_y_docs(db_session, ["C_SF_0020_2026", "C_SF_0020_2026_A01", "C_SF_0020_2026_A02"])
+
+    r = api_client.get("/documents", headers=auth_header)
+    assert r.status_code == 200
+    fila = next(d for d in r.json()["items"] if d["title"] == "C_SF_0020_2026")
+    assert fila["anexo_count"] == 2
+
+
+def test_endpoint_anexos_de_documento(api_client, auth_header, db_session):
+    _, docs = _sf_src_y_docs(
+        db_session, ["C_SF_0020_2026", "C_SF_0020_2026_A02", "C_SF_0020_2026_A01"]
+    )
+    madre_id = docs["C_SF_0020_2026"].id
+
+    r = api_client.get(f"/documents/{madre_id}/anexos", headers=auth_header)
+    assert r.status_code == 200
+    assert [d["title"] for d in r.json()] == ["C_SF_0020_2026_A01", "C_SF_0020_2026_A02"]
+
+
+def test_endpoint_anexos_404_si_no_existe(api_client, auth_header):
+    assert api_client.get("/documents/999999/anexos", headers=auth_header).status_code == 404
+
+
+def test_endpoint_anexos_familia_no_superfinanciera_devuelve_vacio(api_client, auth_header, db_session):
+    repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
+    source = repository.create_source(
+        db_session, family_key="rama_judicial", name="Tribunal", family_params={}
+    )
+    doc = repository.insert_document(
+        db_session, doc_id="rj-1", source_id=source.id, title="T_BTA_11001_2026",
+        storage_bucket="iurisync-test", storage_key="x.pdf",
+    )
+
+    r = api_client.get(f"/documents/{doc.id}/anexos", headers=auth_header)
+    assert r.status_code == 200
+    assert r.json() == []

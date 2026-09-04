@@ -825,6 +825,22 @@ describe("DocumentsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("muestra el chip 'N anexos' para documentos con anexo_count", async () => {
+    mockFilterEndpoints();
+    server.use(
+      http.get(`${BASE_URL}/documents`, () =>
+        HttpResponse.json({
+          items: [{ ...DOCUMENT, id: 1, title: "C_SF_0020_2026", nombre: "C_SF_0020_2026", anexo_count: 2 }],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        })
+      )
+    );
+    renderPage();
+    expect(await screen.findByText("2 anexos")).toBeInTheDocument();
+  });
+
   it("shows the most recently clicked case, not a stale response from a case clicked just before it", async () => {
     // Regression test: opening a case dialog was a loose async call with no
     // token identifying the latest request. Clicking case A and then quickly
