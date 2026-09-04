@@ -1,6 +1,68 @@
-from typing import List
+import math
+import re
+from collections import namedtuple
+from typing import List, Optional
+from urllib.parse import urljoin
 
+import requests
+from bs4 import BeautifulSoup
+
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
+from core.utils import storage_path
+
+_BASE_URL = "https://www.superfinanciera.gov.co"
+_BUSCAR_URL = f"{_BASE_URL}/ABCD/superfinanciera/php/buscar_integrada.php"
+_COLECCION = "ac|Doctrina y conceptos|TM_"
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+_POR_PAGINA = 25
+
+_INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
+_TOTAL_RE = re.compile(r"de\s+([\d.,]+)\s+registros", re.IGNORECASE)
+# "2020311455 - 001 del 5 de febrero de 2021"
+_CONCEPTO_RE = re.compile(r"^\s*(\d{6,})\s*-\s*(\d{1,4})\s+del?\s+(.+?)\s*$")
+
+_RegistroConcepto = namedtuple(
+    "_RegistroConcepto", "radicado consecutivo fecha_texto titulo_norma resumen archivo_url raw_concepto"
+)
+
+
+def _total_registros(html: str) -> Optional[int]:
+    m = _TOTAL_RE.search(html or "")
+    if not m:
+        return None
+    return int(re.sub(r"[.,]", "", m.group(1)))
+
+
+def _campo(registro, etiqueta: str) -> str:
+    for td in registro.find_all("td"):
+        if td.get_text(strip=True).rstrip(":").strip().lower() == etiqueta.rstrip(":").lower():
+            siguiente = td.find_next_sibling("td")
+            if siguiente is not None:
+                return siguiente.get_text(" ", strip=True)
+    return ""
+
+
+def _parse_pagina(html: str, base_url: str) -> List[_RegistroConcepto]:
+    soup = BeautifulSoup(html, "html.parser")
+    registros: List[_RegistroConcepto] = []
+    for tabla in soup.find_all("table", class_="registro"):
+        raw_concepto = _campo(tabla, "Concepto:")
+        titulo_norma = _campo(tabla, "Título de la norma:")
+        resumen = _campo(tabla, "Resumen:")
+        enlace = tabla.find("a", string=re.compile("Archivo de texto", re.IGNORECASE))
+        archivo_url = urljoin(base_url + "/", enlace["href"]) if enlace and enlace.get("href") else None
+
+        m = _CONCEPTO_RE.match(raw_concepto)
+        if m:
+            radicado, consecutivo, fecha_texto = m.group(1), m.group(2), m.group(3)
+        else:
+            radicado = consecutivo = None
+            fecha_texto = raw_concepto
+        registros.append(_RegistroConcepto(
+            radicado, consecutivo, fecha_texto, titulo_norma, resumen, archivo_url, raw_concepto
+        ))
+    return registros
 
 
 def scrap_conceptos(fini, ffin, source, limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
