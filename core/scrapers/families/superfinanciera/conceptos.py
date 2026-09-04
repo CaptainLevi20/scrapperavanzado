@@ -119,5 +119,77 @@ def _registro_a_doc(reg, fini, ffin, source, on_progress) -> Optional[RawDocMode
     )
 
 
+def _campos_form_continuar(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    form = soup.find("form", attrs={"name": "continuar"})
+    if form is None:
+        return {}
+    campos = {}
+    for inp in form.find_all("input"):
+        nombre = inp.get("name")
+        if nombre:
+            campos[nombre] = inp.get("value", "")
+    return campos
+
+
+def _consulta_inicial() -> dict:
+    return {
+        "base": "juris", "cipar": "", "Opcion": "libre", "coleccion": _COLECCION,
+        "Expresion": "$", "titulo_c": "", "resaltar": "", "submenu": "", "Pft": "", "mostrar_exp": "",
+    }
+
+
 def scrap_conceptos(fini, ffin, source, limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
-    return []
+    session = requests.Session()
+    session.headers.update(_HEADERS)
+    docs: List[RawDocModel] = []
+
+    try:
+        r = session.post(_BUSCAR_URL, data=_consulta_inicial(), timeout=60)
+        r.raise_for_status()
+    except Exception as e:
+        if on_progress:
+            on_progress(f"[{source}] Error abriendo la colección Doctrina y conceptos: {e}")
+        return []
+
+    total = _total_registros(r.text) or 0
+    paginas = max(1, math.ceil(total / _POR_PAGINA))
+    if on_progress:
+        on_progress(f"[{source}] Doctrina y conceptos: {total} registros, {paginas} páginas")
+
+    def _procesar(html: str):
+        for reg in _parse_pagina(html, _BASE_URL):
+            doc = _registro_a_doc(reg, fini, ffin, source, on_progress)
+            if doc is not None:
+                docs.append(doc)
+
+    _procesar(r.text)
+    campos = _campos_form_continuar(r.text)
+
+    for pagina in range(2, paginas + 1):
+        if stop_event is not None and stop_event.is_set():
+            return docs[:limit]
+        if len(docs) >= limit:
+            return docs[:limit]
+        cuerpo = dict(campos)
+        cuerpo["pagina"] = str(pagina)
+        cuerpo["desde"] = str((pagina - 1) * _POR_PAGINA + 1)
+
+        html = None
+        for intento in range(2):
+            try:
+                pr = session.post(_BUSCAR_URL, data=cuerpo, timeout=60)
+                pr.raise_for_status()
+                html = pr.text
+                break
+            except Exception as e:
+                if intento == 1 and on_progress:
+                    on_progress(f"[{source}] Error consultando la página {pagina} de conceptos: {e}")
+        if html is None:
+            continue
+        _procesar(html)
+        nuevos_campos = _campos_form_continuar(html)
+        if nuevos_campos:
+            campos = nuevos_campos
+
+    return docs[:limit]

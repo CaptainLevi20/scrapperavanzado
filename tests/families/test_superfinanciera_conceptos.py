@@ -1,10 +1,12 @@
-from datetime import date
+import responses
 from core.scrapers.families.superfinanciera.conceptos import (
     _parse_pagina,
     _total_registros,
     _titulo_concepto,
     _registro_a_doc,
     _RegistroConcepto,
+    scrap_conceptos,
+    _BUSCAR_URL,
 )
 
 _BASE = "https://www.superfinanciera.gov.co"
@@ -123,3 +125,40 @@ def test_registro_a_doc_sin_fecha_se_descarta_con_aviso():
     reg = _RegistroConcepto(None, None, "sin fecha aquí", "T", "R", "https://x/loader.php?idFile=9", "raw")
     assert _registro_a_doc(reg, "2026-01-01", "2026-12-31", _SOURCE, avisos.append) is None
     assert avisos
+
+
+@responses.activate
+def test_scrap_conceptos_recorre_todas_las_paginas_y_filtra_por_fecha():
+    # total 50 -> 2 páginas de 25 (pero mandamos pocos registros por simplicidad)
+    pagina1 = _pagina_html([
+        _registro_html("2021012412 - 003 del 23 de febrero de 2021", "Almacenes", "R1", "111"),
+        _registro_html("2019009999 - 001 del 1 de marzo de 2019", "Viejo", "R2", "222"),
+    ], total=50)
+    pagina2 = _pagina_html([
+        _registro_html("2021041211 - 001 del 1 de marzo de 2021", "Broker", "R3", "333"),
+    ], total=50)
+    responses.add(responses.POST, _BUSCAR_URL, body=pagina1)   # primera consulta
+    responses.add(responses.POST, _BUSCAR_URL, body=pagina2)   # página 2
+
+    docs = scrap_conceptos("2021-01-01", "2021-12-31", _SOURCE, on_progress=lambda m: None)
+
+    titles = sorted(d.title for d in docs)
+    assert titles == ["CTO_SF_0012412_2021_03", "CTO_SF_0041211_2021"]  # el de 2019 queda fuera de rango
+    # se hicieron 2 POST (primera + página 2)
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_scrap_conceptos_reintenta_una_pagina_fallida_y_sigue():
+    pagina1 = _pagina_html([
+        _registro_html("2021012412 - 001 del 23 de febrero de 2021", "A", "Res", "111"),
+    ], total=50)
+    responses.add(responses.POST, _BUSCAR_URL, body=pagina1)
+    responses.add(responses.POST, _BUSCAR_URL, status=500)  # página 2, primer intento
+    responses.add(responses.POST, _BUSCAR_URL, status=500)  # página 2, reintento
+    avisos = []
+
+    docs = scrap_conceptos("2021-01-01", "2021-12-31", _SOURCE, on_progress=avisos.append)
+
+    assert [d.title for d in docs] == ["CTO_SF_0012412_2021"]
+    assert any("Error" in a for a in avisos)
