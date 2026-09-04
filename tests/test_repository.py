@@ -1936,3 +1936,70 @@ def test_list_documents_by_title_within_family_returns_empty_list_when_no_match(
     repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
 
     assert repository.list_documents_by_title_within_family(db_session, "rama_judicial", "no-existe") == []
+
+
+def _sf_source(db_session):
+    repository.create_source_family(
+        db_session, key="superfinanciera", display_name="Superintendencia Financiera de Colombia"
+    )
+    return repository.create_source(
+        db_session, family_key="superfinanciera",
+        name="Superintendencia Financiera de Colombia", family_params={},
+    )
+
+
+def _sf_doc(db_session, source_id, title, doc_id=None):
+    return repository.insert_document(
+        db_session,
+        doc_id=doc_id or title,
+        source_id=source_id,
+        title=title,
+        tipo="Circular Externa",
+        storage_bucket="iurisync-test",
+        storage_key=f"Superintendencia Financiera de Colombia/2026-01-01/Circular Externa/{title}.pdf",
+    )
+
+
+def test_list_documents_oculta_anexos_con_padre_presente(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A02")
+
+    items, _ = repository.list_documents(db_session, collapse_case_families=True, limit=50, offset=0)
+    titles = {d.title for d in items}
+    assert "C_SF_0020_2026" in titles
+    assert "C_SF_0020_2026_A01" not in titles
+    assert "C_SF_0020_2026_A02" not in titles
+
+
+def test_list_documents_muestra_anexo_huerfano(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0099_2026_A01")  # sin padre
+
+    items, _ = repository.list_documents(db_session, collapse_case_families=True, limit=50, offset=0)
+    assert "C_SF_0099_2026_A01" in {d.title for d in items}
+
+
+def test_list_documents_no_colapsa_anexos_sin_collapse_case_families(db_session):
+    src = _sf_source(db_session)
+    _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+
+    items, _ = repository.list_documents(
+        db_session, title_contains="C_SF_0020_2026", collapse_case_families=False, limit=50, offset=0
+    )
+    assert {"C_SF_0020_2026", "C_SF_0020_2026_A01"} <= {d.title for d in items}
+
+
+def test_anexo_counts_by_document(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+    _sf_doc(db_session, src.id, "C_SF_0020_2026_A02")
+    sin_anexos = _sf_doc(db_session, src.id, "C_SF_0021_2026")
+
+    counts = repository.anexo_counts_by_document(
+        db_session, [madre, sin_anexos], {src.id: "superfinanciera"}
+    )
+    assert counts == {madre.id: 2}

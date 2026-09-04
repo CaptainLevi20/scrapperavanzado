@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
-from core.naming import es_familia_con_actuaciones
+from core.naming import es_anexo_title, es_familia_con_actuaciones
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
@@ -644,6 +644,26 @@ def list_documents(
             or_(~is_case_title, ~has_newer_sibling)
         )
 
+        # Colapso de anexos (paralelo al de "case families"): en la familia
+        # superfinanciera, una fila cuyo título termina en _A## se oculta del
+        # listado si existe su documento padre (mismo título sin el sufijo,
+        # 4 caracteres: "_A" + 2 dígitos) en la misma fuente.
+        AnexoPadre = aliased(Document)
+        titulo_padre = func.substr(Document.title, 1, func.length(Document.title) - 4)
+        es_fila_anexo = and_(
+            OuterSource.family_key == "superfinanciera",
+            Document.title.op("~")(r"_A\d{2}$"),
+        )
+        padre_existe = (
+            select(AnexoPadre.id)
+            .where(
+                AnexoPadre.source_id == Document.source_id,
+                AnexoPadre.title == titulo_padre,
+            )
+            .exists()
+        )
+        stmt = stmt.where(or_(~es_fila_anexo, ~padre_existe))
+
     # COUNT via a subquery instead of materializing every matching Document row
     # just to call len() on them — the previous approach got slower with every
     # document added to the archive, on every page load and every keystroke in
@@ -697,6 +717,31 @@ def actuacion_counts_by_title(
     counts: dict[str, int] = {}
     for fam, titles in titles_por_familia.items():
         counts.update(count_documents_by_title_within_family(db, titles, fam))
+    return counts
+
+
+def anexo_counts_by_document(
+    db: Session, documents: list[Document], family_keys: dict[int, str]
+) -> dict[int, int]:
+    """Para cada documento madre de la familia superfinanciera (título que NO
+    es de anexo), cuántas filas hijas {title}_A## existen en la misma fuente.
+    No incluye entradas con 0."""
+    counts: dict[int, int] = {}
+    for d in documents:
+        if family_keys.get(d.source_id) != "superfinanciera":
+            continue
+        if es_anexo_title(d.title):
+            continue
+        n = db.scalar(
+            select(func.count())
+            .select_from(Document)
+            .where(
+                Document.source_id == d.source_id,
+                Document.title.like(f"{_escape_like(d.title)}\\_A__", escape="\\"),
+            )
+        )
+        if n:
+            counts[d.id] = int(n)
     return counts
 
 
