@@ -31,6 +31,22 @@ def es_codigo_ley_decreto(titulo: str) -> bool:
     (para deduplicar entre fuentes en el worker)."""
     return bool(_CODIGO_LEY_DECRETO_RE.match(titulo or ""))
 
+
+_ANEXO_SUFFIX_RE = re.compile(r"_A\d{2}$")
+
+
+def es_anexo_title(title: str) -> bool:
+    """True si `title` termina en _A + 2 dígitos (ej. C_SF_0020_2026_A01)."""
+    return bool(_ANEXO_SUFFIX_RE.search(title or ""))
+
+
+def titulo_padre_de_anexo(title: str) -> Optional[str]:
+    """Quita el sufijo _A\\d\\d; None si no es anexo."""
+    if not es_anexo_title(title):
+        return None
+    return _ANEXO_SUFFIX_RE.sub("", title)
+
+
 # Familias cuyo título identifica un proceso (no una providencia puntual): sus
 # documentos "tienen actuaciones" y llevan el sufijo de fecha. Cada una trae su
 # propio chequeo de "¿este título parece de caso?" — mismo criterio que la

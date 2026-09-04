@@ -6,12 +6,14 @@ import pytest
 from core.naming import (
     codigo_ley_decreto,
     construir_nombre,
+    es_anexo_title,
     es_codigo_ley_decreto,
     es_familia_con_actuaciones,
     nombre_archivo_documento,
     nombre_archivo_version,
     nombre_documento,
     nombre_version,
+    titulo_padre_de_anexo,
 )
 
 
@@ -160,3 +162,17 @@ def test_es_codigo_ley_decreto_reconoce_el_formato_nuevo(titulo):
 @pytest.mark.parametrize("titulo", ["L_MA_2277_2022", "R_ME_0715_2001", "LEST_MI_1751_2015", "", "L", "L12"])
 def test_es_codigo_ley_decreto_rechaza_lo_demas(titulo):
     assert es_codigo_ley_decreto(titulo) is False
+
+
+def test_es_anexo_title():
+    assert es_anexo_title("C_SF_0020_2026_A01") is True
+    assert es_anexo_title("C_SF_0020_2026_A15") is True
+    assert es_anexo_title("C_SF_0020_2026") is False
+    assert es_anexo_title("CTO_SF_0019914_2026") is False
+    assert es_anexo_title("") is False
+
+
+def test_titulo_padre_de_anexo():
+    assert titulo_padre_de_anexo("C_SF_0020_2026_A01") == "C_SF_0020_2026"
+    assert titulo_padre_de_anexo("R_SF_1215_2020_A09") == "R_SF_1215_2020"
+    assert titulo_padre_de_anexo("C_SF_0020_2026") is None
