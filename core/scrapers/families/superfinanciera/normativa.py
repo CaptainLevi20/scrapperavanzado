@@ -1,4 +1,5 @@
 import re
+from collections import namedtuple
 from typing import Dict, List
 from urllib.parse import urljoin
 
@@ -23,6 +24,8 @@ _TIPOS = {
 
 _ANIO_RE = re.compile(r"^\s*((?:19|20)\d{2})\s*$")
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
+
+_FilaNormativa = namedtuple("_FilaNormativa", "numero_raw fecha_raw descripcion anexos_urls")
 
 
 def _limpiar_encabezado(texto: str) -> str:
@@ -55,6 +58,34 @@ def _parse_indice(html: str, base_url: str) -> Dict[str, Dict[int, str]]:
                 resultado[encabezado][int(m.group(1))] = urljoin(base_url + "/", enlace["href"])
         return resultado
     return {}
+
+
+def _parse_pagina_anio(html: str, base_url: str) -> List[_FilaNormativa]:
+    soup = BeautifulSoup(html, "html.parser")
+    tabla = soup.find("table")
+    if tabla is None:
+        return []
+    filas: List[_FilaNormativa] = []
+    for tr in tabla.find_all("tr"):
+        celdas = tr.find_all("td")
+        if len(celdas) < 3:
+            continue  # fila de encabezado u otra cosa
+        celda_num, celda_fecha, celda_desc = celdas[0], celdas[1], celdas[2]
+        enlace_num = celda_num.find("a", href=True)
+        if enlace_num is None:
+            continue
+        numero_raw = celda_num.get_text(strip=True)
+        fecha_raw = celda_fecha.get_text(" ", strip=True)
+        anexos_urls = [
+            urljoin(base_url + "/", a["href"])
+            for a in celda_desc.find_all("a", href=True)
+        ]
+        # descripción sin el texto de los enlaces de anexo
+        for a in celda_desc.find_all("a"):
+            a.extract()
+        descripcion = celda_desc.get_text(" ", strip=True) or None
+        filas.append(_FilaNormativa(numero_raw, fecha_raw, descripcion, anexos_urls))
+    return filas
 
 
 def scrap_normativa(fini, ffin, source, limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
