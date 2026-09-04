@@ -42,10 +42,10 @@ def test_seed_running_concurrently_does_not_crash_or_duplicate_rows(test_engine,
     assertion_session = session_factory()
     try:
         families = repository.list_source_families(assertion_session)
-        assert len(families) == 20
+        assert len(families) == 21
 
         sources = repository.list_sources(assertion_session, limit=500)
-        assert len(sources) == 1 + 28 + 17 + 33 + 6
+        assert len(sources) == 1 + 28 + 18 + 33 + 6
     finally:
         assertion_session.close()
 
@@ -58,14 +58,14 @@ def test_seed_populates_families_and_sources_and_is_idempotent(db_session):
     assert {f.key for f in families} == {
         "constitucional", "samai", "corte_suprema", "jep", "cndj",
         "adr", "adres", "ane", "anh", "rama_judicial", "mincit", "madr",
-        "minambiente", "minvivienda", "mineducacion", "mininterior", "mindeporte", "minjusticia", "minenergia", "mintrabajo",
+        "minambiente", "minvivienda", "mineducacion", "mininterior", "mindeporte", "minjusticia", "minenergia", "mintrabajo", "superfinanciera",
     }
 
     sources = repository.list_sources(db_session)
-    # 1 (Corte Constitucional) + 28 (SAMAI) + 17 (fuente única: corte_suprema, jep, cndj,
+    # 1 (Corte Constitucional) + 28 (SAMAI) + 18 (fuente única: corte_suprema, jep, cndj,
     # adr, adres, ane, anh, mincit, madr, minambiente, minvivienda, mineducacion,
-    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 85
-    assert len(sources) == 1 + 28 + 17 + 33 + 6
+    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 86
+    assert len(sources) == 1 + 28 + 18 + 33 + 6
 
     rama_judicial_sources = repository.list_sources(db_session, family_key="rama_judicial")
     assert len(rama_judicial_sources) == 39
