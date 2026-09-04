@@ -159,5 +159,46 @@ def _parse_pagina_anio(html: str, base_url: str) -> List[_FilaNormativa]:
     return filas
 
 
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+
 def scrap_normativa(fini, ffin, source, limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
-    return []
+    session = requests.Session()
+    session.headers.update(_HEADERS)
+
+    try:
+        resp = session.get(_INDICE_URL, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        if on_progress:
+            on_progress(f"[{source}] Error consultando el índice de normativa: {e}")
+        return []
+
+    indice = _parse_indice(resp.text, _BASE_URL)
+    anio_ini, anio_fin = int(fini[:4]), int(ffin[:4])
+    docs: List[RawDocModel] = []
+
+    for encabezado, (tipo, sigla) in _TIPOS.items():
+        por_anio = indice.get(encabezado, {})
+        for anio in range(anio_ini, anio_fin + 1):
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if len(docs) >= limit:
+                return docs[:limit]
+            url = por_anio.get(anio)
+            if url is None:
+                continue
+            if on_progress:
+                on_progress(f"[{source}] {tipo} {anio}...")
+            try:
+                pr = session.get(url, timeout=30)
+                pr.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{source}] Error consultando {tipo} {anio}: {e}")
+                continue
+            for fila in _parse_pagina_anio(pr.text, _BASE_URL):
+                docs.extend(
+                    _fila_a_docs(fila, tipo, sigla, anio, fila.numero_link, fini, ffin, source, on_progress)
+                )
+    return docs[:limit]

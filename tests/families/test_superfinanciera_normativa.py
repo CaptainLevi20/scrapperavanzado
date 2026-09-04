@@ -1,5 +1,8 @@
+import responses
+
 from core.scrapers.families.superfinanciera.normativa import (
     _parse_indice, _parse_pagina_anio, _fecha_iso, _titulo, _fila_a_docs, _FilaNormativa,
+    scrap_normativa, _INDICE_URL, _BASE_URL,
 )
 
 _BASE = "https://www.superfinanciera.gov.co"
@@ -151,3 +154,37 @@ def test_fila_a_docs_fecha_no_parseable_usa_primero_de_enero_y_avisa():
     )
     assert docs[0].f_public == "2026-01-01"
     assert any("Error" not in a and "01-01" not in a for a in avisos) or avisos  # hay al menos un aviso
+
+
+@responses.activate
+def test_scrap_normativa_recorre_tipos_y_anios_en_rango():
+    responses.add(responses.GET, _INDICE_URL, body=_indice_html())
+    # solo 2026 está en rango; se piden los 3 tipos de ese año
+    responses.add(responses.GET, f"{_BASE_URL}/publicaciones/10115974/circulares-externas-2026/", body=_pagina_anio_html())
+    responses.add(responses.GET, f"{_BASE_URL}/10115975", body=_pagina_anio_html())
+    responses.add(responses.GET, f"{_BASE_URL}/publicaciones/10115976/resoluciones-2026/", body=_pagina_anio_html())
+
+    docs = scrap_normativa("2026-01-01", "2026-12-31", _SOURCE, on_progress=lambda m: None)
+
+    # _pagina_anio_html tiene 2 filas; la primera trae 1 anexo -> 3 docs por tipo
+    titles = [d.title for d in docs]
+    assert "C_SF_0008_2026" in titles
+    assert "C_SF_0008_2026_A01" in titles
+    assert "CCIR_SF_0008_2026" in titles
+    assert "R_SF_0007_2026" in titles
+    # 2025 no se pidió (fuera de rango)
+    assert all("2025" not in t for t in titles)
+
+
+@responses.activate
+def test_scrap_normativa_una_pagina_fallida_no_tumba_el_resto():
+    responses.add(responses.GET, _INDICE_URL, body=_indice_html())
+    responses.add(responses.GET, f"{_BASE_URL}/publicaciones/10115974/circulares-externas-2026/", status=500)
+    responses.add(responses.GET, f"{_BASE_URL}/10115975", body=_pagina_anio_html())
+    responses.add(responses.GET, f"{_BASE_URL}/publicaciones/10115976/resoluciones-2026/", body=_pagina_anio_html())
+    avisos = []
+
+    docs = scrap_normativa("2026-01-01", "2026-12-31", _SOURCE, on_progress=avisos.append)
+
+    assert any(d.title.startswith("CCIR_SF_") for d in docs)
+    assert any("Error" in a for a in avisos)
