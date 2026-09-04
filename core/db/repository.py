@@ -1126,6 +1126,9 @@ def _expandir_a_grupos(db: Session, document_ids: list[int]) -> list[int]:
     grupos_vistos: set[tuple[str, str]] = set()
     for d in documentos:
         fam = family_keys.get(d.source_id)
+        if fam == "superfinanciera" and not es_anexo_title(d.title):
+            for anexo in list_anexos_of_document(db, d):
+                ids.add(anexo.id)
         if not es_familia_con_actuaciones(fam, d.title):
             continue
         if (fam, d.title) in grupos_vistos:

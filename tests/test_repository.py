@@ -2003,3 +2003,28 @@ def test_anexo_counts_by_document(db_session):
         db_session, [madre, sin_anexos], {src.id: "superfinanciera"}
     )
     assert counts == {madre.id: 2}
+
+
+def test_marcar_util_una_circular_arrastra_sus_anexos(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0020_2026")
+    a1 = _sf_doc(db_session, src.id, "C_SF_0020_2026_A01")
+    a2 = _sf_doc(db_session, src.id, "C_SF_0020_2026_A02")
+
+    repository.update_document_review_status(db_session, madre.id, "useful")
+
+    db_session.refresh(a1)
+    db_session.refresh(a2)
+    assert a1.review_status == "useful"
+    assert a2.review_status == "useful"
+
+
+def test_marcar_util_un_anexo_no_arrastra_a_la_madre(db_session):
+    src = _sf_source(db_session)
+    madre = _sf_doc(db_session, src.id, "C_SF_0030_2026")
+    a1 = _sf_doc(db_session, src.id, "C_SF_0030_2026_A01")
+
+    repository.update_document_review_status(db_session, a1.id, "useful")
+
+    db_session.refresh(madre)
+    assert madre.review_status == "pending"
