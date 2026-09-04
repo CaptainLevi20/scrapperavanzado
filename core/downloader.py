@@ -21,6 +21,21 @@ from core.utils import extract_filename, is_safe_storage_key, storage_path
 
 _VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net[^"]*)"')
 
+# La Superintendencia Financiera (loader.php) sirve TODOS los archivos con
+# `Content-Type: application/octet-stream`, sea PDF, DOCX o XLSX. Guardado tal
+# cual, el endpoint de vista previa (que ramifica por content_type exacto) no
+# puede previsualizar ninguno. Cuando el servidor no envió un tipo real, se
+# deriva uno de la extensión del archivo (que el pipeline ya usa para la clave
+# de almacenamiento). Solo se aplica al caso octet-stream / vacío; un tipo real
+# enviado por el servidor pasa intacto.
+_EXT_TO_CONTENT_TYPE = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".rtf": "application/rtf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
 # LibreOffice's winget/MSI installer does not add soffice.exe to PATH (verified: absent
 # from both the user and Machine-level PATH env vars after a fresh install), so PATH
 # lookup alone cannot be relied on for this executable on Windows.
@@ -190,6 +205,17 @@ class Downloader:
                     disposition = r.headers.get("Content-Disposition", "")
 
                     filename = extract_filename(disposition, content_type, doc.link["url"], doc.title)
+
+                    # Si el servidor no dio un tipo real (vacío) o mandó el
+                    # genérico `application/octet-stream` (la Superfinanciera lo
+                    # hace para todo), se normaliza a partir de la extensión ya
+                    # resuelta. Una extensión no mapeada deja el content_type
+                    # como estaba.
+                    if content_type == "" or content_type.lower() == "application/octet-stream":
+                        content_type = _EXT_TO_CONTENT_TYPE.get(
+                            filename["extension"].lower(), content_type
+                        )
+
                     storage_key = self._resolve_storage_key(doc, filename)
                     if not is_safe_storage_key(storage_key):
                         # Backstop in case a family's own save_path template (not
