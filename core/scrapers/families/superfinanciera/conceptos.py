@@ -65,5 +65,59 @@ def _parse_pagina(html: str, base_url: str) -> List[_RegistroConcepto]:
     return registros
 
 
+def _titulo_concepto(radicado: str, consecutivo: str) -> str:
+    anio = radicado[:4]
+    numero = radicado[4:]
+    base = f"CTO_SF_{numero.zfill(7)}_{anio}"
+    try:
+        c = int(consecutivo)
+    except (TypeError, ValueError):
+        c = 1
+    if c != 1:
+        base = f"{base}_{c:02d}"
+    return base
+
+
+def _safe_title(title: str) -> str:
+    return _INVALID_PATH_CHARS.sub("-", title)[:120].strip(" .")
+
+
+def _registro_a_doc(reg, fini, ffin, source, on_progress) -> Optional[RawDocModel]:
+    fecha = parse_fecha_providencia_es(reg.fecha_texto or "")
+    if fecha is None:
+        if on_progress:
+            on_progress(f"[{source}] Aviso: sin fecha en «{reg.raw_concepto[:80]}», se omite")
+        return None
+    fecha_iso = fecha.strftime("%Y-%m-%d")
+    if fecha_iso < fini or fecha_iso > ffin:
+        return None
+    if not reg.archivo_url:
+        if on_progress:
+            on_progress(f"[{source}] Aviso: sin «Archivo de texto» para «{reg.raw_concepto[:80]}», se omite")
+        return None
+
+    if reg.radicado and reg.consecutivo:
+        title = _titulo_concepto(reg.radicado, reg.consecutivo)
+        unverified = False
+    else:
+        title = (reg.titulo_norma or reg.raw_concepto or "concepto")[:120]
+        unverified = True
+
+    partes = [p for p in (reg.titulo_norma, reg.resumen) if p]
+    detalle = " — ".join(partes) or None
+
+    return RawDocModel(
+        source=source,
+        link={"url": reg.archivo_url, "method": "GET"},
+        title=title,
+        tipo="Concepto",
+        f_public=fecha_iso,
+        f_providencia=fecha_iso,
+        detalle=detalle,
+        save_path=storage_path(source, fecha_iso, "Concepto", f"{_safe_title(title)}(extension)"),
+        title_unverified=unverified,
+    )
+
+
 def scrap_conceptos(fini, ffin, source, limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
     return []
