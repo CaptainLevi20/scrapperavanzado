@@ -284,3 +284,143 @@ def test_process_query_raises_on_error_info():
         assert "validación de seguridad" in str(e)
     else:
         raise AssertionError("esperaba RuntimeError")
+
+
+import threading
+
+from core.scrapers.registry import FAMILY_REGISTRY
+from core.scrapers.families.supersalud import ScrapSupersalud
+
+_CONTEXTINFO_URL = "https://www.supersalud.gov.co/es-co/_api/contextinfo"
+_PQ_URL = "https://www.supersalud.gov.co/es-co/_vti_bin/client.svc/ProcessQuery"
+
+
+def _rows_payload(rows):
+    return [
+        {"SchemaVersion": "15.0.0.0", "ErrorInfo": None},
+        {"ResultTables": [{"TableType": "RelevantResults", "Properties": {}, "ResultRows": rows}]},
+    ]
+
+
+def _row(title, numero, fecha, path, anio):
+    return {
+        "Title": title, "NumeroOWSTEXT": numero, "DescripcionOWSMTXT": "desc",
+        "FechadePublicacionOWSDATE": fecha, "Path": path, "RefinableString00": anio, "FileExtension": "pdf",
+    }
+
+
+def test_supersalud_is_registered():
+    import core.scrapers.families  # noqa: F401
+    assert FAMILY_REGISTRY["supersalud"].__name__ == "ScrapSupersalud"
+
+
+def test_filters_by_publication_date_is_enabled():
+    assert ScrapSupersalud.filters_by_publication_date is True
+
+
+@responses.activate
+def test_scrap_collects_both_categories_one_year():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+
+    def cb(request):
+        body = request.body.decode("utf-8") if isinstance(request.body, bytes) else request.body
+        if "Juridica/Resoluciones" in body:
+            rows = [_row("Resolución número 2026910010008999-6 de 2026", "2026910010008999-6",
+                         "2026-03-04T05:00:00Z", "https://docs.supersalud.gov.co/PortalWeb/Juridica/Resoluciones/a.pdf", "2026")]
+        else:
+            rows = [_row("Circular externa número 2026151000000002-5 de 2026", "2026151000000002-5",
+                         "2026-02-10T05:00:00Z", "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/b.pdf", "2026")]
+        return (200, {}, _bom(_rows_payload(rows)))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+
+    docs = ScrapSupersalud().scrap(fini="2026-01-01", ffin="2026-12-31")
+    assert {d.title for d in docs} == {"R_SNS_8999_2026", "C_SNS_0002_2026"}
+
+
+@responses.activate
+def test_scrap_floors_start_year_at_2015():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+    seen_years = []
+
+    def cb(request):
+        body = request.body.decode("utf-8") if isinstance(request.body, bytes) else request.body
+        # el año va como hex UTF-8 dentro del refiner; recuperarlo
+        import re as _re
+        m = _re.search(r"ǂǂ([0-9a-f]+)&quot;", body)
+        year = bytes.fromhex(m.group(1)).decode("utf-8")
+        seen_years.append(year)
+        return (200, {}, _bom(_rows_payload([])))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+
+    ScrapSupersalud().scrap(fini="2010-01-01", ffin="2015-12-31")
+    assert "2010" not in seen_years
+    assert "2015" in seen_years
+
+
+@responses.activate
+def test_scrap_paginates_when_page_is_full():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+    calls = {"n": 0}
+
+    def cb(request):
+        body = request.body.decode("utf-8") if isinstance(request.body, bytes) else request.body
+        if "Juridica/CircularesExterna" not in body:
+            return (200, {}, _bom(_rows_payload([])))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            rows = [_row(f"Circular Externa {i:03d} de 2016", f"{i:03d}", "2016-06-01T05:00:00Z",
+                         f"https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/{i}.pdf", "2016")
+                    for i in range(1, 501)]
+        else:
+            rows = [_row("Circular Externa 900 de 2016", "900", "2016-07-01T05:00:00Z",
+                         "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/900.pdf", "2016")]
+        return (200, {}, _bom(_rows_payload(rows)))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+
+    docs = ScrapSupersalud().scrap(fini="2016-01-01", ffin="2016-12-31")
+    assert calls["n"] == 2
+    assert any(d.title == "C_SNS_0900_2016" for d in docs)
+
+
+@responses.activate
+def test_scrap_continues_past_a_failing_year():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+
+    def cb(request):
+        body = request.body.decode("utf-8") if isinstance(request.body, bytes) else request.body
+        import re as _re
+        m = _re.search(r"ǂǂ([0-9a-f]+)&quot;", body)
+        year = bytes.fromhex(m.group(1)).decode("utf-8")
+        if year == "2015":
+            return (200, {}, _bom([{"ErrorInfo": {"ErrorMessage": "boom interno"}}]))
+        rows = [_row("Circular externa número 2016151000000003-5 de 2016", "2016151000000003-5",
+                     "2016-05-01T05:00:00Z", "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/x.pdf", "2016")]
+        return (200, {}, _bom(_rows_payload(rows)))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+
+    progreso = []
+    docs = ScrapSupersalud().scrap(fini="2015-01-01", ffin="2016-12-31", on_progress=progreso.append)
+    assert any(d.title == "C_SNS_0003_2016" for d in docs)
+    assert any("Error" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_stops_on_stop_event():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+    ev = threading.Event()
+
+    def cb(request):
+        ev.set()  # se dispara en la primera consulta
+        rows = [_row("Circular Externa 001 de 2015", "001", "2015-01-05T05:00:00Z",
+                     "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/1.pdf", "2015")]
+        return (200, {}, _bom(_rows_payload(rows)))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+
+    docs = ScrapSupersalud().scrap(fini="2015-01-01", ffin="2018-12-31", stop_event=ev)
+    # se permite 0..N docs de la primera página, pero no debe recorrer los 4 años x 2 categorías
+    assert len(responses.calls) <= 3  # 1 contextinfo + a lo sumo 2 process_query

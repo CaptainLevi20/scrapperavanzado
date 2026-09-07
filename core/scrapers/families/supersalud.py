@@ -213,3 +213,69 @@ def _process_query(
                 if tabla.get("TableType") == "RelevantResults":
                     return tabla.get("ResultRows", [])
     return []
+
+
+_DIGEST_VENCIDO = ("validación de seguridad", "validacion de seguridad", "security validation")
+
+
+@register_family("supersalud")
+class ScrapSupersalud(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        digest = _form_digest(session)
+
+        anio_ini = max(_ANIO_MINIMO, int(fini[:4]))
+        anio_fin = int(ffin[:4])
+        docs: List[RawDocModel] = []
+
+        for carpeta, tipo, letra in _CATEGORIAS:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+
+            for anio in range(anio_ini, anio_fin + 1):
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                start = 0
+                while True:
+                    if stop_event is not None and stop_event.is_set():
+                        return docs[:limit]
+                    try:
+                        rows = _process_query(session, digest, carpeta, anio, start)
+                    except RuntimeError as e:
+                        if any(t in str(e).lower() for t in _DIGEST_VENCIDO):
+                            digest = _form_digest(session)
+                            try:
+                                rows = _process_query(session, digest, carpeta, anio, start)
+                            except Exception as e2:
+                                if on_progress:
+                                    on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e2}")
+                                break
+                        else:
+                            if on_progress:
+                                on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e}")
+                            break
+                    except Exception as e:
+                        if on_progress:
+                            on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e}")
+                        break
+
+                    for fila in rows:
+                        doc = _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress)
+                        if doc is not None:
+                            docs.append(doc)
+                            if len(docs) >= limit:
+                                return docs[:limit]
+
+                    if len(rows) < _PAGE:
+                        break
+                    start += _PAGE
+
+        return docs[:limit]
