@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.fecha_es import parse_fecha_providencia_es
@@ -12,6 +13,12 @@ from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
+
+# www.ssf.gov.co entrega una cadena TLS incompleta (le falta el intermediario
+# Sectigo) que `certifi` no puede validar — igual que la Corte Constitucional y
+# la CNDJ. Se salta la verificación TLS para este host (sesión aquí +
+# link["verify"] = False para la descarga).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _BASE = "https://www.ssf.gov.co"
 _SOURCE = "Superintendencia del Subsidio Familiar"
@@ -26,8 +33,17 @@ _SECCIONES = [
 ]
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
-_NUM_RES_ASUNTO = re.compile(r"resoluci[oó]n\s+(\d+)", re.I)
-_NUM_RES_DOC = re.compile(r"(?:RES\.?|RESOLUCI[ÓO]N)\s*(\d+)", re.I)
+# El sitio escribe indistintamente "Resolución 0789", "Resolución No. 0789",
+# "Resolución N° 0789", "Resolución número 0789" y "Resolución # 0789". El texto
+# del Asunto llega a veces en Unicode NFD (la "ó" es "o" + acento combinante) y
+# suele citar OTRAS resoluciones más adelante ("...deroga la Resolución No. X");
+# por eso el patrón del Asunto va ANCLADO al inicio y con `.match` (nunca
+# `.search`), tras normalizar a NFC en `_num_resolucion`, para tomar siempre el
+# número principal. El del Documento sí usa `.search` (campo corto, sin citas).
+_NUM_RES_ASUNTO = re.compile(
+    r'^\s*["“”]?\s*resoluci[oó]n\s+(?:n[o°º]\.?\s*|numero\s*|#\s*)?(\d+)', re.I
+)
+_NUM_RES_DOC = re.compile(r"(?:RES\.?|RESOLUCI[ÓO]N)\s*(?:N[O°º]\.?\s*|NUMERO\s*|#\s*)?(\d+)", re.I)
 _FECHA_CORTA = re.compile(r"(\d{1,2})-(\d{1,2})-(\d{2})\b")
 _FECHA_SLASH = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _NUM_CIRCULAR = re.compile(r"^\s*(?:CE\s*)?0*(\d+)\s*([A-Za-z]?)", re.I)
@@ -71,10 +87,12 @@ def _num_circular(celda: str) -> Optional[Tuple[str, str]]:
 
 
 def _num_resolucion(asunto: str, documento: str) -> Optional[str]:
-    m = _NUM_RES_ASUNTO.search(asunto or "")
+    asunto = unicodedata.normalize("NFC", asunto or "")
+    documento = unicodedata.normalize("NFC", documento or "")
+    m = _NUM_RES_ASUNTO.match(asunto)
     if m:
         return m.group(1)
-    m = _NUM_RES_DOC.search(documento or "")
+    m = _NUM_RES_DOC.search(documento)
     return m.group(1) if m else None
 
 
@@ -121,7 +139,7 @@ def _armar_doc(tipo, letra, digitos, sufijo, fecha, fini, ffin, asunto, texto_cr
     safe = _safe_title(title)
     return RawDocModel(
         source=_SOURCE,
-        link={"url": urljoin(_BASE, href), "method": "GET"},
+        link={"url": urljoin(_BASE, href), "method": "GET", "verify": False},
         title=title,
         tipo=tipo,
         f_public=iso,
@@ -165,3 +183,45 @@ def _fila_circular(tr, fini, ffin, on_progress) -> Optional[RawDocModel]:
     parsed = _num_circular(celda_num)
     digitos, sufijo = parsed if parsed else (None, "")
     return _armar_doc("Circular Externa", "C", digitos, sufijo, fecha, fini, ffin, asunto, celda_num or asunto, href)
+
+
+@register_family("ssf")
+class ScrapSSF(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        # Cadena TLS incompleta del sitio; ver nota al inicio del módulo.
+        session.verify = False
+        session.headers.update({"User-Agent": _UA})
+        docs: List[RawDocModel] = []
+
+        for url, tipo, letra, columnas in _SECCIONES:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+            try:
+                resp = session.get(url, timeout=60)
+                resp.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Error consultando {tipo}: {e}")
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            fila_fn = _fila_resolucion if letra == "R" else _fila_circular
+            for tabla in _tablas_de_datos(soup, columnas):
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                for tr in tabla.find_all("tr")[1:]:
+                    doc = fila_fn(tr, fini, ffin, on_progress)
+                    if doc is not None:
+                        docs.append(doc)
+                        if len(docs) >= limit:
+                            return docs[:limit]
+
+        return docs[:limit]

@@ -1,4 +1,5 @@
 import datetime
+import unicodedata
 
 from bs4 import BeautifulSoup
 
@@ -65,6 +66,27 @@ def test_num_resolucion_falls_back_to_documento():
 
 def test_num_resolucion_none_when_unparseable():
     assert _num_resolucion("por la cual se hace algo", "documento raro") is None
+
+
+def test_num_resolucion_acepta_no_entre_palabra_y_digitos():
+    assert _num_resolucion("Resolución No. 0789 del 31 marzo de 2026", "RESOLUCIÓN No. 0789") == "0789"
+
+
+def test_num_resolucion_nfd_asunto_ignora_referencia_posterior():
+    # El Asunto real de la SSF llega a veces en NFD (la "ó" = "o" + U+0301) y
+    # cita OTRA resolución más adelante; debe devolverse el número LÍDER (0612),
+    # nunca el de la cita (0267).
+    asunto = unicodedata.normalize(
+        "NFD",
+        'Resolución No. 0612 del 3 de agosto de 2026 '
+        '"por la cual se modifica la Resolución No. 0267 de 2026"',
+    )
+    assert _num_resolucion(asunto, "RESOLUCIÓN RES. 0612 DE 03-08-26") == "0612"
+
+
+def test_num_resolucion_nfc_asunto_con_referencia_posterior():
+    asunto = 'Resolución 1617 del 30 de diciembre de 2025 "deroga la Resolución No. 0053 de 2019"'
+    assert _num_resolucion(asunto, "RESOLUCIÓN 1617 del 30 de diciembre de 2025") == "1617"
 
 
 # ---- título ----
@@ -153,7 +175,7 @@ def test_fila_resolucion_prefers_asunto_prose_date_and_number():
     assert doc.tipo == "Resolución"
     assert doc.f_public == "2026-08-15"  # del Asunto ("15 de Agosto de 2026"), NO 15-09-26
     assert doc.f_providencia == "2026-08-15"
-    assert doc.link == {"url": "https://www.ssf.gov.co/documents/d/guest/res-0789", "method": "GET"}
+    assert doc.link == {"url": "https://www.ssf.gov.co/documents/d/guest/res-0789", "method": "GET", "verify": False}
     assert doc.save_path == "Superintendencia del Subsidio Familiar/2026-08-15/Resolución/R_SSF_0789_2026(extension)"
     assert doc.detalle.startswith("Resolución 0789")
 
@@ -222,3 +244,86 @@ def test_fila_circular_without_date_is_dropped_and_warns():
     avisos = []
     assert _fila_circular(tr, "2024-01-01", "2026-12-31", avisos.append) is None
     assert any("sin fecha" in m.lower() for m in avisos)
+
+
+# ---- orquestación scrap() + registro (Task 3) ----
+import threading  # noqa: E402
+
+import responses  # noqa: E402
+
+from core.scrapers.registry import FAMILY_REGISTRY  # noqa: E402
+from core.scrapers.families.ssf import ScrapSSF  # noqa: E402
+
+_RES_URL = "https://www.ssf.gov.co/web/guest/resoluciones2"
+_CIR_URL = "https://www.ssf.gov.co/web/guest/normativa-circulares"
+
+_RES_PAGE = """<html><body>
+<table><tr><th>x</th></tr><tr><td>layout</td></tr></table>
+<table>
+  <tr><th>Documento</th><th>Asunto</th><th>Enlace</th></tr>
+  <tr><td>RESOLUCIÓN RES. 0789 DE 15-09-26</td>
+      <td>Resolución 0789 del 15 de Agosto de 2026 "x"</td>
+      <td><a href="/documents/d/guest/res-0789">D</a></td></tr>
+  <tr><td>RESOLUCIÓN 0053 del 5 de febrero de 2019</td>
+      <td>Resolución 0053 del 5 de febrero de 2019 "vieja"</td>
+      <td><a href="/documents/d/guest/res-0053">D</a></td></tr>
+</table></body></html>
+"""
+
+_CIR_PAGE = """<html><body>
+<table>
+  <tr><th>Número</th><th>Fecha</th><th>Asunto</th><th>Adjunto</th></tr>
+  <tr><td>CE 00011</td><td>17/12/2025</td><td>CANALES</td>
+      <td><a href="/documents/d/guest/cir-0011">A</a></td></tr>
+</table></body></html>
+"""
+
+
+def test_ssf_is_registered():
+    import core.scrapers.families  # noqa: F401
+    assert FAMILY_REGISTRY["ssf"].__name__ == "ScrapSSF"
+
+
+def test_filters_by_publication_date_is_enabled():
+    assert ScrapSSF.filters_by_publication_date is True
+
+
+@responses.activate
+def test_scrap_collects_both_sections_and_applies_year_floor():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE)
+
+    docs = ScrapSSF().scrap(fini="2018-01-01", ffin="2026-12-31")
+    titles = {d.title for d in docs}
+    assert titles == {"R_SSF_0789_2026", "C_SSF_0011_2025"}  # la resolución de 2019 cae por el piso 2024
+
+
+@responses.activate
+def test_scrap_respects_requested_range():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE)
+
+    docs = ScrapSSF().scrap(fini="2026-01-01", ffin="2026-12-31")
+    assert {d.title for d in docs} == {"R_SSF_0789_2026"}  # la circular es de 2025
+
+
+@responses.activate
+def test_scrap_continues_when_one_section_fails():
+    responses.add(responses.GET, _RES_URL, status=500)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE)
+
+    progreso = []
+    docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    assert {d.title for d in docs} == {"C_SSF_0011_2025"}
+    assert any("Error" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_stops_on_stop_event():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE)
+    ev = threading.Event()
+    ev.set()
+    docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", stop_event=ev)
+    assert docs == []
+    assert len(responses.calls) == 0
