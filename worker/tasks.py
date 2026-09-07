@@ -389,7 +389,9 @@ def scrape_source_task(run_source_id: int):
                         continue
                     if not scraper.checks_for_republication:
                         continue
-                    remote_size = check_remote_content_length(doc.link.get("url"))
+                    remote_size = check_remote_content_length(
+                        doc.link.get("url"), verify=doc.link.get("verify", True)
+                    )
                     if remote_size is not None and remote_size == existing.file_size_bytes:
                         continue
                     replace_candidates.append((existing, doc_id, doc))

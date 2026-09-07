@@ -510,3 +510,40 @@ def test_check_remote_content_length_returns_none_on_request_exception():
     responses.add_callback(responses.HEAD, "https://example.com/file.rtf", callback=_callback)
 
     assert check_remote_content_length("https://example.com/file.rtf") is None
+
+
+def test_check_remote_content_length_passes_verify_false_through(monkeypatch):
+    # Un host con la cadena TLS incompleta (ssf.gov.co, constitucional, cndj) marca
+    # link["verify"] = False; el HEAD barato debe honrarlo o siempre falla el
+    # handshake y el documento se re-descarga completo en cada corrida.
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        headers = {"Content-Length": "123"}
+
+    def _fake_head(url, **kwargs):
+        captured.update(kwargs)
+        return _Resp()
+
+    monkeypatch.setattr("core.downloader.requests.head", _fake_head)
+
+    assert check_remote_content_length("https://x/f.pdf", verify=False) == 123
+    assert captured["verify"] is False
+
+
+def test_check_remote_content_length_verify_defaults_to_true(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        headers = {}
+
+    def _fake_head(url, **kwargs):
+        captured.update(kwargs)
+        return _Resp()
+
+    monkeypatch.setattr("core.downloader.requests.head", _fake_head)
+
+    check_remote_content_length("https://x/f.pdf")
+    assert captured.get("verify", True) is True
