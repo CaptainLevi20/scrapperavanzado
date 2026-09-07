@@ -377,3 +377,24 @@ su cuenta: hay que indicarle una. Ya viene preparada:
 Cuando termine, los PDF quedan en esa carpeta del servidor organizados como
 `DECRETOS\ALCACALI\{año}\...`. Desde ahí, cópialos a donde deban vivir (por
 ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
+
+## 10. Fuentes y Familias Disponibles
+
+### Superintendencia Nacional de Salud (`supersalud`)
+
+Una sola fuente que raspa dos secciones del portal SharePoint de
+Supersalud: **Resoluciones** y **Circulares Externas** (las Actas de
+Conciliación quedan fuera). Cobertura desde 2015.
+
+Particularidad del transporte: el portal es SharePoint y su API REST de
+búsqueda (`/_api/search/query`) está bloqueada por un WAF ("Acceso
+Bloqueado"). El scraper usa en su lugar el endpoint CSOM
+`/_vti_bin/client.svc/ProcessQuery` con un *form digest* que pide a
+`/_api/contextinfo`. Los archivos (PDF y algún ZIP) se descargan directo
+de `docs.supersalud.gov.co`.
+
+Títulos: `{C|R}_SNS_{número}_{año}` (número = consecutivo; en el radicado
+largo nuevo son los últimos 6 dígitos del bloque central). Cuando el
+número no se puede determinar, el documento entra con el título crudo y
+marca de "no verificado". Los anexos entran como documentos propios con
+sufijo `_A01`.

@@ -424,3 +424,12 @@ def test_scrap_stops_on_stop_event():
     docs = ScrapSupersalud().scrap(fini="2015-01-01", ffin="2018-12-31", stop_event=ev)
     # se permite 0..N docs de la primera página, pero no debe recorrer los 4 años x 2 categorías
     assert len(responses.calls) <= 3  # 1 contextinfo + a lo sumo 2 process_query
+
+
+def test_seed_families_dict_has_supersalud_entry():
+    from core.seed import _FAMILIES
+    assert "supersalud" in _FAMILIES
+    display_name, description = _FAMILIES["supersalud"]
+    assert display_name == "Superintendencia Nacional de Salud"
+    assert "esolucion" in description or "esoluciones" in description
+    assert "irculares" in description
