@@ -1,8 +1,31 @@
+"""Fuente Superintendencia Nacional de Salud (`supersalud`).
+
+Cobertura: dos secciones del portal jurídico de la Supersalud — Resoluciones y
+Circulares Externas — desde 2015. Las Actas de Conciliación quedan fuera.
+
+Notas de transporte (para desarrollo, no para el admin que despliega):
+
+- El portal está montado sobre SharePoint. Su API REST de búsqueda
+  (`/_api/search/query`) está bloqueada por un WAF que responde "Acceso
+  Bloqueado", así que no se puede usar.
+- En su lugar se llama el endpoint CSOM `/_vti_bin/client.svc/ProcessQuery`
+  con el cuerpo XML de una `KeywordQuery` + `SearchExecutor` (`_CSOM_BODY`).
+  Ese endpoint exige un *form digest* de un solo uso que se pide a
+  `/_api/contextinfo` (`_form_digest`). El digest caduca; cuando eso pasa
+  SharePoint devuelve HTTP 403 con "La validación de seguridad de esta página
+  no es válida" — `_es_digest_vencido` detecta ese caso (por código 401/403 o
+  por el texto) y `scrap()` refresca el digest y reintenta la misma página una
+  vez.
+- Los archivos (PDF y algún ZIP) se descargan directo de
+  `docs.supersalud.gov.co` (`_DOCS_PREFIX`); las filas cuyo `Path` no cuelga de
+  ese prefijo se descartan.
+"""
+
 import datetime
 import json
 import re
 import unicodedata
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import requests
 
@@ -24,12 +47,15 @@ _CATEGORIAS = [
 
 _ANIO_MINIMO = 2015
 _PAGE = 500
+_MAX_START = 10000  # tope duro de paginación por año/carpeta
 
 _SOURCE = "Superintendencia Nacional de Salud"
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
-# año (4) + bloque de 12 dígitos (dependencia 6 + consecutivo 6) + sufijo "-D" o "D"
-_RADICADO_RE = re.compile(r"(\d{4})(\d{12})-?\d?\b")
+# año (4) + bloque de 12 dígitos (dependencia 6 + consecutivo 6) + sufijo "-D" o "D".
+# El lookbehind (?<!\d) impide que una corrida de >17 dígitos deslice la ventana
+# de match y capture un año/consecutivo espurios.
+_RADICADO_RE = re.compile(r"(?<!\d)(\d{4})(\d{12})-?\d?\b")
 _CLASICO_RE = re.compile(r"^0*(\d{1,5})$")
 _SUFIJO_ANIO_RE = re.compile(r"\s+de\s+\d{4}\s*$", re.IGNORECASE)
 _ANEXO_PREFIJO_RE = re.compile(r"^anexo\s+", re.IGNORECASE)
@@ -108,6 +134,10 @@ def _parse_numero(numero_raw: Optional[str], title: Optional[str]) -> Optional[i
 
     # For classic form, find all digit sequences in the text
     numbers = re.findall(r"\d+", base)
+    # Trade deliberado: un título descriptivo con exactamente una corrida de
+    # dígitos podría canonizar un número suelto como "verificado". Se acepta
+    # porque len(numbers)==1 filtra la mayoría y todo entra con
+    # review_status="pending" para revisión humana.
     if len(numbers) == 1 and _CLASICO_RE.match(numbers[0]):
         return int(numbers[0])
 
@@ -123,7 +153,10 @@ def _titulo(
 ) -> Tuple[str, bool]:
     numero = _parse_numero(numero_raw, title_raw)
     if numero is None:
-        return (title_raw or "").strip()[:120], True
+        # Fallback no vacío: sin esto un Title vacío deja title="" y todas las
+        # filas de la misma fecha+tipo colisionan en una sola clave de storage.
+        # Mismo recorte y trim final (orden truncar-luego-strip) que _safe_title.
+        return ((title_raw or "").strip() or "documento")[:120].strip(" ."), True
     base = f"{letra}_SNS_{numero:04d}_{anio}"
     if es_anexo:
         base = f"{base}_A01"
@@ -144,6 +177,10 @@ def _fecha_publicacion(raw: Optional[str]) -> Optional[str]:
 def _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress) -> Optional[RawDocModel]:
     url = (fila.get("Path") or "").strip()
     if not url:
+        return None
+    if not url.startswith(_DOCS_PREFIX):
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: fila con ruta fuera de {_DOCS_PREFIX} «{url[:80]}», se omite")
         return None
 
     f_public = _fecha_publicacion(fila.get("FechadePublicacionOWSDATE"))
@@ -183,7 +220,7 @@ def _build_body(carpeta: str, anio: int, start_row: int, row_limit: int = _PAGE)
     )
 
 
-def _decode(resp) -> object:
+def _decode(resp) -> Union[list, dict]:
     return json.loads(resp.content.decode("utf-8-sig"))
 
 
@@ -204,6 +241,8 @@ def _process_query(
     )
     resp.raise_for_status()
     payload = _decode(resp)
+    if not isinstance(payload, list):
+        raise RuntimeError(f"ProcessQuery devolvió una forma inesperada: {type(payload).__name__}")
     for item in payload:
         if isinstance(item, dict) and item.get("ErrorInfo"):
             raise RuntimeError(item["ErrorInfo"].get("ErrorMessage") or "ProcessQuery devolvió ErrorInfo")
@@ -216,6 +255,21 @@ def _process_query(
 
 
 _DIGEST_VENCIDO = ("validación de seguridad", "validacion de seguridad", "security validation")
+
+
+def _es_digest_vencido(e: Exception) -> bool:
+    if isinstance(e, requests.HTTPError) and e.response is not None:
+        return e.response.status_code in (401, 403)
+    return any(t in str(e).lower() for t in _DIGEST_VENCIDO)
+
+
+def _rango_cubre_un_anio(fini: str, ffin: str) -> bool:
+    try:
+        d0 = datetime.date.fromisoformat(fini[:10])
+        d1 = datetime.date.fromisoformat(ffin[:10])
+    except ValueError:
+        return False
+    return (d1 - d0).days >= 364
 
 
 @register_family("supersalud")
@@ -249,10 +303,14 @@ class ScrapSupersalud(BaseScrapper):
                         return docs[:limit]
                     try:
                         rows = _process_query(session, digest, carpeta, anio, start)
-                    except RuntimeError as e:
-                        if any(t in str(e).lower() for t in _DIGEST_VENCIDO):
-                            digest = _form_digest(session)
+                    except Exception as e:
+                        if _es_digest_vencido(e):
+                            # Digest caducado (403 real, o texto "validación de
+                            # seguridad"): refrescar y reintentar esta misma
+                            # página UNA vez. Refresh y reintento van juntos
+                            # bajo un try: si cualquiera falla, se corta el año.
                             try:
+                                digest = _form_digest(session)
                                 rows = _process_query(session, digest, carpeta, anio, start)
                             except Exception as e2:
                                 if on_progress:
@@ -262,10 +320,6 @@ class ScrapSupersalud(BaseScrapper):
                             if on_progress:
                                 on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e}")
                             break
-                    except Exception as e:
-                        if on_progress:
-                            on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e}")
-                        break
 
                     for fila in rows:
                         doc = _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress)
@@ -277,5 +331,14 @@ class ScrapSupersalud(BaseScrapper):
                     if len(rows) < _PAGE:
                         break
                     start += _PAGE
+                    if start >= _MAX_START:
+                        if on_progress:
+                            on_progress(f"[{_SOURCE}] Aviso: {tipo} {anio} superó {_MAX_START} filas, se corta la paginación")
+                        break
 
+        if not docs and on_progress and _rango_cubre_un_anio(fini, ffin):
+            on_progress(
+                f"[{_SOURCE}] Aviso: no se obtuvo ningún documento para el rango {fini}..{ffin}; "
+                "puede que el sitio haya cambiado de formato"
+            )
         return docs[:limit]

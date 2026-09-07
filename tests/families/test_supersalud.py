@@ -96,6 +96,12 @@ def test_titulo_unverified_anexo_has_no_suffix():
     assert not title.endswith("_A01")
 
 
+def test_titulo_unverified_empty_title_falls_back_to_documento():
+    title, unv = _titulo("R", "", "", "2013", False)
+    assert unv is True
+    assert title == "documento"
+
+
 # ---- _fecha_publicacion ----
 def test_fecha_publicacion_takes_first_half_of_doubled_value():
     raw = "2026-09-04T05:00:00Z\n\n2026-09-04T05:00:00.0000000Z"
@@ -188,6 +194,23 @@ def test_fila_a_doc_returns_none_without_path():
     assert _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", None) is None
 
 
+def test_fila_a_doc_returns_none_for_foreign_host():
+    fila = dict(_FILA_RESOLUCION)
+    fila["Path"] = "https://evil.example.com/PortalWeb/Juridica/Resoluciones/x.pdf"
+    avisos = []
+    assert _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", avisos.append) is None
+    assert any("fuera de" in m for m in avisos)
+
+
+def test_fila_a_doc_keeps_inclusive_date_boundaries():
+    fila_ini = dict(_FILA_RESOLUCION)
+    fila_ini["FechadePublicacionOWSDATE"] = "2024-01-01T05:00:00Z"
+    fila_fin = dict(_FILA_RESOLUCION)
+    fila_fin["FechadePublicacionOWSDATE"] = "2024-12-31T05:00:00Z"
+    assert _fila_a_doc(fila_ini, "Resolución", "R", "2024-01-01", "2024-12-31", None) is not None
+    assert _fila_a_doc(fila_fin, "Resolución", "R", "2024-01-01", "2024-12-31", None) is not None
+
+
 def test_fila_a_doc_returns_none_and_warns_without_date():
     fila = dict(_FILA_RESOLUCION)
     fila["FechadePublicacionOWSDATE"] = None
@@ -217,6 +240,14 @@ def test_build_body_embeds_folder_year_hex_and_pagination():
     # TypeIds de KeywordQuery y SearchExecutor
     assert "80173281-fffd-47b6-9a49-312e06ff8428" in body
     assert "8d2ac302-db2f-46fe-9015-872b35f15098" in body
+    # ningún marcador __X__ quedó sin sustituir
+    assert "__" not in body
+
+
+def test_build_body_substitutes_start_row_and_row_limit():
+    body = _build_body("Resoluciones", 2020, 250, 500)
+    assert '<Parameter Type="Number">250</Parameter>' in body  # StartRow (__SR__)
+    assert '<Parameter Type="Number">500</Parameter>' in body  # RowLimit (__RL__)
 
 
 @responses.activate
@@ -424,6 +455,54 @@ def test_scrap_stops_on_stop_event():
     docs = ScrapSupersalud().scrap(fini="2015-01-01", ffin="2018-12-31", stop_event=ev)
     # se permite 0..N docs de la primera página, pero no debe recorrer los 4 años x 2 categorías
     assert len(responses.calls) <= 3  # 1 contextinfo + a lo sumo 2 process_query
+
+
+@responses.activate
+def test_scrap_refreshes_digest_on_403():
+    # digest inicial y digest refrescado, en ese orden
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD1"}))
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD2"}))
+    state = {"n": 0}
+
+    def cb(request):
+        state["n"] += 1
+        if state["n"] == 1:
+            return (403, {}, "<html>Acceso Bloqueado - La validación de seguridad no es válida</html>")
+        rows = [_row("Circular externa número 2024151000000004-5 de 2024", "2024151000000004-5",
+                     "2024-05-01T05:00:00Z",
+                     "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/x.pdf", "2024")]
+        return (200, {}, _bom(_rows_payload(rows)))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+
+    docs = ScrapSupersalud().scrap(fini="2024-01-01", ffin="2024-12-31")
+    assert docs and all(d.f_public.startswith("2024") for d in docs)
+    assert sum(1 for c in responses.calls if "contextinfo" in c.request.url) == 2
+
+
+@responses.activate
+def test_scrap_survives_a_failed_digest_refresh():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD1"}))
+    # el segundo contextinfo devuelve algo que no es JSON -> el refresco falla
+    responses.add(responses.POST, _CONTEXTINFO_URL, body="<html>error</html>", content_type="text/html")
+    responses.add(responses.POST, _PQ_URL, status=403,
+                  body="<html>Acceso Bloqueado</html>", content_type="text/html")
+
+    progreso = []
+    docs = ScrapSupersalud().scrap(fini="2024-01-01", ffin="2024-12-31", on_progress=progreso.append)
+    assert docs == []
+    assert any("Error" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_warns_when_zero_docs_over_full_year():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+    responses.add(responses.POST, _PQ_URL, body=_bom(_rows_payload([])), content_type="application/json")
+
+    progreso = []
+    docs = ScrapSupersalud().scrap(fini="2024-01-01", ffin="2024-12-31", on_progress=progreso.append)
+    assert docs == []
+    assert any("no se obtuvo" in m for m in progreso)
 
 
 def test_seed_families_dict_has_supersalud_entry():
