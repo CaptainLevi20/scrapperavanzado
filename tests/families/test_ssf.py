@@ -327,3 +327,12 @@ def test_scrap_stops_on_stop_event():
     docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", stop_event=ev)
     assert docs == []
     assert len(responses.calls) == 0
+
+
+def test_seed_families_dict_has_ssf_entry():
+    from core.seed import _FAMILIES
+    assert "ssf" in _FAMILIES
+    display_name, description = _FAMILIES["ssf"]
+    assert display_name == "Superintendencia del Subsidio Familiar"
+    assert "esolucion" in description or "esoluciones" in description
+    assert "irculares" in description
