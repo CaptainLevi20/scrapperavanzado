@@ -57,7 +57,7 @@ def _parse_numero(numero_raw: Optional[str], title: Optional[str]) -> Optional[i
 
     # For classic form, find all digit sequences in the text
     numbers = re.findall(r"\d+", base)
-    if len(numbers) == 1:
+    if len(numbers) == 1 and _CLASICO_RE.match(numbers[0]):
         return int(numbers[0])
 
     return None

@@ -50,6 +50,16 @@ def test_parse_numero_returns_none_for_unparseable():
     assert _parse_numero(None, None) is None
 
 
+def test_parse_numero_none_for_bare_non_radicado_long_digit_run():
+    # 12 dígitos sueltos (no es radicado: _RADICADO_RE exige >=16) y excede el
+    # tope clásico de 5 dígitos -> ambiguo -> None (no un título "verificado" con basura)
+    assert _parse_numero("910010006787", "") is None
+
+
+def test_parse_numero_none_when_two_number_runs_in_title_fallback():
+    assert _parse_numero("", "Circular 5 modifica Circular 47 de 2016") is None
+
+
 # ---- _safe_title ----
 def test_safe_title_replaces_path_invalid_chars_and_trims():
     assert _safe_title('Doc/con "raros": x|y*') == "Doc-con -raros-- x-y-"
