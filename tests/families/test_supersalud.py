@@ -194,3 +194,93 @@ def test_fila_a_doc_returns_none_and_warns_without_date():
     avisos = []
     assert _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", avisos.append) is None
     assert any("sin fecha" in m.lower() for m in avisos)
+
+
+import json
+
+import responses
+
+from core.scrapers.families.supersalud import _build_body, _form_digest, _process_query
+
+
+def _bom(payload) -> bytes:
+    return b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8")
+
+
+def test_build_body_embeds_folder_year_hex_and_pagination():
+    body = _build_body("CircularesExterna", 2015, 500, 500)
+    assert "PortalWeb/Juridica/CircularesExterna" in body
+    # 2015 -> UTF-8 hex
+    assert "32303135" in body
+    assert "ǂǂ" in body
+    assert "<Parameter Type=\"Number\">500</Parameter>" in body  # RowLimit
+    # TypeIds de KeywordQuery y SearchExecutor
+    assert "80173281-fffd-47b6-9a49-312e06ff8428" in body
+    assert "8d2ac302-db2f-46fe-9015-872b35f15098" in body
+
+
+@responses.activate
+def test_form_digest_decodes_bom_and_returns_value():
+    responses.add(
+        responses.POST,
+        "https://www.supersalud.gov.co/es-co/_api/contextinfo",
+        body=_bom({"FormDigestValue": "0xDEADBEEF"}),
+        content_type="application/json",
+    )
+    session = __import__("requests").Session()
+    assert _form_digest(session) == "0xDEADBEEF"
+
+
+@responses.activate
+def test_process_query_returns_result_rows_and_sends_digest_header():
+    payload = [
+        {"SchemaVersion": "15.0.0.0", "ErrorInfo": None},
+        {
+            "ResultTables": [
+                {
+                    "TableType": "RelevantResults",
+                    "Properties": {},
+                    "ResultRows": [
+                        {"Title": "Circular externa número 2026151000000002-5 de 2026",
+                         "Path": "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/x.pdf",
+                         "NumeroOWSTEXT": "2026151000000002-5",
+                         "FechadePublicacionOWSDATE": "2026-01-10T05:00:00Z",
+                         "RefinableString00": "2026"},
+                    ],
+                }
+            ]
+        },
+    ]
+    responses.add(
+        responses.POST,
+        "https://www.supersalud.gov.co/es-co/_vti_bin/client.svc/ProcessQuery",
+        body=_bom(payload),
+        content_type="application/json",
+    )
+    session = __import__("requests").Session()
+    rows = _process_query(session, "0xDIGEST", "CircularesExterna", 2026, 0)
+    assert len(rows) == 1
+    assert rows[0]["NumeroOWSTEXT"] == "2026151000000002-5"
+    assert responses.calls[0].request.headers["X-RequestDigest"] == "0xDIGEST"
+    assert responses.calls[0].request.headers["Content-Type"] == "text/xml"
+
+
+@responses.activate
+def test_process_query_raises_on_error_info():
+    payload = [
+        {"SchemaVersion": "15.0.0.0",
+         "ErrorInfo": {"ErrorMessage": "La validación de seguridad de esta página no es válida"}},
+    ]
+    responses.add(
+        responses.POST,
+        "https://www.supersalud.gov.co/es-co/_vti_bin/client.svc/ProcessQuery",
+        body=_bom(payload),
+        content_type="application/json",
+    )
+    session = __import__("requests").Session()
+    try:
+        _process_query(session, "0xDIGEST", "Resoluciones", 2020, 0)
+    except RuntimeError as e:
+        assert "validación de seguridad" in str(e)
+    else:
+        raise AssertionError("esperaba RuntimeError")
