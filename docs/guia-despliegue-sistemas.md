@@ -284,6 +284,16 @@ Si la actualización incluye cambios en la base de datos, el equipo de
 desarrollo te lo indicará y habrá que repetir el comando de `alembic upgrade
 head` de la sección 4.
 
+Si el equipo de desarrollo avisa que la versión trae una **fuente nueva**,
+después de actualizar hay que correr una vez el sembrado del catálogo para
+que esa fuente aparezca en el listado dentro de la herramienta:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed
+```
+
+Es seguro repetirlo aunque ya se haya corrido.
+
 ## 8. Respaldos (copias de seguridad)
 
 Esta herramienta guarda dos cosas que conviene respaldar periódicamente: la
@@ -377,3 +387,28 @@ su cuenta: hay que indicarle una. Ya viene preparada:
 Cuando termine, los PDF quedan en esa carpeta del servidor organizados como
 `DECRETOS\ALCACALI\{año}\...`. Desde ahí, cópialos a donde deban vivir (por
 ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
+
+## 10. Notas por fuente
+
+### Superintendencia Nacional de Salud (`supersalud`)
+
+- **Qué trae:** dos secciones del portal jurídico de la Supersalud —
+  **Resoluciones** y **Circulares Externas**. Las Actas de Conciliación
+  quedan fuera.
+- **Desde cuándo:** año 2015 en adelante.
+- **Cómo quedan nombrados los documentos:** con un código corto del tipo
+  `R_SNS_1234_2024` (una Resolución) o `C_SNS_0006_2016` (una Circular
+  Externa) — la letra indica el tipo, el número es el consecutivo del acto
+  y el último bloque es el año de publicación. Cuando el número no se puede
+  determinar con certeza, el documento entra con su título original y queda
+  marcado como "sin verificar" para que alguien lo revise a mano. Los anexos
+  entran como documentos aparte, con el sufijo `_A01`.
+- **Fuente nueva:** después de actualizar a la versión que la incluye hay
+  que correr una vez el sembrado del catálogo para que aparezca en el
+  listado de fuentes:
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed
+  ```
+
+  Es seguro repetirlo.

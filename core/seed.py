@@ -73,6 +73,11 @@ _FAMILIES = {
         "Normativa (circulares externas, cartas circulares, resoluciones) y doctrina y conceptos "
         "publicados por la Superintendencia Financiera de Colombia",
     ),
+    "supersalud": (
+        "Superintendencia Nacional de Salud",
+        "Normativa (resoluciones y circulares externas) publicada por la "
+        "Superintendencia Nacional de Salud",
+    ),
 }
 
 
@@ -180,6 +185,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="superfinanciera", name="Superintendencia Financiera de Colombia", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="supersalud", name="Superintendencia Nacional de Salud", family_params={}
     )
 
 

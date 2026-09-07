@@ -1,0 +1,344 @@
+"""Fuente Superintendencia Nacional de Salud (`supersalud`).
+
+Cobertura: dos secciones del portal jurídico de la Supersalud — Resoluciones y
+Circulares Externas — desde 2015. Las Actas de Conciliación quedan fuera.
+
+Notas de transporte (para desarrollo, no para el admin que despliega):
+
+- El portal está montado sobre SharePoint. Su API REST de búsqueda
+  (`/_api/search/query`) está bloqueada por un WAF que responde "Acceso
+  Bloqueado", así que no se puede usar.
+- En su lugar se llama el endpoint CSOM `/_vti_bin/client.svc/ProcessQuery`
+  con el cuerpo XML de una `KeywordQuery` + `SearchExecutor` (`_CSOM_BODY`).
+  Ese endpoint exige un *form digest* de un solo uso que se pide a
+  `/_api/contextinfo` (`_form_digest`). El digest caduca; cuando eso pasa
+  SharePoint devuelve HTTP 403 con "La validación de seguridad de esta página
+  no es válida" — `_es_digest_vencido` detecta ese caso (por código 401/403 o
+  por el texto) y `scrap()` refresca el digest y reintenta la misma página una
+  vez.
+- Los archivos (PDF y algún ZIP) se descargan directo de
+  `docs.supersalud.gov.co` (`_DOCS_PREFIX`); las filas cuyo `Path` no cuelga de
+  ese prefijo se descartan.
+"""
+
+import datetime
+import json
+import re
+import unicodedata
+from typing import List, Optional, Tuple, Union
+
+import requests
+
+from core.models import RawDocModel
+from core.scrapers.base import BaseScrapper
+from core.scrapers.registry import register_family
+from core.utils import storage_path
+
+_BASE = "https://www.supersalud.gov.co/es-co"
+_CONTEXTINFO = f"{_BASE}/_api/contextinfo"
+_PROCESS_QUERY = f"{_BASE}/_vti_bin/client.svc/ProcessQuery"
+_DOCS_PREFIX = "https://docs.supersalud.gov.co/PortalWeb/Juridica"
+
+# (carpeta en docs.supersalud, tipo mostrado, letra del código de título)
+_CATEGORIAS = [
+    ("Resoluciones", "Resolución", "R"),
+    ("CircularesExterna", "Circular Externa", "C"),
+]
+
+_ANIO_MINIMO = 2015
+_PAGE = 500
+_MAX_START = 10000  # tope duro de paginación por año/carpeta
+
+_SOURCE = "Superintendencia Nacional de Salud"
+
+_INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
+# año (4) + bloque de 12 dígitos (dependencia 6 + consecutivo 6) + sufijo "-D" o "D".
+# El lookbehind (?<!\d) impide que una corrida de >17 dígitos deslice la ventana
+# de match y capture un año/consecutivo espurios.
+_RADICADO_RE = re.compile(r"(?<!\d)(\d{4})(\d{12})-?\d?\b")
+_CLASICO_RE = re.compile(r"^0*(\d{1,5})$")
+_SUFIJO_ANIO_RE = re.compile(r"\s+de\s+\d{4}\s*$", re.IGNORECASE)
+_ANEXO_PREFIJO_RE = re.compile(r"^anexo\s+", re.IGNORECASE)
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# Plantilla CSOM ProcessQuery para una KeywordQuery + SearchExecutor.
+# Marcadores: __CARPETA__ (carpeta en docs.supersalud), __HEXYEAR__ (año en
+# hex UTF-8), __RL__ (RowLimit), __SR__ (StartRow). Los delimitadores ǂ
+# alrededor del año son FQL de SharePoint. Estructura verificada contra el
+# tráfico real del Content Search Web Part del portal.
+_CSOM_BODY = (
+    '<Request xmlns="http://schemas.microsoft.com/sharepoint/clientquery/2009" '
+    'SchemaVersion="15.0.0.0" LibraryVersion="16.0.0.0" ApplicationName="Javascript Library">'
+    "<Actions>"
+    '<ObjectPath Id="2" ObjectPathId="1" />'
+    '<SetProperty Id="3" ObjectPathId="1" Name="QueryText"><Parameter Type="String">*</Parameter></SetProperty>'
+    '<SetProperty Id="4" ObjectPathId="1" Name="QueryTemplate"><Parameter Type="String">'
+    "path:&quot;https://docs.supersalud.gov.co/PortalWeb/Juridica/__CARPETA__&quot; "
+    "(IsDocument:&quot;True&quot; OR contentclass:&quot;STS_ListItem&quot;)"
+    "</Parameter></SetProperty>"
+    '<SetProperty Id="5" ObjectPathId="1" Name="RowLimit"><Parameter Type="Number">__RL__</Parameter></SetProperty>'
+    '<SetProperty Id="6" ObjectPathId="1" Name="StartRow"><Parameter Type="Number">__SR__</Parameter></SetProperty>'
+    '<SetProperty Id="7" ObjectPathId="1" Name="ClientType"><Parameter Type="String">ContentSearchRegular</Parameter></SetProperty>'
+    '<SetProperty Id="8" ObjectPathId="1" Name="TrimDuplicates"><Parameter Type="Boolean">false</Parameter></SetProperty>'
+    '<SetProperty Id="9" ObjectPathId="1" Name="Culture"><Parameter Type="Number">3082</Parameter></SetProperty>'
+    '<ObjectPath Id="11" ObjectPathId="10" />'
+    '<Method Name="Add" Id="12" ObjectPathId="10"><Parameters><Parameter Type="String">Title</Parameter></Parameters></Method>'
+    '<Method Name="Add" Id="13" ObjectPathId="10"><Parameters><Parameter Type="String">Path</Parameter></Parameters></Method>'
+    '<Method Name="Add" Id="14" ObjectPathId="10"><Parameters><Parameter Type="String">NumeroOWSTEXT</Parameter></Parameters></Method>'
+    '<Method Name="Add" Id="15" ObjectPathId="10"><Parameters><Parameter Type="String">DescripcionOWSMTXT</Parameter></Parameters></Method>'
+    '<Method Name="Add" Id="16" ObjectPathId="10"><Parameters><Parameter Type="String">FechadePublicacionOWSDATE</Parameter></Parameters></Method>'
+    '<Method Name="Add" Id="17" ObjectPathId="10"><Parameters><Parameter Type="String">RefinableString00</Parameter></Parameters></Method>'
+    '<Method Name="Add" Id="18" ObjectPathId="10"><Parameters><Parameter Type="String">FileExtension</Parameter></Parameters></Method>'
+    '<ObjectPath Id="31" ObjectPathId="30" />'
+    '<Method Name="Add" Id="32" ObjectPathId="30"><Parameters>'
+    '<Parameter Type="String">RefinableString00:&quot;ǂǂ__HEXYEAR__&quot;</Parameter>'
+    "</Parameters></Method>"
+    '<ObjectPath Id="20" ObjectPathId="19" />'
+    '<Method Name="Add" Id="33" ObjectPathId="19"><Parameters>'
+    '<Parameter Type="String">FechadePublicacionOWSDATE</Parameter><Parameter Type="Number">1</Parameter>'
+    "</Parameters></Method>"
+    '<ObjectPath Id="22" ObjectPathId="21" />'
+    '<Method Name="ExecuteQuery" Id="23" ObjectPathId="21"><Parameters><Parameter ObjectPathId="1" /></Parameters></Method>'
+    "</Actions>"
+    "<ObjectPaths>"
+    '<Constructor Id="1" TypeId="{80173281-fffd-47b6-9a49-312e06ff8428}" />'
+    '<Property Id="10" ParentId="1" Name="SelectProperties" />'
+    '<Property Id="30" ParentId="1" Name="RefinementFilters" />'
+    '<Property Id="19" ParentId="1" Name="SortList" />'
+    '<Constructor Id="21" TypeId="{8d2ac302-db2f-46fe-9015-872b35f15098}" />'
+    "</ObjectPaths></Request>"
+)
+
+
+def _sin_acentos(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s or "") if not unicodedata.combining(c))
+
+
+def _es_anexo(title: Optional[str]) -> bool:
+    return _sin_acentos((title or "").strip()).lower().startswith("anexo")
+
+
+def _parse_numero(numero_raw: Optional[str], title: Optional[str]) -> Optional[int]:
+    base = (numero_raw or "").strip() or (title or "").strip()
+    if not base:
+        return None
+    base = _sin_acentos(base)
+    base = _ANEXO_PREFIJO_RE.sub("", base)
+    base = re.sub(r"\s+", " ", base).strip()
+    base = _SUFIJO_ANIO_RE.sub("", base).strip()
+
+    m = _RADICADO_RE.search(base)
+    if m:
+        return int(m.group(2)[-6:])
+
+    # For classic form, find all digit sequences in the text
+    numbers = re.findall(r"\d+", base)
+    # Trade deliberado: un título descriptivo con exactamente una corrida de
+    # dígitos podría canonizar un número suelto como "verificado". Se acepta
+    # porque len(numbers)==1 filtra la mayoría y todo entra con
+    # review_status="pending" para revisión humana.
+    if len(numbers) == 1 and _CLASICO_RE.match(numbers[0]):
+        return int(numbers[0])
+
+    return None
+
+
+def _safe_title(title: str) -> str:
+    return _INVALID_PATH_CHARS.sub("-", title)[:120].strip(" .")
+
+
+def _titulo(
+    letra: str, numero_raw: Optional[str], title_raw: str, anio: str, es_anexo: bool
+) -> Tuple[str, bool]:
+    numero = _parse_numero(numero_raw, title_raw)
+    if numero is None:
+        # Fallback no vacío: sin esto un Title vacío deja title="" y todas las
+        # filas de la misma fecha+tipo colisionan en una sola clave de storage.
+        # Mismo recorte y trim final (orden truncar-luego-strip) que _safe_title.
+        return ((title_raw or "").strip() or "documento")[:120].strip(" ."), True
+    base = f"{letra}_SNS_{numero:04d}_{anio}"
+    if es_anexo:
+        base = f"{base}_A01"
+    return base, False
+
+
+def _fecha_publicacion(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    candidato = raw.split("\n")[0].strip()[:10]
+    try:
+        datetime.date.fromisoformat(candidato)
+    except ValueError:
+        return None
+    return candidato
+
+
+def _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress) -> Optional[RawDocModel]:
+    url = (fila.get("Path") or "").strip()
+    if not url:
+        return None
+    if not url.startswith(_DOCS_PREFIX):
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: fila con ruta fuera de {_DOCS_PREFIX} «{url[:80]}», se omite")
+        return None
+
+    f_public = _fecha_publicacion(fila.get("FechadePublicacionOWSDATE"))
+    title_raw = (fila.get("Title") or "").strip()
+    if f_public is None:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: fila sin fecha de publicación parseable «{title_raw[:80]}», se omite")
+        return None
+    if f_public < fini or f_public > ffin:
+        return None
+
+    es_anexo = _es_anexo(title_raw)
+    title, unverified = _titulo(
+        letra, fila.get("NumeroOWSTEXT"), title_raw, f_public[:4], es_anexo
+    )
+    safe = _safe_title(title)
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": url, "method": "GET"},
+        title=title,
+        tipo=tipo,
+        f_public=f_public,
+        f_providencia=f_public,
+        detalle=(fila.get("DescripcionOWSMTXT") or "").strip() or None,
+        save_path=storage_path(_SOURCE, f_public, tipo, f"{safe}(extension)"),
+        title_unverified=unverified,
+    )
+
+
+def _build_body(carpeta: str, anio: int, start_row: int, row_limit: int = _PAGE) -> str:
+    hexyear = str(anio).encode("utf-8").hex()
+    return (
+        _CSOM_BODY.replace("__CARPETA__", carpeta)
+        .replace("__HEXYEAR__", hexyear)
+        .replace("__RL__", str(row_limit))
+        .replace("__SR__", str(start_row))
+    )
+
+
+def _decode(resp) -> Union[list, dict]:
+    return json.loads(resp.content.decode("utf-8-sig"))
+
+
+def _form_digest(session: requests.Session) -> str:
+    resp = session.post(_CONTEXTINFO, headers={"Accept": "application/json;odata=nometadata"}, timeout=30)
+    resp.raise_for_status()
+    return _decode(resp)["FormDigestValue"]
+
+
+def _process_query(
+    session: requests.Session, digest: str, carpeta: str, anio: int, start_row: int, row_limit: int = _PAGE
+) -> List[dict]:
+    resp = session.post(
+        _PROCESS_QUERY,
+        data=_build_body(carpeta, anio, start_row, row_limit).encode("utf-8"),
+        headers={"Content-Type": "text/xml", "X-RequestDigest": digest},
+        timeout=90,
+    )
+    resp.raise_for_status()
+    payload = _decode(resp)
+    if not isinstance(payload, list):
+        raise RuntimeError(f"ProcessQuery devolvió una forma inesperada: {type(payload).__name__}")
+    for item in payload:
+        if isinstance(item, dict) and item.get("ErrorInfo"):
+            raise RuntimeError(item["ErrorInfo"].get("ErrorMessage") or "ProcessQuery devolvió ErrorInfo")
+    for item in payload:
+        if isinstance(item, dict) and item.get("ResultTables"):
+            for tabla in item["ResultTables"]:
+                if tabla.get("TableType") == "RelevantResults":
+                    return tabla.get("ResultRows", [])
+    return []
+
+
+_DIGEST_VENCIDO = ("validación de seguridad", "validacion de seguridad", "security validation")
+
+
+def _es_digest_vencido(e: Exception) -> bool:
+    if isinstance(e, requests.HTTPError) and e.response is not None:
+        return e.response.status_code in (401, 403)
+    return any(t in str(e).lower() for t in _DIGEST_VENCIDO)
+
+
+def _rango_cubre_un_anio(fini: str, ffin: str) -> bool:
+    try:
+        d0 = datetime.date.fromisoformat(fini[:10])
+        d1 = datetime.date.fromisoformat(ffin[:10])
+    except ValueError:
+        return False
+    return (d1 - d0).days >= 364
+
+
+@register_family("supersalud")
+class ScrapSupersalud(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        digest = _form_digest(session)
+
+        anio_ini = max(_ANIO_MINIMO, int(fini[:4]))
+        anio_fin = int(ffin[:4])
+        docs: List[RawDocModel] = []
+
+        for carpeta, tipo, letra in _CATEGORIAS:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+
+            for anio in range(anio_ini, anio_fin + 1):
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                start = 0
+                while True:
+                    if stop_event is not None and stop_event.is_set():
+                        return docs[:limit]
+                    try:
+                        rows = _process_query(session, digest, carpeta, anio, start)
+                    except Exception as e:
+                        if _es_digest_vencido(e):
+                            # Digest caducado (403 real, o texto "validación de
+                            # seguridad"): refrescar y reintentar esta misma
+                            # página UNA vez. Refresh y reintento van juntos
+                            # bajo un try: si cualquiera falla, se corta el año.
+                            try:
+                                digest = _form_digest(session)
+                                rows = _process_query(session, digest, carpeta, anio, start)
+                            except Exception as e2:
+                                if on_progress:
+                                    on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e2}")
+                                break
+                        else:
+                            if on_progress:
+                                on_progress(f"[{_SOURCE}] Error consultando {tipo} {anio}: {e}")
+                            break
+
+                    for fila in rows:
+                        doc = _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress)
+                        if doc is not None:
+                            docs.append(doc)
+                            if len(docs) >= limit:
+                                return docs[:limit]
+
+                    if len(rows) < _PAGE:
+                        break
+                    start += _PAGE
+                    if start >= _MAX_START:
+                        if on_progress:
+                            on_progress(f"[{_SOURCE}] Aviso: {tipo} {anio} superó {_MAX_START} filas, se corta la paginación")
+                        break
+
+        if not docs and on_progress and _rango_cubre_un_anio(fini, ffin):
+            on_progress(
+                f"[{_SOURCE}] Aviso: no se obtuvo ningún documento para el rango {fini}..{ffin}; "
+                "puede que el sitio haya cambiado de formato"
+            )
+        return docs[:limit]
