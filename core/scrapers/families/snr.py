@@ -109,3 +109,63 @@ def _tarjeta_a_doc(tarjeta, tipo, fini, ffin, on_progress) -> Optional[RawDocMod
         save_path=storage_path(_SOURCE, iso, tipo, f"{safe}(extension)"),
         title_unverified=unverified,
     )
+
+
+def _buscar(session: requests.Session, categoria: str, termino: str) -> Tuple[int, str]:
+    resp = session.post(f"{_BASE}/{categoria}/", data={"r": termino}, timeout=200)
+    resp.raise_for_status()
+    return _resultados_total(resp.text), resp.text
+
+
+def _enumerar_categoria(session, categoria, letra, fini, ffin, stop_event, on_progress) -> List[dict]:
+    tipo_code = "CIR" if letra == "C" else "RES"
+    anio_ini = max(_ANIO_MIN, int(fini[:4]))
+    anio_fin = int(ffin[:4])
+    por_url: dict = {}
+
+    def _add(cards):
+        for c in cards:
+            por_url.setdefault(c["pdf_url"], c)
+
+    for anio in range(anio_ini, anio_fin + 1):
+        if stop_event is not None and stop_event.is_set():
+            return list(por_url.values())
+        try:
+            total, html = _buscar(session, categoria, str(anio))
+        except Exception as e:
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Error consultando {categoria} {anio}: {e}")
+            continue
+        cards, _ = _tarjetas(html)
+        if len(cards) > _UMBRAL or (total >= 0 and len(cards) >= total):
+            _add(cards)
+            continue
+
+        def _bloque(pref: str):
+            if stop_event is not None and stop_event.is_set():
+                return
+            termino = f"{tipo_code}-{anio}-{pref}"
+            try:
+                t, h = _buscar(session, categoria, termino)
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Error consultando {categoria} {termino}: {e}")
+                return
+            if t == 0:
+                return
+            cs, _ = _tarjetas(h)
+            if t <= _UMBRAL or (t >= 0 and len(cs) >= t):
+                _add(cs)
+                return
+            if len(pref) >= 5:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Aviso: bloque {termino} con {t} > {_UMBRAL}, posible corte")
+                _add(cs)
+                return
+            for d in "0123456789":
+                _bloque(pref + d)
+
+        for d in "0123456789":
+            _bloque(d)
+
+    return list(por_url.values())

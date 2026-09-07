@@ -156,3 +156,101 @@ def test_tarjeta_a_doc_without_any_date_is_dropped_and_warns():
     avisos = []
     assert _tarjeta_a_doc(card, "Circular", "2015-01-01", "2026-12-31", avisos.append) is None
     assert any("sin fecha" in m.lower() for m in avisos)
+
+
+import responses
+
+from core.scrapers.families.snr import _buscar, _enumerar_categoria
+
+_CIR_URL = "https://www.supernotariado.gov.co/transparencia/normatividad/circulares/"
+_RES_URL = "https://www.supernotariado.gov.co/transparencia/normatividad/Resoluciones/"
+
+
+def _page(cards_html, total):
+    return f'<ul class="docs_download">{cards_html}</ul><div>Resultados {total}</div>'
+
+
+def _card(codigo, pub, url):
+    return (
+        f'<li><div class="contenido_download"><span class="lettercap"></span> x<br>'
+        f'<a href="{url}">{codigo} del 03 de septiembre del 2026 "t"</a><br>'
+        f'<span>Publicación: {pub}</span></div></li>'
+    )
+
+
+def test_buscar_posts_r_param_and_reads_total():
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.POST, _CIR_URL, body=_page(_card("CIR-2026-000001-4", "2026-01-05", "https://x/1.pdf"), 1))
+        session = __import__("requests").Session()
+        total, html = _buscar(session, "circulares", "2026")
+        # responses 0.26.x limpia rsps.calls al salir del context manager -> comprobar dentro
+        assert rsps.calls[0].request.body == "r=2026"
+    assert total == 1
+    assert "docs_download" in html
+
+
+@responses.activate
+def test_enumerar_uses_year_search_directly_when_it_returns_everything():
+    # caso Resoluciones: r=2026 devuelve MÁS que _UMBRAL -> se usa directo, sin recursión
+    cards = "".join(_card(f"RES-2026-{i:06d}-6", "2026-06-01", f"https://x/r{i}.pdf") for i in range(1, 25))
+    responses.add(responses.POST, _RES_URL, body=_page(cards, 24))
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "Resoluciones", "R", "2026-01-01", "2026-12-31", None, None)
+    assert len(got) == 24
+    assert sum(1 for c in responses.calls if "Resoluciones" in c.request.url) == 1  # un solo POST
+
+
+@responses.activate
+def test_enumerar_recurses_by_prefix_when_year_search_is_capped():
+    # Catálogo falso: 60 circulares de 2026 en 3 bloques de 100 (20 c/u, cada
+    # bloque > _UMBRAL para forzar la recursión hasta bloques de 10).
+    catalogo = list(range(1, 21)) + list(range(150, 170)) + list(range(300, 320))  # 20+20+20 = 60
+
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term == "2026":
+            nums = catalogo
+        elif term.startswith("CIR-2026-"):
+            pref = term[len("CIR-2026-"):]
+            nums = [n for n in catalogo if f"{n:06d}".startswith(pref)]
+        else:
+            return (200, {}, _page("", 0))
+        resultados = len(nums)
+        mostrados = nums if resultados <= 18 else nums[:18]  # el listado corta a ~18
+        cards = "".join(_card(f"CIR-2026-{n:06d}-4", "2026-09-01", f"https://x/c{n}.pdf") for n in mostrados)
+        return (200, {}, _page(cards, resultados))
+
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, None)
+    # los 60 del catálogo, recolectados vía bloques cuya búsqueda cabe en <=_UMBRAL
+    assert len({g["pdf_url"] for g in got}) == 60
+
+
+@responses.activate
+def test_enumerar_dedups_by_pdf_url():
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term == "2026":
+            return (200, {}, _page(_card("CIR-2026-000001-4", "2026-01-05", "https://x/dup.pdf"), 355))
+        # todo prefijo devuelve la misma tarjeta duplicada
+        return (200, {}, _page(_card("CIR-2026-000001-4", "2026-01-05", "https://x/dup.pdf"), 1))
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, None)
+    assert len(got) == 1
+
+
+@responses.activate
+def test_enumerar_continues_past_a_failing_year():
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term == "2015":
+            return (500, {}, "boom")
+        return (200, {}, _page(_card("CIR-2016-000001-4", "2016-02-01", "https://x/ok.pdf"), 1))
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    progreso = []
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2015-01-01", "2016-12-31", None, progreso.append)
+    assert any(g["pdf_url"].endswith("/ok.pdf") for g in got)
+    assert any("Error" in m for m in progreso)
