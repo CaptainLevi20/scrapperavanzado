@@ -26,6 +26,11 @@ def test_fecha_corta_none_when_absent_or_invalid():
     assert _fecha_corta("32-13-26") is None
 
 
+def test_fecha_corta_none_for_iso_date_left_digit_boundary():
+    # una fecha ISO no debe leerse como DD-MM-YY por el borde de dígito a la izquierda
+    assert _fecha_corta("2025-09-15") is None
+
+
 def test_fecha_slash_ddmmyyyy():
     assert _fecha_slash("17/12/2025") == datetime.date(2025, 12, 17)
     assert _fecha_slash("6/10/2003") == datetime.date(2003, 10, 6)
@@ -34,6 +39,11 @@ def test_fecha_slash_ddmmyyyy():
 def test_fecha_slash_none_when_absent_or_invalid():
     assert _fecha_slash("sin fecha") is None
     assert _fecha_slash("30/02/2025") is None
+
+
+def test_fecha_slash_none_when_long_digit_run_precedes():
+    # el borde de dígito a la izquierda impide leer "23/10/2003" dentro de "123/10/2003"
+    assert _fecha_slash("123/10/2003") is None
 
 
 # ---- número circular ----
@@ -66,6 +76,11 @@ def test_num_resolucion_falls_back_to_documento():
 
 def test_num_resolucion_none_when_unparseable():
     assert _num_resolucion("por la cual se hace algo", "documento raro") is None
+
+
+def test_num_resolucion_acepta_numero_acentuado_tras_nfc():
+    # _num_resolucion normaliza a NFC, así que "Número" real lleva "ú" acentuada
+    assert _num_resolucion("Resolución Número 0789 del 1 de agosto de 2026", "") == "0789"
 
 
 def test_num_resolucion_acepta_no_entre_palabra_y_digitos():
@@ -198,7 +213,11 @@ def test_fila_circular_maps_number_date_and_link():
     assert doc.title == "C_SSF_0011_2025"
     assert doc.tipo == "Circular Externa"
     assert doc.f_public == "2025-12-17"
-    assert doc.link["url"] == "https://www.ssf.gov.co/documents/d/guest/circular-0011-2025"
+    assert doc.link == {
+        "url": "https://www.ssf.gov.co/documents/d/guest/circular-0011-2025",
+        "method": "GET",
+        "verify": False,
+    }
 
 
 def test_fila_circular_letter_suffix():
@@ -243,6 +262,46 @@ def test_fila_circular_without_date_is_dropped_and_warns():
     tr = _rows(html, {"numero", "fecha", "asunto", "adjunto"})[0]
     avisos = []
     assert _fila_circular(tr, "2024-01-01", "2026-12-31", avisos.append) is None
+    assert any("sin fecha" in m.lower() for m in avisos)
+
+
+_RES_HTML_FECHA_CORTA = """
+<table>
+  <tr><th>Documento</th><th>Asunto</th><th>Enlace</th></tr>
+  <tr>
+    <td>RESOLUCIÓN RES. 0500 DE 07-03-25</td>
+    <td>Resolución 0500 por la cual se adopta una decisión</td>
+    <td><a href="/documents/d/guest/res-0500">Descargar</a></td>
+  </tr>
+</table>
+"""
+
+
+def test_fila_resolucion_falls_back_to_documento_fecha_corta_when_asunto_has_no_prose_date():
+    # Asunto sin fecha en prosa (solo número) → se usa `or _fecha_corta(documento)`
+    tr = _rows(_RES_HTML_FECHA_CORTA, {"documento", "asunto", "enlace"})[0]
+    doc = _fila_resolucion(tr, "2024-01-01", "2026-12-31", None)
+    assert doc is not None
+    assert doc.title == "R_SSF_0500_2025"
+    assert doc.f_public == "2025-03-07"
+
+
+_RES_HTML_SIN_FECHA = """
+<table>
+  <tr><th>Documento</th><th>Asunto</th><th>Enlace</th></tr>
+  <tr>
+    <td>RESOLUCIÓN RES. 0501 SIN FECHA RECONOCIBLE</td>
+    <td>Resolución 0501 por la cual se adopta otra decisión</td>
+    <td><a href="/documents/d/guest/res-0501">Descargar</a></td>
+  </tr>
+</table>
+"""
+
+
+def test_fila_resolucion_without_parseable_date_is_dropped_and_warns():
+    tr = _rows(_RES_HTML_SIN_FECHA, {"documento", "asunto", "enlace"})[0]
+    avisos = []
+    assert _fila_resolucion(tr, "2024-01-01", "2026-12-31", avisos.append) is None
     assert any("sin fecha" in m.lower() for m in avisos)
 
 
@@ -327,6 +386,50 @@ def test_scrap_stops_on_stop_event():
     docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", stop_event=ev)
     assert docs == []
     assert len(responses.calls) == 0
+
+
+_HEADER_CHANGED_PAGE = """<html><body>
+<table>
+  <tr><th>Otra</th><th>Cosa</th></tr>
+  <tr><td>foo</td><td>bar</td></tr>
+</table></body></html>
+"""
+
+
+@responses.activate
+def test_scrap_warns_when_no_data_table_found():
+    # Si la SSF renombra columnas o reestructura el encabezado, la sección no
+    # rinde filas: scrap() debe devolver [] Y avisar por on_progress con "Error"
+    # y el nombre del tipo (antes se devolvía 0 en silencio).
+    responses.add(responses.GET, _RES_URL, body=_HEADER_CHANGED_PAGE)
+    responses.add(responses.GET, _CIR_URL, body=_HEADER_CHANGED_PAGE)
+
+    progreso = []
+    docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    assert docs == []
+    assert any("Error" in m and "Resolución" in m for m in progreso)
+    assert any("Error" in m and "Circular Externa" in m for m in progreso)
+
+
+_RES_PAGE_DOS_EN_RANGO = """<html><body>
+<table>
+  <tr><th>Documento</th><th>Asunto</th><th>Enlace</th></tr>
+  <tr><td>RESOLUCIÓN RES. 0789 DE 15-09-26</td>
+      <td>Resolución 0789 del 15 de Agosto de 2026 "x"</td>
+      <td><a href="/documents/d/guest/res-0789">D</a></td></tr>
+  <tr><td>RESOLUCIÓN RES. 0790 DE 16-09-26</td>
+      <td>Resolución 0790 del 16 de Agosto de 2026 "y"</td>
+      <td><a href="/documents/d/guest/res-0790">D</a></td></tr>
+</table></body></html>
+"""
+
+
+@responses.activate
+def test_scrap_limit_truncates_results():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE_DOS_EN_RANGO)
+
+    docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", limit=1)
+    assert len(docs) == 1
 
 
 def test_seed_families_dict_has_ssf_entry():

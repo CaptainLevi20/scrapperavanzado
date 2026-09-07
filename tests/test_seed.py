@@ -65,7 +65,7 @@ def test_seed_populates_families_and_sources_and_is_idempotent(db_session):
     sources = repository.list_sources(db_session)
     # 1 (Corte Constitucional) + 28 (SAMAI) + 20 (fuente única: corte_suprema, jep, cndj,
     # adr, adres, ane, anh, mincit, madr, minambiente, minvivienda, mineducacion,
-    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera, supersalud, ssf) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 87
+    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera, supersalud, ssf) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 88
     assert len(sources) == 1 + 28 + 20 + 33 + 6
 
     rama_judicial_sources = repository.list_sources(db_session, family_key="rama_judicial")

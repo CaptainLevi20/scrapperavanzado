@@ -41,11 +41,11 @@ _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 # `.search`), tras normalizar a NFC en `_num_resolucion`, para tomar siempre el
 # número principal. El del Documento sí usa `.search` (campo corto, sin citas).
 _NUM_RES_ASUNTO = re.compile(
-    r'^\s*["“”]?\s*resoluci[oó]n\s+(?:n[o°º]\.?\s*|numero\s*|#\s*)?(\d+)', re.I
+    r'^\s*["“”]?\s*resoluci[oó]n\s+(?:n[o°º]\.?\s*|n[uú]mero\s*|#\s*)?(\d+)', re.I
 )
-_NUM_RES_DOC = re.compile(r"(?:RES\.?|RESOLUCI[ÓO]N)\s*(?:N[O°º]\.?\s*|NUMERO\s*|#\s*)?(\d+)", re.I)
-_FECHA_CORTA = re.compile(r"(\d{1,2})-(\d{1,2})-(\d{2})\b")
-_FECHA_SLASH = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})\b")
+_NUM_RES_DOC = re.compile(r"(?:RES\.?|RESOLUCI[ÓO]N)\s*(?:N[O°º]\.?\s*|N[UÚ]MERO\s*|#\s*)?(\d+)", re.I)
+_FECHA_CORTA = re.compile(r"(?<!\d)(\d{1,2})-(\d{1,2})-(\d{2})\b")
+_FECHA_SLASH = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _NUM_CIRCULAR = re.compile(r"^\s*(?:CE\s*)?0*(\d+)\s*([A-Za-z]?)", re.I)
 
 
@@ -102,7 +102,7 @@ def _titulo(letra: str, digitos: Optional[str], sufijo: str, anio: int, texto_cr
     return ((texto_crudo or "").strip() or "documento")[:120], True
 
 
-def _tablas_de_datos(soup, columnas):
+def _tablas_de_datos(soup, columnas: set) -> list:
     out = []
     for t in soup.find_all("table"):
         filas = t.find_all("tr")
@@ -117,11 +117,11 @@ def _tablas_de_datos(soup, columnas):
     return out
 
 
-def _celdas_texto(tr):
+def _celdas_texto(tr) -> list:
     return [td.get_text(" ", strip=True) for td in tr.find_all("td")]
 
 
-def _href_de_fila(tr):
+def _href_de_fila(tr) -> Optional[str]:
     for a in tr.find_all("a", href=True):
         href = a["href"].strip()
         if href and not href.lower().startswith("javascript"):
@@ -129,7 +129,18 @@ def _href_de_fila(tr):
     return None
 
 
-def _armar_doc(tipo, letra, digitos, sufijo, fecha, fini, ffin, asunto, texto_crudo, href) -> Optional[RawDocModel]:
+def _armar_doc(
+    tipo: str,
+    letra: str,
+    digitos: Optional[str],
+    sufijo: str,
+    fecha: datetime.date,
+    fini: str,
+    ffin: str,
+    asunto: str,
+    texto_crudo: str,
+    href: str,
+) -> Optional[RawDocModel]:
     if fecha.year < _ANIO_MIN:
         return None
     iso = fecha.isoformat()
@@ -150,7 +161,7 @@ def _armar_doc(tipo, letra, digitos, sufijo, fecha, fini, ffin, asunto, texto_cr
     )
 
 
-def _fila_resolucion(tr, fini, ffin, on_progress) -> Optional[RawDocModel]:
+def _fila_resolucion(tr, fini: str, ffin: str, on_progress) -> Optional[RawDocModel]:
     tds = _celdas_texto(tr)
     if len(tds) < 2:
         return None
@@ -167,7 +178,7 @@ def _fila_resolucion(tr, fini, ffin, on_progress) -> Optional[RawDocModel]:
     return _armar_doc("Resolución", "R", numero, "", fecha, fini, ffin, asunto, documento or asunto, href)
 
 
-def _fila_circular(tr, fini, ffin, on_progress) -> Optional[RawDocModel]:
+def _fila_circular(tr, fini: str, ffin: str, on_progress) -> Optional[RawDocModel]:
     tds = _celdas_texto(tr)
     if len(tds) < 4:
         return None
@@ -214,7 +225,13 @@ class ScrapSSF(BaseScrapper):
 
             soup = BeautifulSoup(resp.text, "html.parser")
             fila_fn = _fila_resolucion if letra == "R" else _fila_circular
-            for tabla in _tablas_de_datos(soup, columnas):
+            tablas = _tablas_de_datos(soup, columnas)
+            if not tablas and on_progress:
+                on_progress(
+                    f"[{_SOURCE}] Error: no se encontró ninguna tabla de datos de {tipo} "
+                    "(¿cambiaron los encabezados de la página?)"
+                )
+            for tabla in tablas:
                 if stop_event is not None and stop_event.is_set():
                     return docs[:limit]
                 for tr in tabla.find_all("tr")[1:]:
