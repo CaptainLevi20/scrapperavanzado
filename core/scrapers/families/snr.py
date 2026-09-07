@@ -54,3 +54,58 @@ def _resultados_total(html: str) -> int:
     if not m:
         return -1
     return int(m.group(1).replace(".", "").replace(",", ""))
+
+
+def _tarjetas(html: str) -> Tuple[List[dict], int]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    out: List[dict] = []
+    sin_pdf = 0
+    for li in soup.select("ul.docs_download > li"):
+        cont = li.select_one("div.contenido_download")
+        if cont is None:
+            continue
+        a = cont.find("a", href=True)
+        if a is None:
+            sin_pdf += 1
+            continue
+        mpub = _PUB_RE.search(cont.get_text(" ", strip=True))
+        out.append({
+            "titulo_txt": a.get_text(" ", strip=True),
+            "publicacion": mpub.group(1) if mpub else None,
+            "pdf_url": a["href"].strip(),
+        })
+    return out, sin_pdf
+
+
+def _tarjeta_a_doc(tarjeta, tipo, fini, ffin, on_progress) -> Optional[RawDocModel]:
+    titulo_txt = tarjeta.get("titulo_txt") or ""
+    fecha = parse_fecha_providencia_es(titulo_txt)
+    if fecha is None and tarjeta.get("publicacion"):
+        try:
+            fecha = datetime.date.fromisoformat(tarjeta["publicacion"])
+        except ValueError:
+            fecha = None
+    if fecha is None:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: tarjeta sin fecha parseable «{titulo_txt[:70]}», se omite")
+        return None
+    if fecha.year < _ANIO_MIN:
+        return None
+    iso = fecha.isoformat()
+    if iso < fini or iso > ffin:
+        return None
+
+    codigo = _parse_codigo(titulo_txt)
+    title, unverified = _titulo(codigo, titulo_txt)
+    safe = _safe_title(title)
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": urljoin(_BASE, tarjeta["pdf_url"]), "method": "GET"},
+        title=title,
+        tipo=tipo,
+        f_public=iso,
+        f_providencia=iso,
+        detalle=titulo_txt or None,
+        save_path=storage_path(_SOURCE, iso, tipo, f"{safe}(extension)"),
+        title_unverified=unverified,
+    )
