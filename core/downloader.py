@@ -45,13 +45,20 @@ _SOFFICE_FALLBACK_PATHS = [
 ]
 
 
-def check_remote_content_length(url: str, timeout: int = 15) -> Optional[int]:
+def check_remote_content_length(url: str, timeout: int = 15, verify: bool = True) -> Optional[int]:
     """HEAD barato para saber si el archivo remoto cambió de tamaño sin descargarlo
     completo. Devuelve None si el servidor no expone Content-Length, responde con un
     status distinto de 200, o la petición falla — el llamador debe entonces caer a
-    descargar y comparar el tamaño real."""
+    descargar y comparar el tamaño real.
+
+    `verify` se pasa a `requests.head` igual que la descarga real usa
+    `link["verify"]`: hosts con la cadena TLS incompleta (ssf.gov.co,
+    constitucional, cndj) necesitan `verify=False`, o el handshake del HEAD
+    siempre falla y el documento se re-descarga completo en cada corrida."""
     try:
-        response = requests.head(url, allow_redirects=True, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        response = requests.head(
+            url, allow_redirects=True, timeout=timeout, verify=verify, headers={"User-Agent": "Mozilla/5.0"}
+        )
     except requests.exceptions.RequestException:
         return None
     if response.status_code != 200:
