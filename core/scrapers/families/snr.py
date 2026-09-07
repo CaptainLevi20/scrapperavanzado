@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.fecha_es import parse_fecha_providencia_es
@@ -11,6 +12,12 @@ from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
+
+# www.supernotariado.gov.co entrega una cadena TLS incompleta (le falta el
+# intermediario) que `certifi` no puede validar — igual que ssf.gov.co, la Corte
+# Constitucional y la CNDJ. Se salta la verificación TLS para este host
+# (session.verify = False en scrap() + link["verify"] = False para la descarga).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _BASE = "https://www.supernotariado.gov.co/transparencia/normatividad"
 _SOURCE = "Superintendencia de Notariado y Registro"
@@ -100,7 +107,7 @@ def _tarjeta_a_doc(tarjeta, tipo, fini, ffin, on_progress) -> Optional[RawDocMod
     safe = _safe_title(title)
     return RawDocModel(
         source=_SOURCE,
-        link={"url": urljoin(_BASE, tarjeta["pdf_url"]), "method": "GET"},
+        link={"url": urljoin(_BASE, tarjeta["pdf_url"]), "method": "GET", "verify": False},
         title=title,
         tipo=tipo,
         f_public=iso,
@@ -169,3 +176,33 @@ def _enumerar_categoria(session, categoria, letra, fini, ffin, stop_event, on_pr
             _bloque(d)
 
     return list(por_url.values())
+
+
+@register_family("snr")
+class ScrapSNR(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        # Cadena TLS incompleta del sitio; ver nota al inicio del módulo.
+        session.verify = False
+        session.headers.update({"User-Agent": _UA})
+        docs: List[RawDocModel] = []
+
+        for categoria, tipo, letra in _CATEGORIAS:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+            tarjetas = _enumerar_categoria(session, categoria, letra, fini, ffin, stop_event, on_progress)
+            for tarjeta in tarjetas:
+                doc = _tarjeta_a_doc(tarjeta, tipo, fini, ffin, on_progress)
+                if doc is not None:
+                    docs.append(doc)
+                    if len(docs) >= limit:
+                        return docs[:limit]
+
+        return docs[:limit]

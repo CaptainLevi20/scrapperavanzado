@@ -115,7 +115,7 @@ def test_tarjeta_a_doc_verified_circular_uses_prose_date():
     assert doc.tipo == "Circular"
     assert doc.f_public == "2026-09-03"       # "del 03 de septiembre del 2026"
     assert doc.f_providencia == "2026-09-03"
-    assert doc.link == {"url": "https://servicios.supernotariado.gov.co/files/snrcirculares/circular-348-x.pdf", "method": "GET"}
+    assert doc.link == {"url": "https://servicios.supernotariado.gov.co/files/snrcirculares/circular-348-x.pdf", "method": "GET", "verify": False}
     assert doc.save_path == (
         "Superintendencia de Notariado y Registro/2026-09-03/Circular/C_SNR_0348_2026(extension)"
     )
@@ -254,3 +254,68 @@ def test_enumerar_continues_past_a_failing_year():
     got = _enumerar_categoria(session, "circulares", "C", "2015-01-01", "2016-12-31", None, progreso.append)
     assert any(g["pdf_url"].endswith("/ok.pdf") for g in got)
     assert any("Error" in m for m in progreso)
+
+
+import threading
+
+from core.scrapers.registry import FAMILY_REGISTRY
+from core.scrapers.families.snr import ScrapSNR
+
+
+def test_snr_is_registered():
+    import core.scrapers.families  # noqa: F401
+    assert FAMILY_REGISTRY["snr"].__name__ == "ScrapSNR"
+
+
+def test_filters_by_publication_date_is_enabled():
+    assert ScrapSNR.filters_by_publication_date is True
+
+
+@responses.activate
+def test_scrap_collects_both_categories():
+    responses.add(responses.POST, _CIR_URL,
+                  body=_page(_card("CIR-2026-000010-4", "2026-03-01", "https://x/c10.pdf"), 1))
+    responses.add(responses.POST, _RES_URL,
+                  body=_page(_card("RES-2026-000020-6", "2026-04-01", "https://x/r20.pdf"), 1))
+    docs = ScrapSNR().scrap(fini="2026-01-01", ffin="2026-12-31")
+    assert {d.title for d in docs} == {"C_SNR_0010_2026", "R_SNR_0020_2026"}
+    assert {d.tipo for d in docs} == {"Circular", "Resolución"}
+
+
+@responses.activate
+def test_scrap_applies_year_floor_and_range():
+    # una circular de 2013 (bajo el piso) y una de 2026 en rango.
+    # La tarjeta de 2013 se arma a mano para que su fecha en prosa sea de 2013
+    # (el helper _card fija la prosa a 2026); así el piso de año la descarta.
+    old_card = (
+        '<li><div class="contenido_download"><span class="lettercap"></span> x<br>'
+        '<a href="https://x/old.pdf">CIR-2013-000001-4 del 10 de enero de 2013 "t"</a><br>'
+        '<span>Publicación: 2013-01-10</span></div></li>'
+    )
+    body = _page(
+        old_card
+        + _card("CIR-2026-000002-4", "2026-05-01", "https://x/new.pdf"), 2)
+    responses.add(responses.POST, _CIR_URL, body=body)
+    responses.add(responses.POST, _RES_URL, body=_page("", 0))
+    docs = ScrapSNR().scrap(fini="2010-01-01", ffin="2026-12-31")
+    assert {d.title for d in docs} == {"C_SNR_0002_2026"}
+
+
+@responses.activate
+def test_scrap_stops_on_stop_event():
+    responses.add(responses.POST, _CIR_URL, body=_page("", 0))
+    responses.add(responses.POST, _RES_URL, body=_page("", 0))
+    ev = threading.Event()
+    ev.set()
+    docs = ScrapSNR().scrap(fini="2026-01-01", ffin="2026-12-31", stop_event=ev)
+    assert docs == []
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_scrap_respects_limit():
+    cards = "".join(_card(f"CIR-2026-{i:06d}-4", "2026-02-01", f"https://x/c{i}.pdf") for i in range(1, 6))
+    responses.add(responses.POST, _CIR_URL, body=_page(cards, 5))
+    responses.add(responses.POST, _RES_URL, body=_page("", 0))
+    docs = ScrapSNR().scrap(fini="2026-01-01", ffin="2026-12-31", limit=2)
+    assert len(docs) == 2
