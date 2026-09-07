@@ -1,6 +1,7 @@
 from core.scrapers.families.supersalud import (
     _es_anexo,
     _fecha_publicacion,
+    _fila_a_doc,
     _parse_numero,
     _safe_title,
     _titulo,
@@ -109,3 +110,87 @@ def test_fecha_publicacion_none_when_missing_or_unparseable():
     assert _fecha_publicacion(None) is None
     assert _fecha_publicacion("") is None
     assert _fecha_publicacion("sin fecha") is None
+
+
+# ---- _fila_a_doc ----
+_FILA_RESOLUCION = {
+    "Title": "Resolución número 2024910010006787-6 de 2024",
+    "Path": "https://docs.supersalud.gov.co/PortalWeb/Juridica/Resoluciones/Resolución número 2024910010006787-6 de 2024.pdf",
+    "NumeroOWSTEXT": "2024910010006787-6",
+    "DescripcionOWSMTXT": "Por la cual se efectúa un nombramiento en periodo de prueba.",
+    "FechadePublicacionOWSDATE": "2024-07-09T05:00:00Z\n\n2024-07-09T05:00:00.0000000Z",
+    "RefinableString00": "2024",
+    "FileExtension": "pdf",
+}
+
+
+def test_fila_a_doc_maps_verified_resolucion():
+    doc = _fila_a_doc(_FILA_RESOLUCION, "Resolución", "R", "2024-01-01", "2024-12-31", None)
+    assert doc is not None
+    assert doc.title == "R_SNS_6787_2024"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Resolución"
+    assert doc.source == "Superintendencia Nacional de Salud"
+    assert doc.f_public == "2024-07-09"
+    assert doc.f_providencia == "2024-07-09"
+    assert doc.detalle == "Por la cual se efectúa un nombramiento en periodo de prueba."
+    assert doc.link == {
+        "url": _FILA_RESOLUCION["Path"],
+        "method": "GET",
+    }
+    assert doc.save_path == (
+        "Superintendencia Nacional de Salud/2024-07-09/Resolución/R_SNS_6787_2024(extension)"
+    )
+
+
+def test_fila_a_doc_zip_path_is_used_verbatim():
+    fila = dict(_FILA_RESOLUCION)
+    fila["Title"] = "Circular Externa 006 de 2016"
+    fila["NumeroOWSTEXT"] = "006"
+    fila["Path"] = "https://docs.supersalud.gov.co/PortalWeb/Juridica/CircularesExterna/Circular Externa 006 de 2016.zip"
+    fila["FechadePublicacionOWSDATE"] = "2016-05-02T05:00:00Z"
+    fila["FileExtension"] = "zip"
+    doc = _fila_a_doc(fila, "Circular Externa", "C", "2015-01-01", "2016-12-31", None)
+    assert doc.title == "C_SNS_0006_2016"
+    assert doc.link["url"].endswith(".zip")
+
+
+def test_fila_a_doc_anexo_gets_a01_suffix():
+    fila = dict(_FILA_RESOLUCION)
+    fila["Title"] = "Anexo resolución número 2024910010006782-6 de 2024"
+    fila["NumeroOWSTEXT"] = "2024910010006782-6"
+    doc = _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", None)
+    assert doc.title == "R_SNS_6782_2024_A01"
+    assert doc.title_unverified is False
+
+
+def test_fila_a_doc_unverified_when_no_number():
+    fila = dict(_FILA_RESOLUCION)
+    fila["Title"] = "Por medio de la cual se ordena la toma de posesión"
+    fila["NumeroOWSTEXT"] = ""
+    doc = _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", None)
+    assert doc.title == "Por medio de la cual se ordena la toma de posesión"
+    assert doc.title_unverified is True
+    # save_path saneado: exactamente 4 segmentos, sin caracteres inválidos en el archivo
+    segmentos = doc.save_path.split("/")
+    assert len(segmentos) == 4
+    assert not any(c in segmentos[-1] for c in '\\/*?:"<>|')
+
+
+def test_fila_a_doc_returns_none_outside_date_range():
+    doc = _fila_a_doc(_FILA_RESOLUCION, "Resolución", "R", "2025-01-01", "2025-12-31", None)
+    assert doc is None
+
+
+def test_fila_a_doc_returns_none_without_path():
+    fila = dict(_FILA_RESOLUCION)
+    fila["Path"] = None
+    assert _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", None) is None
+
+
+def test_fila_a_doc_returns_none_and_warns_without_date():
+    fila = dict(_FILA_RESOLUCION)
+    fila["FechadePublicacionOWSDATE"] = None
+    avisos = []
+    assert _fila_a_doc(fila, "Resolución", "R", "2024-01-01", "2024-12-31", avisos.append) is None
+    assert any("sin fecha" in m.lower() for m in avisos)

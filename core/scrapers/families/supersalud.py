@@ -88,3 +88,35 @@ def _fecha_publicacion(raw: Optional[str]) -> Optional[str]:
     except ValueError:
         return None
     return candidato
+
+
+def _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress) -> Optional[RawDocModel]:
+    url = (fila.get("Path") or "").strip()
+    if not url:
+        return None
+
+    f_public = _fecha_publicacion(fila.get("FechadePublicacionOWSDATE"))
+    title_raw = (fila.get("Title") or "").strip()
+    if f_public is None:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: fila sin fecha de publicación parseable «{title_raw[:80]}», se omite")
+        return None
+    if f_public < fini or f_public > ffin:
+        return None
+
+    es_anexo = _es_anexo(title_raw)
+    title, unverified = _titulo(
+        letra, fila.get("NumeroOWSTEXT"), title_raw, f_public[:4], es_anexo
+    )
+    safe = _safe_title(title)
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": url, "method": "GET"},
+        title=title,
+        tipo=tipo,
+        f_public=f_public,
+        f_providencia=f_public,
+        detalle=(fila.get("DescripcionOWSMTXT") or "").strip() or None,
+        save_path=storage_path(_SOURCE, f_public, tipo, f"{safe}(extension)"),
+        title_unverified=unverified,
+    )
