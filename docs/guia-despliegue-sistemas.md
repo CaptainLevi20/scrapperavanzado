@@ -412,3 +412,19 @@ ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
   ```
 
   Es seguro repetirlo.
+
+### Superintendencia del Subsidio Familiar (`ssf`)
+
+Una sola fuente que raspa dos secciones del portal de la SSF:
+**Resoluciones** y **Circulares Externas**. Cobertura desde 2024 (las
+circulares anteriores a 2011 tienen enlaces de descarga que ya no
+funcionan). Es un portal Liferay servido entero en HTML — sin API, sin
+filtros. Los documentos se descargan de `www.ssf.gov.co/documents/d/guest/...`.
+
+Títulos: `{C|R}_SSF_{número}_{año}`. Cuando el número no se puede
+determinar, el documento entra con el título crudo y marca de "no
+verificado".
+
+**Fuente nueva:** después de actualizar producción hay que correr una vez
+`docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+para que aparezca en el listado. Es seguro repetirlo.

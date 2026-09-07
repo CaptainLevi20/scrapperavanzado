@@ -12,13 +12,15 @@ _MESES = {
 # seguido del mes y luego el primer número de 4 dígitos que aparezca (el año,
 # que puede venir entre paréntesis tras "dos mil ...").
 #
-# El conector entre el día y el mes admite dos formas: la simple "de", y la
+# El conector entre el día y el mes admite tres formas: la simple "de", la
 # formal de los cierres judiciales colombianos "días del mes de" ("a los diez
-# (10) días del mes de agosto ..."). El conector entre el mes y el año admite
-# "de" o "del" ("... del año dos mil veintiséis (2026)").
+# (10) días del mes de agosto ..."), y su ausencia total ("31 marzo de 2026",
+# como escribe a veces la Superintendencia del Subsidio Familiar). El conector
+# entre el mes y el año admite "de" o "del" ("... del año dos mil veintiséis
+# (2026)").
 _PATRON = re.compile(
     r"\(?\s*(\d{1,2})\s*\)?\s+"
-    r"(?:d[ií]as?\s+del\s+mes\s+de|de)\s+"
+    r"(?:(?:d[ií]as?\s+del\s+mes\s+de|de)\s+)?"
     r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
     r"\s+del?\s+[^\d]{0,40}?\(?\s*(\d{4})",
     re.IGNORECASE,

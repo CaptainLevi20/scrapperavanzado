@@ -49,3 +49,10 @@ def test_conector_del_entre_mes_y_anio():
 
 def test_dias_del_mes_singular_sin_tilde():
     assert parse_fecha_providencia_es("a 1 dia del mes de enero de 2026") == date(2026, 1, 1)
+
+
+def test_sin_de_entre_dia_y_mes():
+    # La SSF escribe "del 31 marzo de 2026" (sin el primer "de").
+    assert parse_fecha_providencia_es("Resolución 0789 del 31 marzo de 2026") == date(2026, 3, 31)
+    # La forma canónica "con de" sigue funcionando.
+    assert parse_fecha_providencia_es("Resolución 0789 del 31 de marzo de 2026") == date(2026, 3, 31)
