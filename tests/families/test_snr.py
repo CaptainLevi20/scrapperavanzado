@@ -319,3 +319,12 @@ def test_scrap_respects_limit():
     responses.add(responses.POST, _RES_URL, body=_page("", 0))
     docs = ScrapSNR().scrap(fini="2026-01-01", ffin="2026-12-31", limit=2)
     assert len(docs) == 2
+
+
+def test_seed_families_dict_has_snr_entry():
+    from core.seed import _FAMILIES
+    assert "snr" in _FAMILIES
+    display_name, description = _FAMILIES["snr"]
+    assert display_name == "Superintendencia de Notariado y Registro"
+    assert "irculares" in description
+    assert "esoluciones" in description or "esolucion" in description

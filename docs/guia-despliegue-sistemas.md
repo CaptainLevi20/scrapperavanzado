@@ -428,3 +428,28 @@ verificado".
 **Fuente nueva:** después de actualizar producción hay que correr una vez
 `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
 para que aparezca en el listado. Es seguro repetirlo.
+
+### Superintendencia de Notariado y Registro (`snr`)
+
+Una sola fuente que raspa dos categorías del portal WordPress de la SNR:
+**Circulares** y **Resoluciones**. Cobertura desde 2015. Los documentos se
+descargan de `servicios.supernotariado.gov.co/files/…`.
+
+Particularidad: el listado del sitio **no tiene paginación** (solo muestra
+~20 por categoría). La familia enumera el catálogo con una búsqueda `POST`
+adaptativa por prefijo del número de la norma; por eso una corrida de
+**backfill** (rango amplio) tarda ~10–15 minutos, mientras que una
+corrida **incremental** (última semana) es rápida. Se saltan las tarjetas
+sin archivo adjunto (las "notificación por aviso").
+
+Títulos: `{C|R}_SNR_{número}_{año}` (desde el código `CIR-AAAA-NNNNNN` /
+`RES-AAAA-NNNNNN`). Los documentos viejos sin ese código entran con el
+título crudo y marca de "no verificado".
+
+Particularidad técnica: el certificado de seguridad del sitio `www.supernotariado.gov.co`
+está mal configurado, así que la familia se salta esa validación para ese host,
+igual que otras fuentes `.gov.co` (superfinanciera, constitucional y cndj).
+
+**Fuente nueva:** después de actualizar producción hay que correr una vez
+`docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
+Es seguro repetirlo.

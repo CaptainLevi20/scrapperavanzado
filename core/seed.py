@@ -83,6 +83,11 @@ _FAMILIES = {
         "Normativa (resoluciones y circulares externas) publicada por la "
         "Superintendencia del Subsidio Familiar",
     ),
+    "snr": (
+        "Superintendencia de Notariado y Registro",
+        "Normativa (circulares y resoluciones) publicada por la "
+        "Superintendencia de Notariado y Registro",
+    ),
 }
 
 
@@ -198,6 +203,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="ssf", name="Superintendencia del Subsidio Familiar", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="snr", name="Superintendencia de Notariado y Registro", family_params={}
     )
 
 
