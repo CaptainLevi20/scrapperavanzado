@@ -37,7 +37,33 @@ from core.utils import storage_path
 _BASE = "https://www.supersalud.gov.co/es-co"
 _CONTEXTINFO = f"{_BASE}/_api/contextinfo"
 _PROCESS_QUERY = f"{_BASE}/_vti_bin/client.svc/ProcessQuery"
-_DOCS_PREFIX = "https://docs.supersalud.gov.co/PortalWeb/Juridica"
+_DOCS_HOST = "https://docs.supersalud.gov.co"
+_DOCS_PREFIX = f"{_DOCS_HOST}/PortalWeb/Juridica"
+
+# --- Boletín Jurídico (tercera sección) ---------------------------------------
+# Publicación trimestral que recopila los conceptos jurídicos del periodo. A
+# diferencia de Resoluciones/Circulares (buscador SharePoint bloqueado por WAF),
+# los boletines viven en una LISTA de SharePoint que se consulta directo por su
+# API REST en docs.supersalud.gov.co — sin WAF y sin form digest (es un GET).
+_BOLETIN_TIPO = "Boletín Jurídico"
+_BOLETIN_LIST = f"{_DOCS_PREFIX}/_api/web/lists/getbytitle('Boletin Juridico')/items"
+_BOLETIN_PARAMS = {
+    "$select": "Title,Descripcion,Numero,Ano_Plantilla,"
+    "Fecha_x0020_de_x0020_Publicacion,Tipo_de_Norma,FileRef",
+    "$filter": "OData__ModerationStatus eq 0 and Tipo_de_Norma eq 'Boletín Jurídico'",
+    "$orderby": "Fecha_x0020_de_x0020_Publicacion desc",
+    "$top": "500",
+}
+_TRIMESTRES_POR_MES = {3: "ENE-MAR", 6: "ABR-JUN", 9: "JUL-SEP", 12: "OCT-DIC"}
+# (primer mes, último mes, código) — se busca la frase "de <mes> a <mes>" en el
+# título; el _sin_acentos + lower ya normaliza mayúsculas/acentos.
+_TRIMESTRE_FRASES = [
+    ("enero", "marzo", "ENE-MAR"),
+    ("abril", "junio", "ABR-JUN"),
+    ("julio", "septiembre", "JUL-SEP"),
+    ("octubre", "diciembre", "OCT-DIC"),
+]
+_NO_RE = re.compile(r"No\.?\s*(\d+)", re.IGNORECASE)
 
 # (carpeta en docs.supersalud, tipo mostrado, letra del código de título)
 _CATEGORIAS = [
@@ -210,6 +236,98 @@ def _fila_a_doc(fila, tipo, letra, fini, ffin, on_progress) -> Optional[RawDocMo
     )
 
 
+def _boletin_trimestre(title: Optional[str], f_public: Optional[str]) -> str:
+    t = _sin_acentos(title or "").lower()
+    for primero, ultimo, code in _TRIMESTRE_FRASES:
+        if primero in t and ultimo in t:
+            return code
+    try:
+        return _TRIMESTRES_POR_MES.get(datetime.date.fromisoformat((f_public or "")[:10]).month, "")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _boletin_numero(numero_raw: Optional[str], title: Optional[str]) -> Optional[int]:
+    raw = (numero_raw or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    for fuente in (raw, title or ""):
+        m = _NO_RE.search(fuente)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _titulo_boletin(
+    numero: Optional[int], trimestre: str, anio: str, title_raw: str
+) -> Tuple[str, bool]:
+    if numero is not None and trimestre:
+        return f"BOL_SNS_{numero:04d}_{trimestre}_{anio}", False
+    return ((title_raw or "").strip() or "documento")[:120].strip(" ."), True
+
+
+def _boletin_a_doc(item, fini: str, ffin: str, on_progress) -> Optional[RawDocModel]:
+    title_raw = (item.get("Title") or "").strip()
+    fileref = (item.get("FileRef") or "").strip()
+    if not fileref:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: boletín sin archivo «{title_raw[:80]}», se omite")
+        return None
+
+    f_public = _fecha_publicacion(item.get("Fecha_x0020_de_x0020_Publicacion"))
+    if f_public is None:
+        if on_progress:
+            on_progress(
+                f"[{_SOURCE}] Aviso: boletín sin fecha de publicación parseable «{title_raw[:80]}», se omite"
+            )
+        return None
+    if f_public < fini or f_public > ffin:
+        return None
+    anio = f_public[:4]
+    if int(anio) < _ANIO_MINIMO:
+        return None
+
+    numero = _boletin_numero(item.get("Numero"), title_raw)
+    trimestre = _boletin_trimestre(title_raw, f_public)
+    title, unverified = _titulo_boletin(numero, trimestre, anio, title_raw)
+    safe = _safe_title(title)
+    url = fileref if fileref.startswith("http") else _DOCS_HOST + fileref
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": url, "method": "GET"},
+        title=title,
+        tipo=_BOLETIN_TIPO,
+        f_public=f_public,
+        f_providencia=f_public,
+        detalle=(item.get("Descripcion") or "").strip() or None,
+        save_path=storage_path(_SOURCE, f_public, _BOLETIN_TIPO, f"{safe}(extension)"),
+        title_unverified=unverified,
+    )
+
+
+def _fetch_boletines(session: requests.Session) -> List[dict]:
+    rows: List[dict] = []
+    url: Optional[str] = _BOLETIN_LIST
+    params: Optional[dict] = dict(_BOLETIN_PARAMS)
+    for _ in range(50):  # tope defensivo de páginas
+        resp = session.get(
+            url, params=params,
+            headers={"Accept": "application/json;odata=nometadata"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        payload = _decode(resp)
+        if isinstance(payload, dict):
+            rows.extend(payload.get("value", []))
+            url = payload.get("odata.nextLink")
+        else:
+            break
+        if not url:
+            break
+        params = None  # el nextLink ya trae el skiptoken
+    return rows
+
+
 def _build_body(carpeta: str, anio: int, start_row: int, row_limit: int = _PAGE) -> str:
     hexyear = str(anio).encode("utf-8").hex()
     return (
@@ -335,6 +453,25 @@ class ScrapSupersalud(BaseScrapper):
                         if on_progress:
                             on_progress(f"[{_SOURCE}] Aviso: {tipo} {anio} superó {_MAX_START} filas, se corta la paginación")
                         break
+
+        # --- Tercera sección: Boletín Jurídico (lista SharePoint, GET simple) --
+        if stop_event is None or not stop_event.is_set():
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {_BOLETIN_TIPO}...")
+            try:
+                boletines = _fetch_boletines(session)
+            except Exception as e:
+                boletines = []
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Error consultando {_BOLETIN_TIPO}: {e}")
+            for item in boletines:
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                doc = _boletin_a_doc(item, fini, ffin, on_progress)
+                if doc is not None:
+                    docs.append(doc)
+                    if len(docs) >= limit:
+                        return docs[:limit]
 
         if not docs and on_progress and _rango_cubre_un_anio(fini, ffin):
             on_progress(

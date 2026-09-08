@@ -1,10 +1,14 @@
 from core.scrapers.families.supersalud import (
+    _boletin_a_doc,
+    _boletin_numero,
+    _boletin_trimestre,
     _es_anexo,
     _fecha_publicacion,
     _fila_a_doc,
     _parse_numero,
     _safe_title,
     _titulo,
+    _titulo_boletin,
 )
 
 
@@ -512,3 +516,198 @@ def test_seed_families_dict_has_supersalud_entry():
     assert display_name == "Superintendencia Nacional de Salud"
     assert "esolucion" in description or "esoluciones" in description
     assert "irculares" in description
+
+
+# ============================================================================
+# Boletín Jurídico (tercera sección — lista SharePoint en docs.supersalud)
+# ============================================================================
+
+from core.scrapers.families.supersalud import _fetch_boletines  # noqa: E402
+
+_BOLETIN_URL = "https://docs.supersalud.gov.co/PortalWeb/Juridica/_api/web/lists/getbytitle('Boletin Juridico')/items"
+
+
+# ---- _boletin_trimestre ----
+def test_boletin_trimestre_from_title_phrases():
+    assert _boletin_trimestre("Boletín Jurídico No.74 de enero a marzo", "2026-03-31") == "ENE-MAR"
+    assert _boletin_trimestre("Boletin Juridico No.71 de abril a junio", "2025-06-30") == "ABR-JUN"
+    assert _boletin_trimestre("Boletín Jurídico No.72 de julio a septiembre", "2025-09-30") == "JUL-SEP"
+    assert _boletin_trimestre("Boletín Jurídico No.73 de octubre a diciembre", "2025-12-31") == "OCT-DIC"
+
+
+def test_boletin_trimestre_falls_back_to_publication_month():
+    # título sin la frase de meses -> se deriva del mes de la fecha (fin de trimestre)
+    assert _boletin_trimestre("Boletín Jurídico No.70", "2025-03-31") == "ENE-MAR"
+    assert _boletin_trimestre("Boletín Jurídico No.68", "2024-09-30") == "JUL-SEP"
+
+
+def test_boletin_trimestre_empty_when_unknown():
+    assert _boletin_trimestre("Boletín raro", "no-es-fecha") == ""
+    assert _boletin_trimestre("Boletín raro", None) == ""
+
+
+# ---- _boletin_numero ----
+def test_boletin_numero_from_clean_field():
+    assert _boletin_numero("74", "Boletín Jurídico No.74 de enero a marzo") == 74
+
+
+def test_boletin_numero_from_title_when_field_is_dirty():
+    # caso real: el campo Numero a veces trae el título completo
+    assert _boletin_numero("Boletín Jurídico No.69 de octubre a diciembre",
+                           "Boletín Jurídico No.69 de octubre a diciembre") == 69
+
+
+def test_boletin_numero_none_when_nothing_parseable():
+    assert _boletin_numero("", "Boletín Jurídico sin número") is None
+
+
+# ---- _titulo_boletin ----
+def test_titulo_boletin_verified():
+    assert _titulo_boletin(74, "ENE-MAR", "2026", "irrelevante") == ("BOL_SNS_0074_ENE-MAR_2026", False)
+
+
+def test_titulo_boletin_unverified_without_number_or_quarter():
+    assert _titulo_boletin(None, "ENE-MAR", "2026", "Boletín Jurídico raro") == ("Boletín Jurídico raro", True)
+    assert _titulo_boletin(74, "", "2026", "Boletín Jurídico raro") == ("Boletín Jurídico raro", True)
+
+
+# ---- _boletin_a_doc ----
+_BOLETIN_ITEM = {
+    "Title": "Boletín Jurídico No.74 de enero a marzo",
+    "Descripcion": "Recopilación de conceptos del primer trimestre de 2026.",
+    "Numero": "74",
+    "Ano_Plantilla": "2026",
+    "Fecha_x0020_de_x0020_Publicacion": "2026-03-31T05:00:00Z",
+    "Tipo_de_Norma": "Boletín Jurídico",
+    "FileRef": "/PortalWeb/Juridica/BoletinJuridico/Boletín Jurídico No.74 de enero a marzo.pdf",
+}
+
+
+def test_boletin_a_doc_maps_all_fields():
+    doc = _boletin_a_doc(_BOLETIN_ITEM, "2015-01-01", "2026-12-31", None)
+    assert doc is not None
+    assert doc.title == "BOL_SNS_0074_ENE-MAR_2026"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Boletín Jurídico"
+    assert doc.source == "Superintendencia Nacional de Salud"
+    assert doc.f_public == "2026-03-31"
+    assert doc.f_providencia == "2026-03-31"
+    assert doc.detalle == "Recopilación de conceptos del primer trimestre de 2026."
+    assert doc.link == {
+        "url": "https://docs.supersalud.gov.co/PortalWeb/Juridica/BoletinJuridico/Boletín Jurídico No.74 de enero a marzo.pdf",
+        "method": "GET",
+    }
+    assert doc.save_path == (
+        "Superintendencia Nacional de Salud/2026-03-31/Boletín Jurídico/BOL_SNS_0074_ENE-MAR_2026(extension)"
+    )
+
+
+def test_boletin_a_doc_absolute_fileref_used_verbatim():
+    item = dict(_BOLETIN_ITEM)
+    item["FileRef"] = "https://docs.supersalud.gov.co/PortalWeb/Juridica/BoletinJuridico/x.pdf"
+    doc = _boletin_a_doc(item, "2015-01-01", "2026-12-31", None)
+    assert doc.link["url"] == "https://docs.supersalud.gov.co/PortalWeb/Juridica/BoletinJuridico/x.pdf"
+
+
+def test_boletin_a_doc_below_2015_floor_is_dropped():
+    item = dict(_BOLETIN_ITEM)
+    item["Title"] = "Boletin Juridico No.30 de enero a marzo"
+    item["Numero"] = "30"
+    item["Fecha_x0020_de_x0020_Publicacion"] = "2014-03-31T05:00:00Z"
+    assert _boletin_a_doc(item, "2010-01-01", "2026-12-31", None) is None
+
+
+def test_boletin_a_doc_outside_requested_range_is_dropped():
+    assert _boletin_a_doc(_BOLETIN_ITEM, "2015-01-01", "2025-12-31", None) is None
+
+
+def test_boletin_a_doc_without_date_is_dropped_and_warns():
+    item = dict(_BOLETIN_ITEM)
+    item["Fecha_x0020_de_x0020_Publicacion"] = None
+    avisos = []
+    assert _boletin_a_doc(item, "2015-01-01", "2026-12-31", avisos.append) is None
+    assert any("sin fecha" in m.lower() for m in avisos)
+
+
+def test_boletin_a_doc_without_fileref_is_dropped_and_warns():
+    item = dict(_BOLETIN_ITEM)
+    item["FileRef"] = ""
+    avisos = []
+    assert _boletin_a_doc(item, "2015-01-01", "2026-12-31", avisos.append) is None
+    assert any("boletín" in m.lower() for m in avisos)
+
+
+def test_boletin_a_doc_unverified_when_number_missing():
+    item = dict(_BOLETIN_ITEM)
+    item["Title"] = "Boletín Jurídico especial sin número"
+    item["Numero"] = ""
+    doc = _boletin_a_doc(item, "2015-01-01", "2026-12-31", None)
+    assert doc.title_unverified is True
+    assert doc.title == "Boletín Jurídico especial sin número"
+    segs = doc.save_path.split("/")
+    assert len(segs) == 4 and not any(c in segs[-1] for c in '\\/*?:"<>|')
+
+
+# ---- _fetch_boletines (lista SharePoint, con paginación) ----
+def _bol_item(numero, fecha, title=None):
+    return {
+        "Title": title or f"Boletín Jurídico No.{numero} de enero a marzo",
+        "Descripcion": "desc", "Numero": str(numero), "Ano_Plantilla": fecha[:4],
+        "Fecha_x0020_de_x0020_Publicacion": fecha, "Tipo_de_Norma": "Boletín Jurídico",
+        "FileRef": f"/PortalWeb/Juridica/BoletinJuridico/b{numero}.pdf",
+    }
+
+
+@responses.activate
+def test_fetch_boletines_follows_odata_next_link():
+    page2 = _BOLETIN_URL + "?%24skiptoken=Paged%3dTRUE%26p_ID%3d40"
+    responses.add(responses.GET, _BOLETIN_URL, body=_bom({
+        "odata.nextLink": page2,
+        "value": [_bol_item(74, "2026-03-31T05:00:00Z"), _bol_item(73, "2025-12-31T05:00:00Z")],
+    }), content_type="application/json")
+    responses.add(responses.GET, page2, body=_bom({
+        "value": [_bol_item(72, "2025-09-30T05:00:00Z")],
+    }), content_type="application/json")
+
+    session = __import__("requests").Session()
+    rows = _fetch_boletines(session)
+    assert [r["Numero"] for r in rows] == ["74", "73", "72"]
+
+
+@responses.activate
+def test_scrap_includes_boletin_section():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+    responses.add_callback(responses.POST, _PQ_URL,
+                           callback=lambda r: (200, {}, _bom(_rows_payload([]))),
+                           content_type="application/json")
+    responses.add(responses.GET, _BOLETIN_URL, body=_bom({
+        "value": [_bol_item(74, "2026-03-31T05:00:00Z"), _bol_item(70, "2025-03-31T05:00:00Z")],
+    }), content_type="application/json")
+
+    progreso = []
+    docs = ScrapSupersalud().scrap(fini="2015-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    boletines = [d for d in docs if d.tipo == "Boletín Jurídico"]
+    assert {d.title for d in boletines} == {"BOL_SNS_0074_ENE-MAR_2026", "BOL_SNS_0070_ENE-MAR_2025"}
+    assert any("Boletín Jurídico" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_continues_when_boletin_list_fails():
+    responses.add(responses.POST, _CONTEXTINFO_URL, body=_bom({"FormDigestValue": "0xD"}))
+
+    def cb(request):
+        body = request.body.decode("utf-8") if isinstance(request.body, bytes) else request.body
+        if "Juridica/Resoluciones" in body:
+            rows = [_row("Resolución número 2026910010008999-6 de 2026", "2026910010008999-6",
+                         "2026-03-04T05:00:00Z",
+                         "https://docs.supersalud.gov.co/PortalWeb/Juridica/Resoluciones/a.pdf", "2026")]
+            return (200, {}, _bom(_rows_payload(rows)))
+        return (200, {}, _bom(_rows_payload([])))
+
+    responses.add_callback(responses.POST, _PQ_URL, callback=cb, content_type="application/json")
+    responses.add(responses.GET, _BOLETIN_URL, status=500, body="boom")
+
+    progreso = []
+    docs = ScrapSupersalud().scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    assert {d.title for d in docs} == {"R_SNS_8999_2026"}
+    assert any("Error" in m and "Boletín Jurídico" in m for m in progreso)
