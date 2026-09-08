@@ -501,3 +501,22 @@ otras fuentes `.gov.co` como `ssf`, `constitucional` y `cndj`.
 **Fuente nueva:** después de actualizar producción hay que correr una vez
 `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
 Es seguro repetirlo.
+
+### Superintendencia de Sociedades (`supersociedades`)
+
+- **Qué trae:** dos boletines de recopilación de conceptos — el **Boletín
+  Jurídico** (mensual) y el **Boletín Contable** (semestral). Cada boletín
+  entra como un documento: su PDF completo.
+- **Desde cuándo:** todo lo disponible (el jurídico va desde ~2013, el
+  contable desde 2017).
+- **Cómo quedan nombrados:** `BOL_SS_AGO_2026` (jurídico: mes y año) y
+  `BOL_SS_SI_2026` / `BOL_SS_SII_2026` (contable: semestre y año). Si el
+  título del boletín no permite deducir el mes/semestre, entra con su título
+  original y marca de "sin verificar".
+- **Detalle técnico:** portal Liferay con certificado válido (no hace falta
+  saltarse la validación). La lista de cada sección viene entera en la página
+  (sin paginación); el enlace al PDF está dentro de cada boletín, así que la
+  fuente abre cada boletín que caiga en el rango de fechas pedido.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
