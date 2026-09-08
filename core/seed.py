@@ -80,8 +80,8 @@ _FAMILIES = {
     ),
     "ssf": (
         "Superintendencia del Subsidio Familiar",
-        "Normativa (resoluciones y circulares externas) publicada por la "
-        "Superintendencia del Subsidio Familiar",
+        "Normativa (resoluciones y circulares externas) y conceptos jurídicos "
+        "publicados por la Superintendencia del Subsidio Familiar",
     ),
     "snr": (
         "Superintendencia de Notariado y Registro",

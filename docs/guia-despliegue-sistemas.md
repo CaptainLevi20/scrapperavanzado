@@ -415,19 +415,37 @@ ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
 
 ### Superintendencia del Subsidio Familiar (`ssf`)
 
-Una sola fuente que raspa dos secciones del portal de la SSF:
-**Resoluciones** y **Circulares Externas**. Cobertura desde 2024 (las
-circulares anteriores a 2011 tienen enlaces de descarga que ya no
-funcionan). Es un portal Liferay servido entero en HTML — sin API, sin
-filtros. Los documentos se descargan de `www.ssf.gov.co/documents/d/guest/...`.
+Una sola fuente que raspa **tres** secciones:
 
-Títulos: `{C|R}_SSF_{número}_{año}`. Cuando el número no se puede
-determinar, el documento entra con el título crudo y marca de "no
-verificado".
+1. **Resoluciones** y **Circulares Externas** del portal `www.ssf.gov.co`
+   (Liferay servido entero en HTML — sin API, sin filtros). Cobertura desde
+   2024 (las circulares anteriores a 2011 tienen enlaces de descarga que ya
+   no funcionan). Descargas desde `www.ssf.gov.co/documents/d/guest/...`.
+   Títulos: `{C|R}_SSF_{número}_{año}`.
+2. **Conceptos** jurídicos de la Relatoría (`juridica.ssf.gov.co`), sitio
+   ASP.NET aparte. Cobertura desde 2015 (en la práctica trae todo; el dato
+   más viejo es de 2017). No tiene paginación: una búsqueda por rango de
+   fechas devuelve todo el catálogo (~1.000 conceptos) en una sola
+   respuesta, y el servidor filtra por fecha de verdad, así que las corridas
+   diarias son baratas. Los PDF se descargan de
+   `juridica.blob.core.windows.net/juridica-documentos/...`.
+   Títulos: `CTO_SSF_{consecutivo}_{año}`, tomados del **nombre del PDF de
+   respuesta** (el radicado que muestra la tabla a veces es el de la
+   consulta de entrada, no el del concepto). El radicado de la tabla queda
+   guardado en el campo "detalle".
 
-**Fuente nueva:** después de actualizar producción hay que correr una vez
+Cuando el número/radicado no se puede determinar, el documento entra con el
+título crudo y marca de "no verificado".
+
+**Certificados:** `www.ssf.gov.co` tiene la cadena TLS incompleta y la
+familia se salta la validación para ese host (igual que `constitucional` y
+`cndj`). `juridica.ssf.gov.co` y el almacén de PDF de conceptos **sí**
+tienen certificado válido y se validan normalmente.
+
+**Fuente nueva / sección nueva:** después de actualizar producción hay que
+correr una vez
 `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
-para que aparezca en el listado. Es seguro repetirlo.
+para refrescar la descripción en el listado. Es seguro repetirlo.
 
 ### Superintendencia de Notariado y Registro (`snr`)
 
