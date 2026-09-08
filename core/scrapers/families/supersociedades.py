@@ -13,7 +13,7 @@ from core.utils import storage_path
 
 _BASE = "https://www.supersociedades.gov.co"
 _SOURCE = "Superintendencia de Sociedades"
-_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 _MESES = {
     "enero": "ENE", "febrero": "FEB", "marzo": "MAR", "abril": "ABR",
@@ -123,3 +123,94 @@ def _pdf_del_articulo(html: str) -> Optional[str]:
         if _PDF_RE.search(_sin_acentos(href)):
             return href
     return None
+
+
+_SECCIONES = [
+    (f"{_BASE}/boletines-conceptos-juridicos", "Boletín Jurídico",
+     "tituloBolConJuriHistorico", _periodo_juridico),
+    (f"{_BASE}/boletines-de-conceptos-contables", "Boletín Contable",
+     "tituloBol_ConContHistorico", _periodo_contable),
+]
+
+
+@register_family("supersociedades")
+class ScrapSupersociedades(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        docs: List[RawDocModel] = []
+
+        for url_seccion, tipo, link_class, periodo_fn in _SECCIONES:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+            try:
+                resp = session.get(url_seccion, timeout=60)
+                resp.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Error consultando {tipo}: {e}")
+                continue
+
+            items = _items_de_lista(resp.text, link_class)
+            if not items and on_progress:
+                on_progress(
+                    f"[{_SOURCE}] Aviso: no se encontró ningún boletín de {tipo} "
+                    "(¿cambió el marcado de la página?)"
+                )
+
+            vistos: set = set()
+            for titulo, url_articulo in items:
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                periodo = periodo_fn(titulo)
+                fecha = _fecha_de_periodo(tipo, periodo) if periodo is not None else None
+                if fecha is None:
+                    if on_progress:
+                        on_progress(
+                            f"[{_SOURCE}] Aviso: boletín sin periodo reconocible «{titulo[:70]}», se omite"
+                        )
+                    continue
+                if fecha < fini or fecha > ffin:
+                    continue
+                try:
+                    art = session.get(url_articulo, timeout=60)
+                    art.raise_for_status()
+                except Exception as e:
+                    if on_progress:
+                        on_progress(f"[{_SOURCE}] Error abriendo boletín «{titulo[:70]}»: {e}")
+                    continue
+                pdf = _pdf_del_articulo(art.text)
+                if not pdf:
+                    if on_progress:
+                        on_progress(
+                            f"[{_SOURCE}] Aviso: boletín «{titulo[:70]}» sin PDF en el artículo, se omite"
+                        )
+                    continue
+                url_pdf = urljoin(_BASE, pdf)
+                if url_pdf in vistos:
+                    continue
+                vistos.add(url_pdf)
+                title, unverified = _titulo(tipo, periodo, titulo)
+                safe = _safe_title(title)
+                docs.append(RawDocModel(
+                    source=_SOURCE,
+                    link={"url": url_pdf, "method": "GET"},
+                    title=title,
+                    tipo=tipo,
+                    f_public=fecha,
+                    f_providencia=fecha,
+                    detalle=titulo or None,
+                    save_path=storage_path(_SOURCE, fecha, tipo, f"{safe}(extension)"),
+                    title_unverified=unverified,
+                ))
+                if len(docs) >= limit:
+                    return docs[:limit]
+
+        return docs[:limit]
