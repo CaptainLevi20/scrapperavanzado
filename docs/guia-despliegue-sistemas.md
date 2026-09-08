@@ -452,6 +452,18 @@ Se saltan las tarjetas sin archivo adjunto (las "notificación por aviso") y se
 informa cuántas fueron. La fecha que manda es la de **publicación** del sitio
 (no la de firma de la norma, que puede ser bastante anterior).
 
+**Cobertura de las Circulares antiguas.** La enumeración por prefijo se apoya
+en el código `CIR-AAAA-NNNNNN`, que la SNR sólo empezó a usar hacia 2025. Las
+circulares anteriores (2015–2024) son texto libre ("Circular No. 123 de
+2018") y el buscador del sitio nunca muestra más de 20 por año, sin "página
+siguiente". Resultado práctico:
+
+- **Resoluciones:** completas desde 2015.
+- **Circulares 2025 en adelante** (y futuras): completas.
+- **Circulares 2015–2024:** parciales — sólo entran las ~20 más recientes que
+  el sitio alcanza a mostrar por cada año. La corrida deja un aviso visible
+  ("… sólo muestra 20 …") en esos años.
+
 Títulos: `{C|R}_SNR_{número}_{año}` (desde el código `CIR-AAAA-NNNNNN` /
 `RES-AAAA-NNNNNN`). Los documentos viejos sin ese código entran con el
 título crudo y marca de "no verificado".

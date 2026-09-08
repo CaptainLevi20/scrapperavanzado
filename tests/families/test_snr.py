@@ -295,6 +295,33 @@ def test_enumerar_recursion_actually_runs_for_a_capped_year():
 
 
 @responses.activate
+def test_enumerar_keeps_shown_cards_when_capped_year_has_no_code_prefix():
+    # Circulares anteriores a ~2025: el año reporta muchos resultados, muestra
+    # sólo _PAGINA_MAX fichas y NINGUNA trae el código «CIR-AAAA-NNNNNN», así que
+    # la recursión por prefijo devuelve 0. Aun así deben conservarse las fichas
+    # que el sitio sí mostró (única cobertura posible de ese año).
+    libre = "".join(
+        f'<li><div class="contenido_download"><span class="lettercap"></span> x<br>'
+        f'<a href="https://x/vieja{i}.pdf">Circular No. {i} de 2018 "asunto"</a><br>'
+        f'<span>Publicación: 2018-{(i % 12) + 1:02d}-05</span></div></li>'
+        for i in range(1, _PAGINA_MAX + 1)
+    )
+
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term == "2018":
+            return (200, {}, _page(libre, 240))
+        return (200, {}, _page("", 0))  # no hay código -> todo prefijo vacío
+
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    progreso = []
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2018-01-01", "2018-12-31", None, progreso.append)
+    assert {g["pdf_url"] for g in got} == {f"https://x/vieja{i}.pdf" for i in range(1, _PAGINA_MAX + 1)}
+    assert any("sólo muestra" in m for m in progreso)
+
+
+@responses.activate
 def test_enumerar_prunes_on_zero_total():
     def cb(request):
         term = request.body.split("r=", 1)[1]
@@ -315,7 +342,11 @@ def test_enumerar_prunes_on_zero_total():
     terms = _terminos(responses.calls)
     # la rama vacía se consulta una sola vez y no desciende
     assert [t for t in terms if t.startswith("CIR-2026-01")] == ["CIR-2026-01"]
-    assert {g["pdf_url"] for g in got} == {f"https://x/z{i}.pdf" for i in range(1, 4)}
+    urls = {g["pdf_url"] for g in got}
+    # el bloque poblado aporta sus 3 fichas...
+    assert {f"https://x/z{i}.pdf" for i in range(1, 4)} <= urls
+    # ...y además se conservan las que el año (topado) alcanzó a mostrar
+    assert {f"https://x/c{i}.pdf" for i in range(1, _PAGINA_MAX + 1)} <= urls
 
 
 @responses.activate

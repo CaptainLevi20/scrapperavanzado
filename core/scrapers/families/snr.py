@@ -231,6 +231,20 @@ def _enumerar_categoria(session, categoria, letra, fini, ffin, stop_event, on_pr
             if _completo(vistas, total):
                 _add(cards)
                 continue
+            # La respuesta vino topada en _PAGINA_MAX. Se conservan igual las
+            # fichas que el sitio SÍ mostró de este año: para las circulares
+            # anteriores a ~2025 —que no traen el código «CIR-AAAA-NNNNNN»— la
+            # recursión por prefijo no encuentra nada, así que estas ~20 fichas
+            # más recientes son la única cobertura posible del año. Para los años
+            # con código, la recursión vuelve a traerlas y _add las deduplica por
+            # URL, sin doble conteo.
+            _add(cards)
+            if on_progress:
+                on_progress(
+                    f"[{_SOURCE}] Aviso: {categoria} {anio} devolvió {total} "
+                    f"resultados pero el sitio sólo muestra {len(cards)}; se "
+                    "conservan esas y se intenta completar por código de norma"
+                )
             # Los consecutivos vienen con relleno a 6 dígitos y ninguno llega a
             # 100.000, así que TODOS caen bajo el prefijo "0": se arranca ahí en
             # vez de gastar nueve búsquedas garantizadas vacías ("1".."9").
