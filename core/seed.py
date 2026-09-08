@@ -88,6 +88,11 @@ _FAMILIES = {
         "Normativa (circulares y resoluciones) publicada por la "
         "Superintendencia de Notariado y Registro",
     ),
+    "supersociedades": (
+        "Superintendencia de Sociedades",
+        "Boletín jurídico (mensual) y boletín contable (semestral) de "
+        "recopilación de conceptos, publicados por la Superintendencia de Sociedades",
+    ),
 }
 
 
@@ -207,6 +212,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="snr", name="Superintendencia de Notariado y Registro", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="supersociedades", name="Superintendencia de Sociedades", family_params={}
     )
 
 

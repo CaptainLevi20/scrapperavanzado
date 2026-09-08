@@ -501,3 +501,42 @@ otras fuentes `.gov.co` como `ssf`, `constitucional` y `cndj`.
 **Fuente nueva:** después de actualizar producción hay que correr una vez
 `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
 Es seguro repetirlo.
+
+### Superintendencia de Sociedades (`supersociedades`)
+
+- **Qué trae:** dos boletines de recopilación de conceptos — el **Boletín
+  Jurídico** (mensual) y el **Boletín Contable** (semestral). Cada boletín
+  entra como un documento: su PDF completo.
+- **Desde cuándo:** una corrida completa (2015 en adelante) trae hoy **110
+  boletines jurídicos y 10 contables**. No es "todo lo publicado", porque la
+  propia Supersociedades tituló muchos boletines viejos sin decir de qué mes o
+  de qué año son:
+  - **Jurídico:** 2015, 2016, 2022, 2023 y 2025 entran completos (12 al año);
+    2024 entra con 10; de 2017 a 2021 entra sólo una parte (entre 3 y 8 al
+    año). Lo que falta de esos años son boletines cuyo título en la página no
+    trae el mes o el año y cuyo archivo PDF tampoco lo dice (por ejemplo
+    `BoletinJuridico-Agosto.pdf` o `CONCEPTOS JURIDICOS_04.pdf`): no hay forma
+    de fecharlos y quedan fuera.
+  - **Contable:** desde el segundo semestre de 2021 en adelante, completo. Los
+    tres boletines contables anuales de 2017, 2018 y 2020 no dicen a qué
+    semestre corresponden, así que tampoco se pueden fechar y quedan fuera.
+  - La lista de la página mezcla además una veintena de guías, libros y
+    revistas que no son boletines. Se descartan a propósito; la corrida lo
+    resume en una sola línea ("20 entradas … sin PDF de boletín, omitidas") en
+    vez de ensuciar el informe con un aviso por cada una.
+- **Cómo quedan nombrados:** `BOL_SS_AGO_2026` (jurídico: mes y año) y
+  `BOL_SS_SI_2026` / `BOL_SS_SII_2026` (contable: semestre y año). Cuando el
+  título de la página no trae el período, se lee del nombre del archivo PDF
+  (así entran, por ejemplo, los mensuales de 2019 a 2021). Si dos boletines
+  distintos caen en el mismo mes —pasa en 2014, con el jurídico y el del grupo
+  de reorganización— el segundo entra con su título original de la página y
+  marca de "sin verificar", para que no se pisen el archivo entre ellos.
+- **Detalle técnico:** portal Liferay con certificado válido (no hace falta
+  saltarse la validación). La lista de cada sección viene entera en la página
+  (sin paginación); el enlace al PDF está dentro de cada boletín, así que la
+  fuente abre cada boletín que caiga en el rango de fechas pedido, más los que
+  no traen fecha en el título (para buscarla en el nombre del archivo). Una
+  corrida completa abre unas 175 páginas y descarga cerca de 1 GB de PDF.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
