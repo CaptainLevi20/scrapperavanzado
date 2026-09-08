@@ -428,3 +428,52 @@ verificado".
 **Fuente nueva:** después de actualizar producción hay que correr una vez
 `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
 para que aparezca en el listado. Es seguro repetirlo.
+
+### Superintendencia de Notariado y Registro (`snr`)
+
+Una sola fuente que raspa dos categorías del portal WordPress de la SNR:
+**Circulares** y **Resoluciones**. Cobertura desde 2015. Los documentos se
+descargan de `servicios.supernotariado.gov.co/files/…`.
+
+Particularidad: el listado del sitio **no tiene paginación** y corta duro en
+20 tarjetas por búsqueda, sin importar cuántos resultados diga tener. Para no
+perder documentos, la familia enumera el catálogo con muchas búsquedas `POST`
+por prefijo del número de la norma, partiendo cada bloque hasta que la
+respuesta alcanza a mostrar todo lo que el sitio reporta.
+
+Por eso el **backfill completo** (rango amplio) recorre el catálogo con
+muchas búsquedas y puede tardar bastante (decenas de minutos); una corrida
+**incremental** vuelve a enumerar el año en curso de ambas categorías, así
+que tampoco es instantánea. Hay un tope interno de búsquedas por categoría
+para que una corrida no se dispare: si se alcanza, la corrida termina con un
+error visible avisando que los resultados quedaron incompletos.
+
+Se saltan las tarjetas sin archivo adjunto (las "notificación por aviso") y se
+informa cuántas fueron. La fecha que manda es la de **publicación** del sitio
+(no la de firma de la norma, que puede ser bastante anterior).
+
+**Cobertura de las Circulares antiguas.** La enumeración por prefijo se apoya
+en el código `CIR-AAAA-NNNNNN`, que la SNR sólo empezó a usar hacia 2025. Las
+circulares anteriores (2015–2024) son texto libre ("Circular No. 123 de
+2018") y el buscador del sitio nunca muestra más de 20 por año, sin "página
+siguiente". Resultado práctico:
+
+- **Resoluciones:** completas desde 2015.
+- **Circulares 2025 en adelante** (y futuras): completas.
+- **Circulares 2015–2024:** parciales — sólo entran las ~20 más recientes que
+  el sitio alcanza a mostrar por cada año. La corrida deja un aviso visible
+  ("… sólo muestra 20 …") en esos años.
+
+Títulos: `{C|R}_SNR_{número}_{año}` (desde el código `CIR-AAAA-NNNNNN` /
+`RES-AAAA-NNNNNN`). Los documentos viejos sin ese código entran con el
+título crudo y marca de "no verificado".
+
+Particularidad técnica: el certificado de seguridad de la SNR está mal
+configurado, tanto en `www.supernotariado.gov.co` (donde se buscan los
+documentos) como en `servicios.supernotariado.gov.co` (de donde se bajan los
+archivos), así que la familia se salta esa validación en ambos, igual que
+otras fuentes `.gov.co` como `ssf`, `constitucional` y `cndj`.
+
+**Fuente nueva:** después de actualizar producción hay que correr una vez
+`docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
+Es seguro repetirlo.
