@@ -1,7 +1,9 @@
 from core.scrapers.families.supersociedades import (
     _anio,
     _fecha_de_periodo,
+    _items_de_lista,
     _mes_a_sigla,
+    _pdf_del_articulo,
     _periodo_contable,
     _periodo_juridico,
     _safe_title,
@@ -75,3 +77,75 @@ def test_titulo_verificado_y_fallback():
 def test_safe_title_sanea_y_recorta():
     assert _safe_title('a/b:c"  .') == "a-b-c-"
     assert len(_safe_title("z" * 200)) == 120
+
+
+_LISTA_JURIDICO = """
+<div class="journal-content-article" data-analytics-asset-title="Boletín Jurídico Agosto 2026">
+  <a class="tituloBolConJuriHistorico" id="bolConJuriTitulo" alt="Boletín Jurídico Agosto 2026"
+     title="Boletín Jurídico Agosto 2026"
+     href="https://www.supersociedades.gov.co:443/boletines-conceptos-juridicos/-/asset_publisher/atwl/content/boletin-juridico-agosto-2026?_x=10183496">t</a>
+</div>
+<div class="journal-content-article" data-analytics-asset-title="BOLETÍN CONCEPTOS JURÍDICOS JULIO 2026">
+  <a class="tituloBolConJuriHistorico" title="BOLETÍN CONCEPTOS JURÍDICOS JULIO 2026"
+     href="https://www.supersociedades.gov.co:443/boletines-conceptos-juridicos/-/asset_publisher/atwl/content/boletin-julio-2026?_x=1">t</a>
+</div>
+<div class="journal-content-article" data-analytics-asset-title="WC-Footer">
+  <a class="otra-clase" title="pie" href="/algo">x</a>
+</div>
+"""
+
+_LISTA_CONTABLE = """
+<div class="journal-content-article">
+  <a class="tituloBol_ConContHistorico" title="Boletín Informativo Contable 2026 - Semestre I"
+     href="https://www.supersociedades.gov.co:443/boletines-de-conceptos-contables/-/asset_publisher/atwl/content/contable-2026-si?_x=2">t</a>
+</div>
+"""
+
+_ARTICULO_CON_PDF = """
+<div class="journal-content-article" data-analytics-asset-title="Boletín Jurídico Agosto 2026">
+  <p>Consulte los conceptos ...</p>
+  <a class="boton-super" title="Continuar"
+     href="/documents/20122/9476810/Boletin_agosto_2026.pdf/63d7754c-633b-2bdd-0ea6-1884bac487d7?t=1787932667029">
+     PDF Boletín Jurídico </a>
+</div>
+<footer>
+  <a href="/documents/107391/897146/Decreto-Unico-Reglamentario-Sectorial-1074-de-2015.pdf">decreto</a>
+</footer>
+"""
+
+_ARTICULO_SIN_PDF = """
+<div class="journal-content-article"><p>Texto sin adjunto.</p></div>
+<footer><a href="/documents/107391/897146/Decreto-Unico-Reglamentario-Sectorial-1074-de-2015.pdf">d</a></footer>
+"""
+
+
+def test_items_de_lista_juridico_toma_title_y_href_ignora_footer():
+    items = _items_de_lista(_LISTA_JURIDICO, "tituloBolConJuriHistorico")
+    assert items == [
+        ("Boletín Jurídico Agosto 2026",
+         "https://www.supersociedades.gov.co:443/boletines-conceptos-juridicos/-/asset_publisher/atwl/content/boletin-juridico-agosto-2026?_x=10183496"),
+        ("BOLETÍN CONCEPTOS JURÍDICOS JULIO 2026",
+         "https://www.supersociedades.gov.co:443/boletines-conceptos-juridicos/-/asset_publisher/atwl/content/boletin-julio-2026?_x=1"),
+    ]
+
+
+def test_items_de_lista_contable():
+    items = _items_de_lista(_LISTA_CONTABLE, "tituloBol_ConContHistorico")
+    assert items == [
+        ("Boletín Informativo Contable 2026 - Semestre I",
+         "https://www.supersociedades.gov.co:443/boletines-de-conceptos-contables/-/asset_publisher/atwl/content/contable-2026-si?_x=2"),
+    ]
+
+
+def test_items_de_lista_vacia_si_cambia_la_clase():
+    assert _items_de_lista(_LISTA_JURIDICO, "clase-que-no-existe") == []
+
+
+def test_pdf_del_articulo_toma_el_boletin_no_el_decreto():
+    assert _pdf_del_articulo(_ARTICULO_CON_PDF) == (
+        "/documents/20122/9476810/Boletin_agosto_2026.pdf/63d7754c-633b-2bdd-0ea6-1884bac487d7?t=1787932667029"
+    )
+
+
+def test_pdf_del_articulo_none_si_no_hay():
+    assert _pdf_del_articulo(_ARTICULO_SIN_PDF) is None

@@ -101,3 +101,25 @@ def _titulo(tipo: str, periodo: Optional[Tuple[str, int]], titulo_crudo: str) ->
         clave, anio = periodo
         return f"BOL_SS_{clave}_{anio}", False
     return ((titulo_crudo or "").strip() or "documento")[:120].strip(" ."), True
+
+
+_PDF_RE = re.compile(r"/documents/\d+/\d+/[^\"']*bolet[ií]n[^\"']*\.pdf[^\"']*", re.IGNORECASE)
+
+
+def _items_de_lista(html: str, link_class: str) -> List[Tuple[str, str]]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    out: List[Tuple[str, str]] = []
+    for a in soup.find_all("a", class_=link_class, href=True):
+        titulo = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+        href = a["href"].strip()
+        if titulo and href:
+            out.append((titulo, href))
+    return out
+
+
+def _pdf_del_articulo(html: str) -> Optional[str]:
+    for a in BeautifulSoup(html or "", "html.parser").find_all("a", href=True):
+        href = a["href"].strip()
+        if _PDF_RE.search(_sin_acentos(href)):
+            return href
+    return None
