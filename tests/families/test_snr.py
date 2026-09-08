@@ -1,4 +1,5 @@
 from core.scrapers.families.snr import (
+    _PAGINA_MAX,
     _parse_codigo,
     _resultados_total,
     _safe_title,
@@ -105,19 +106,37 @@ def test_tarjetas_empty_html():
     assert _tarjetas("") == ([], 0)
 
 
+def test_tarjetas_skips_non_http_href():
+    html = (
+        '<ul class="docs_download"><li><div class="contenido_download">'
+        '<span class="lettercap"></span> 1<br>'
+        '<a href="javascript:void(0)">CIR-2026-000001-4 del 03 de septiembre del 2026 "t"</a><br>'
+        '<span>Publicación: 2026-09-03</span></div></li></ul>'
+    )
+    cards, sin_pdf = _tarjetas(html)
+    assert cards == []
+    assert sin_pdf == 1
+
+
 # ---- _tarjeta_a_doc ----
-def test_tarjeta_a_doc_verified_circular_uses_prose_date():
-    cards, _ = _tarjetas(_HTML)
-    doc = _tarjeta_a_doc(cards[0], "Circular", "2015-01-01", "2026-12-31", None)
+def test_tarjeta_a_doc_verified_circular_splits_publication_and_providencia():
+    # La norma se firma el 20 de agosto pero la SNR la publica el 28: f_public
+    # debe ser la de PUBLICACIÓN (es por la que filtra la corrida diaria).
+    card = {
+        "titulo_txt": 'CIR-2026-000348-4 del 20 de agosto de 2026 "Informacion de autos"',
+        "publicacion": "2026-08-28",
+        "pdf_url": "https://servicios.supernotariado.gov.co/files/snrcirculares/circular-348-x.pdf",
+    }
+    doc = _tarjeta_a_doc(card, "Circular", "2015-01-01", "2026-12-31", None)
     assert doc is not None
     assert doc.title == "C_SNR_0348_2026"
     assert doc.title_unverified is False
     assert doc.tipo == "Circular"
-    assert doc.f_public == "2026-09-03"       # "del 03 de septiembre del 2026"
-    assert doc.f_providencia == "2026-09-03"
+    assert doc.f_public == "2026-08-28"        # "Publicación: 2026-08-28"
+    assert doc.f_providencia == "2026-08-20"   # "del 20 de agosto de 2026"
     assert doc.link == {"url": "https://servicios.supernotariado.gov.co/files/snrcirculares/circular-348-x.pdf", "method": "GET", "verify": False}
     assert doc.save_path == (
-        "Superintendencia de Notariado y Registro/2026-09-03/Circular/C_SNR_0348_2026(extension)"
+        "Superintendencia de Notariado y Registro/2026-08-28/Circular/C_SNR_0348_2026(extension)"
     )
 
 
@@ -127,6 +146,7 @@ def test_tarjeta_a_doc_falls_back_to_publicacion_date_when_no_prose():
     doc = _tarjeta_a_doc(card, "Circular", "2015-01-01", "2026-12-31", None)
     assert doc is not None
     assert doc.f_public == "2025-07-01"
+    assert doc.f_providencia == "2025-07-01"
     assert doc.title_unverified is True  # sin código
 
 
@@ -148,7 +168,23 @@ def test_tarjeta_a_doc_below_year_floor_is_dropped():
 
 def test_tarjeta_a_doc_outside_requested_range_is_dropped():
     cards, _ = _tarjetas(_HTML)
-    assert _tarjeta_a_doc(cards[0], "Circular", "2015-01-01", "2026-08-31", None) is None  # doc es 2026-09-03
+    # publicación 2026-09-03, fuera de un rango que termina el 2026-08-31
+    assert _tarjeta_a_doc(cards[0], "Circular", "2015-01-01", "2026-08-31", None) is None
+
+
+def test_tarjeta_a_doc_range_filter_uses_publication_not_providencia():
+    # Firmada dentro del rango, publicada después -> fuera (se descarta).
+    card = {"titulo_txt": 'CIR-2026-000348-4 del 20 de agosto de 2026 "t"',
+            "publicacion": "2026-09-05", "pdf_url": "https://x/y.pdf"}
+    assert _tarjeta_a_doc(card, "Circular", "2026-08-01", "2026-08-31", None) is None
+
+    # Y al revés: firmada fuera del rango pero publicada dentro -> se conserva.
+    card2 = {"titulo_txt": 'CIR-2026-000348-4 del 20 de julio de 2026 "t"',
+             "publicacion": "2026-08-10", "pdf_url": "https://x/y.pdf"}
+    doc = _tarjeta_a_doc(card2, "Circular", "2026-08-01", "2026-08-31", None)
+    assert doc is not None
+    assert doc.f_public == "2026-08-10"
+    assert doc.f_providencia == "2026-07-20"
 
 
 def test_tarjeta_a_doc_without_any_date_is_dropped_and_warns():
@@ -216,7 +252,8 @@ def test_enumerar_recurses_by_prefix_when_year_search_is_capped():
         else:
             return (200, {}, _page("", 0))
         resultados = len(nums)
-        mostrados = nums if resultados <= 18 else nums[:18]  # el listado corta a ~18
+        # el listado corta duro en _PAGINA_MAX (20), igual que el sitio real
+        mostrados = nums if resultados <= _PAGINA_MAX else nums[:_PAGINA_MAX]
         cards = "".join(_card(f"CIR-2026-{n:06d}-4", "2026-09-01", f"https://x/c{n}.pdf") for n in mostrados)
         return (200, {}, _page(cards, resultados))
 
@@ -225,6 +262,138 @@ def test_enumerar_recurses_by_prefix_when_year_search_is_capped():
     got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, None)
     # los 60 del catálogo, recolectados vía bloques cuya búsqueda cabe en <=_UMBRAL
     assert len({g["pdf_url"] for g in got}) == 60
+
+
+def _cards_topadas(n=None):
+    """Una página llena hasta el tope duro del sitio."""
+    n = _PAGINA_MAX if n is None else n
+    return "".join(
+        _card(f"CIR-2026-{i:06d}-4", "2026-01-05", f"https://x/c{i}.pdf") for i in range(1, n + 1)
+    )
+
+
+def _terminos(calls):
+    return [c.request.body.split("r=", 1)[1] for c in calls]
+
+
+@responses.activate
+def test_enumerar_recursion_actually_runs_for_a_capped_year():
+    # La regresión que motiva todo el arreglo: el año reporta 100 resultados
+    # pero sólo entrega _PAGINA_MAX tarjetas -> hay que bajar por prefijos.
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term == "2026":
+            return (200, {}, _page(_cards_topadas(), 100))
+        return (200, {}, _page("", 0))
+
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    session = __import__("requests").Session()
+    _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, None)
+    assert len(responses.calls) > 1, "la recursión por prefijo nunca se ejecutó"
+    # el año + el prefijo semilla "0" (que aquí ya viene vacío)
+    assert _terminos(responses.calls) == ["2026", "CIR-2026-0"]
+
+
+@responses.activate
+def test_enumerar_prunes_on_zero_total():
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term == "2026":
+            return (200, {}, _page(_cards_topadas(), 355))
+        if term == "CIR-2026-0":
+            return (200, {}, _page(_cards_topadas(), 30))
+        if term == "CIR-2026-00":
+            cards = "".join(
+                _card(f"CIR-2026-{i:06d}-4", "2026-01-05", f"https://x/z{i}.pdf") for i in range(1, 4)
+            )
+            return (200, {}, _page(cards, 3))
+        return (200, {}, _page("", 0))
+
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, None)
+    terms = _terminos(responses.calls)
+    # la rama vacía se consulta una sola vez y no desciende
+    assert [t for t in terms if t.startswith("CIR-2026-01")] == ["CIR-2026-01"]
+    assert {g["pdf_url"] for g in got} == {f"https://x/z{i}.pdf" for i in range(1, 4)}
+
+
+@responses.activate
+def test_enumerar_stops_at_depth_5():
+    # Sólo la cadena 0 -> 00 -> ... -> 00000 está poblada, y siempre reporta
+    # muchos más resultados de los que caben en una página.
+    def cb(request):
+        term = request.body.split("r=", 1)[1]
+        if term.startswith("CIR-2026-"):
+            pref = term[len("CIR-2026-"):]
+            if not "00000".startswith(pref):
+                return (200, {}, _page("", 0))
+        return (200, {}, _page(_cards_topadas(), 999))
+
+    responses.add_callback(responses.POST, _CIR_URL, callback=cb, content_type="text/html")
+    progreso = []
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, progreso.append)
+    terms = _terminos(responses.calls)
+    prefijos = [t[len("CIR-2026-"):] for t in terms if t.startswith("CIR-2026-")]
+    assert max(len(p) for p in prefijos) == 5      # no baja de un prefijo de 5 dígitos
+    assert "CIR-2026-000000" not in terms
+    assert any("Error" in m and "no se pudo dividir" in m for m in progreso)
+    assert len(got) == _PAGINA_MAX                 # la página truncada igual se guarda
+
+
+@responses.activate
+def test_enumerar_stops_at_budget(monkeypatch):
+    monkeypatch.setattr("core.scrapers.families.snr._MAX_BUSQUEDAS", 25)
+    responses.add_callback(
+        responses.POST, _CIR_URL,
+        callback=lambda request: (200, {}, _page(_cards_topadas(), 9999)),
+        content_type="text/html",
+    )
+    progreso = []
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, progreso.append)
+    assert len(responses.calls) == 25
+    assert any("Error" in m and "presupuesto" in m for m in progreso)
+    assert got  # devuelve lo que alcanzó a recolectar
+
+
+@responses.activate
+def test_enumerar_reports_cards_without_attachment():
+    sin_adjunto = (
+        '<li><div class="contenido_download"><span class="lettercap"></span> 1<br>'
+        'Notificación por aviso sin enlace<br><span>Publicación: 2026-01-05</span></div></li>'
+    )
+    # «Resultados 2» cuenta las DOS fichas, aunque sólo una traiga adjunto:
+    # el conteo de completitud va contra las fichas mostradas, no las descargables.
+    body = _page(sin_adjunto + _card("CIR-2026-000001-4", "2026-01-05", "https://x/1.pdf"), 2)
+    responses.add(responses.POST, _CIR_URL, body=body)
+    progreso = []
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "circulares", "C", "2026-01-01", "2026-12-31", None, progreso.append)
+    assert len(got) == 1
+    assert len(responses.calls) == 1, "no debe recursar: la página ya mostró las 2 fichas"
+    assert any("sin archivo adjunto" in m for m in progreso)
+
+
+@responses.activate
+def test_enumerar_does_not_recurse_when_most_cards_lack_attachment():
+    # Caso real de Resoluciones: el año entrega TODAS las fichas (~1/3 sin
+    # adjunto) y el conteo del sitio las cuenta todas. Antes esto se leía como
+    # "página incompleta" y disparaba una recursión que en el sitio real
+    # devuelve 0 resultados -> se perdía el año completo.
+    sin_adjunto = (
+        '<li><div class="contenido_download"><span class="lettercap"></span> x<br>'
+        'Notificación por aviso<br><span>Publicación: 2026-01-05</span></div></li>'
+    )
+    con_adjunto = "".join(
+        _card(f"RES-2026-{i:06d}-6", "2026-01-05", f"https://x/r{i}.pdf") for i in range(1, 41)
+    )
+    responses.add(responses.POST, _RES_URL, body=_page(sin_adjunto * 20 + con_adjunto, 60))
+    session = __import__("requests").Session()
+    got = _enumerar_categoria(session, "Resoluciones", "R", "2026-01-01", "2026-12-31", None, None)
+    assert len(got) == 40
+    assert len(responses.calls) == 1
 
 
 @responses.activate
