@@ -2,7 +2,7 @@ import datetime
 import re
 import unicodedata
 from typing import List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import requests
 import urllib3
@@ -24,6 +24,27 @@ _BASE = "https://www.ssf.gov.co"
 _SOURCE = "Superintendencia del Subsidio Familiar"
 _ANIO_MIN = 2024
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+# --- Conceptos jurídicos (Relatoría) --------------------------------------
+# juridica.ssf.gov.co es un sitio ASP.NET aparte, con certificado TLS VÁLIDO
+# (no necesita verify=False, a diferencia de www.ssf.gov.co). Los PDF se sirven
+# desde juridica.blob.core.windows.net, también con TLS válido.
+_JURIDICA_BASE = "https://juridica.ssf.gov.co"
+_ANIO_MIN_CONCEPTOS = 2015
+_COLUMNAS_CONCEPTO = {
+    "radicado", "conclusion", "fuentes formales", "fecha",
+    "tema", "sub tema", "palabras clave", "link",
+}
+# El número del concepto se toma del NOMBRE DEL PDF de respuesta, no de la
+# columna "Radicado": en ~1 de cada 4 filas esa columna trae el radicado de la
+# consulta de ENTRADA (prefijo 1-) y no el del concepto de SALIDA (2-), que es
+# el que nombra al archivo. Formato del nombre: "{prefijo}-{año}-{consecutivo}".
+# El consecutivo se conserva TAL CUAL (con sus ceros a la izquierda): en este
+# sitio "2-2024-5949" y "2-2024-005949" son conceptos DISTINTOS, así que
+# quitar ceros o rellenar a un ancho fijo los haría colisionar.
+_RADICADO_RE = re.compile(r"^\d-(\d{4})-(.+)$")
+# Fecha DD-MM-AAAA (año de 4 dígitos; el `_FECHA_CORTA` de arriba es DD-MM-AA).
+_FECHA_GUION = re.compile(r"(?<!\d)(\d{1,2})-(\d{1,2})-(\d{4})\b")
 
 # (url, tipo mostrado, letra del código, columnas esperadas del encabezado en
 # minúsculas y sin acentos)
@@ -77,6 +98,31 @@ def _fecha_slash(texto: str) -> Optional[datetime.date]:
         return datetime.date(yyyy, mm, dd)
     except ValueError:
         return None
+
+
+def _fecha_guion(texto: str) -> Optional[datetime.date]:
+    m = _FECHA_GUION.search(texto or "")
+    if not m:
+        return None
+    dd, mm, yyyy = (int(x) for x in m.groups())
+    try:
+        return datetime.date(yyyy, mm, dd)
+    except ValueError:
+        return None
+
+
+def _radicado_de_url(url: str) -> str:
+    nombre = urlsplit(url or "").path.rsplit("/", 1)[-1]
+    return re.sub(r"(?:\.pdf)+$", "", nombre, flags=re.I).strip()
+
+
+def _titulo_concepto(pdf_url: str) -> Tuple[str, bool]:
+    radicado = _radicado_de_url(pdf_url)
+    m = _RADICADO_RE.match(radicado)
+    if m and 2015 <= int(m.group(1)) <= 2100:
+        consecutivo = re.sub(r"\s+", "", m.group(2))
+        return f"CTO_SSF_{consecutivo}_{m.group(1)}", False
+    return (radicado or "concepto")[:120], True
 
 
 def _num_circular(celda: str) -> Optional[Tuple[str, str]]:
@@ -196,6 +242,87 @@ def _fila_circular(tr, fini: str, ffin: str, on_progress) -> Optional[RawDocMode
     return _armar_doc("Circular Externa", "C", digitos, sufijo, fecha, fini, ffin, asunto, celda_num or asunto, href)
 
 
+def _fila_concepto(tr, fini: str, ffin: str, on_progress) -> Optional[RawDocModel]:
+    tds = _celdas_texto(tr)
+    if len(tds) < 8:
+        return None
+    radicado, conclusion, fecha_txt = tds[0], tds[1], tds[3]
+    href = _href_de_fila(tr)
+    if not href:
+        return None
+    fecha = _fecha_guion(fecha_txt)
+    if fecha is None:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: concepto sin fecha parseable «{radicado[:40]}», se omite")
+        return None
+    if fecha.year < _ANIO_MIN_CONCEPTOS:
+        return None
+    iso = fecha.isoformat()
+    if iso < fini or iso > ffin:
+        return None
+    title, unverified = _titulo_concepto(href)
+    safe = _safe_title(title)
+    partes = []
+    if (radicado or "").strip():
+        partes.append(f"Radicado: {radicado.strip()}")
+    if (conclusion or "").strip():
+        partes.append(conclusion.strip())
+    return RawDocModel(
+        source=_SOURCE,
+        # Sin verify=False: juridica.blob.core.windows.net tiene TLS válido.
+        link={"url": urljoin(_JURIDICA_BASE, href), "method": "GET"},
+        title=title,
+        tipo="Concepto",
+        f_public=iso,
+        f_providencia=iso,
+        detalle=" — ".join(partes) or None,
+        save_path=storage_path(_SOURCE, iso, "Concepto", f"{safe}(extension)"),
+        title_unverified=unverified,
+    )
+
+
+def _token_antiforgery(html: str) -> Optional[str]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    inp = soup.find("input", attrs={"name": "__RequestVerificationToken"})
+    return inp.get("value") if inp else None
+
+
+def _buscar_conceptos(fini: str, ffin: str) -> str:
+    """Ida y vuelta de tres pasos contra juridica.ssf.gov.co.
+
+    1) GET / para la cookie de anti-falsificación + el campo oculto del token.
+    2) POST / con el rango de fechas y el token -> el servidor guarda la
+       consulta en sesión y responde con una redirección.
+    3) GET / con la cookie de sesión -> HTML con la tabla de resultados completa.
+    """
+    session = requests.Session()  # verificación TLS normal para este host
+    session.headers.update({"User-Agent": _UA})
+
+    home = session.get(f"{_JURIDICA_BASE}/", timeout=60)
+    home.raise_for_status()
+    token = _token_antiforgery(home.text)
+    if not token:
+        raise RuntimeError("no se encontró el campo __RequestVerificationToken")
+
+    desde = max(fini, f"{_ANIO_MIN_CONCEPTOS}-01-01")
+    session.post(
+        f"{_JURIDICA_BASE}/",
+        data={
+            "fechaDesde": desde,
+            "fechaHasta": ffin,
+            "Radicado": "",
+            "Buscar": "",
+            "__RequestVerificationToken": token,
+        },
+        timeout=180,
+        allow_redirects=False,
+    )
+
+    res = session.get(f"{_JURIDICA_BASE}/", timeout=180)
+    res.raise_for_status()
+    return res.text
+
+
 @register_family("ssf")
 class ScrapSSF(BaseScrapper):
     filters_by_publication_date = True
@@ -240,5 +367,40 @@ class ScrapSSF(BaseScrapper):
                         docs.append(doc)
                         if len(docs) >= limit:
                             return docs[:limit]
+
+        # --- Tercera sección: Conceptos jurídicos (sitio y transporte aparte) --
+        if stop_event is not None and stop_event.is_set():
+            return docs[:limit]
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Procesando Concepto...")
+        try:
+            html = _buscar_conceptos(fini, ffin)
+        except Exception as e:
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Error consultando Concepto: {e}")
+            html = None
+        if html is not None:
+            tablas = _tablas_de_datos(BeautifulSoup(html, "html.parser"), _COLUMNAS_CONCEPTO)
+            if not tablas and on_progress:
+                on_progress(
+                    f"[{_SOURCE}] Error: no se encontró ninguna tabla de datos de Concepto "
+                    "(¿cambiaron los encabezados de la página?)"
+                )
+            vistos: set = set()
+            for tabla in tablas:
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                for tr in tabla.find_all("tr")[1:]:
+                    doc = _fila_concepto(tr, fini, ffin, on_progress)
+                    if doc is None:
+                        continue
+                    # el sitio lista el mismo PDF en varias filas (una por cada
+                    # consulta que el concepto responde): entra una sola vez.
+                    if doc.link["url"] in vistos:
+                        continue
+                    vistos.add(doc.link["url"])
+                    docs.append(doc)
+                    if len(docs) >= limit:
+                        return docs[:limit]
 
         return docs[:limit]

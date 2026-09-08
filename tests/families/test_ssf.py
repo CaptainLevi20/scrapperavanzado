@@ -5,14 +5,17 @@ from bs4 import BeautifulSoup
 
 from core.scrapers.families.ssf import (
     _fecha_corta,
+    _fecha_guion,
     _fecha_slash,
     _fila_circular,
+    _fila_concepto,
     _fila_resolucion,
     _num_circular,
     _num_resolucion,
     _safe_title,
     _tablas_de_datos,
     _titulo,
+    _titulo_concepto,
 )
 
 
@@ -439,3 +442,313 @@ def test_seed_families_dict_has_ssf_entry():
     assert display_name == "Superintendencia del Subsidio Familiar"
     assert "esolucion" in description or "esoluciones" in description
     assert "irculares" in description
+
+
+# ============================================================================
+# Conceptos jurídicos (juridica.ssf.gov.co) — tercera sección de la familia
+# ============================================================================
+
+from core.scrapers.families.ssf import _buscar_conceptos  # noqa: E402
+
+_JURIDICA_URL = "https://juridica.ssf.gov.co/"
+
+
+# ---- _fecha_guion (DD-MM-AAAA, año de 4 dígitos) ----
+def test_fecha_guion_ddmmyyyy():
+    assert _fecha_guion("17-07-2024") == datetime.date(2024, 7, 17)
+    assert _fecha_guion("Publicado el 04-12-2019 por la oficina") == datetime.date(2019, 12, 4)
+
+
+def test_fecha_guion_none_when_absent_or_invalid():
+    assert _fecha_guion("sin fecha") is None
+    assert _fecha_guion("32-01-2024") is None
+
+
+def test_fecha_guion_does_not_match_two_digit_year():
+    # el formato corto DD-MM-AA no debe colarse como AAAA
+    assert _fecha_guion("15-09-26") is None
+
+
+# ---- _titulo_concepto (número tomado del NOMBRE DEL PDF de respuesta) ----
+_BLOB = "https://juridica.blob.core.windows.net/juridica-documentos"
+
+
+def test_titulo_concepto_from_pdf_filename():
+    assert _titulo_concepto(f"{_BLOB}/2-2024-15780.pdf") == ("CTO_SSF_15780_2024", False)
+
+
+def test_titulo_concepto_keeps_leading_zeros_verbatim_and_accepts_prefix_1():
+    # "0117480" y "117480" son radicados distintos en este sitio: no se normaliza
+    assert _titulo_concepto(f"{_BLOB}/1-2019-0117480.pdf") == ("CTO_SSF_0117480_2019", False)
+
+
+def test_titulo_concepto_collapses_double_pdf_extension():
+    assert _titulo_concepto(f"{_BLOB}/2-2026-25.pdf.pdf") == ("CTO_SSF_25_2026", False)
+
+
+def test_titulo_concepto_distinguishes_padded_from_unpadded_consecutive():
+    a, _ = _titulo_concepto(f"{_BLOB}/2-2024-5949.pdf")
+    b, _ = _titulo_concepto(f"{_BLOB}/2-2024-005949.pdf")
+    assert a == "CTO_SSF_5949_2024" and b == "CTO_SSF_005949_2024" and a != b
+
+
+def test_titulo_concepto_unverified_when_malformed():
+    # año de 3 dígitos (error de tipeo real del sitio)
+    assert _titulo_concepto(f"{_BLOB}/2-209-087668.pdf") == ("2-209-087668", True)
+    assert _titulo_concepto("") == ("concepto", True)
+
+
+# ---- _fila_concepto ----
+_CONCEPTO_HTML = """
+<table>
+  <tr><th>Radicado</th><th>Conclusión</th><th>Fuentes Formales</th><th>Fecha</th>
+      <th>Tema</th><th>Sub Tema</th><th>Palabras clave</th><th>Link</th></tr>
+  <tr>
+    <td>2-2024-15780</td>
+    <td>Las cajas de compensación familiar pueden pagar el subsidio en especie</td>
+    <td>Artículos 1, 5, 41 de la Ley 21 de 1982</td>
+    <td>17-07-2024</td>
+    <td>Subsidio familiar</td>
+    <td>Subsidio familiar en especie</td>
+    <td>becas educativas, autonomía administrativa</td>
+    <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2024-15780.pdf"
+           target="_blank">Ver PDF</a></td>
+  </tr>
+  <tr>
+    <td>1-2019-017014</td>
+    <td>A la cuota monetaria del subsidio familiar tendrán derecho los trabajadores</td>
+    <td>Ley 21 de 1982 artículo 54</td>
+    <td>04-12-2019</td>
+    <td>Subsidio Familiar</td>
+    <td>Cuota monetaria</td>
+    <td>cuota, subsidio</td>
+    <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/1-2019-017014.pdf">Ver PDF</a></td>
+  </tr>
+  <tr>
+    <td>2-2014-000900</td>
+    <td>Concepto viejo anterior al piso de cobertura</td>
+    <td>N/A</td>
+    <td>10-05-2014</td>
+    <td>Otros</td><td>Otros</td><td>viejo</td>
+    <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2014-000900.pdf">Ver PDF</a></td>
+  </tr>
+  <tr>
+    <td>2-209-087668</td>
+    <td>Concepto con radicado malformado (año de 3 dígitos)</td>
+    <td>N/A</td>
+    <td>20-08-2021</td>
+    <td>Otros</td><td>Otros</td><td>malformado</td>
+    <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-209-087668.pdf">Ver PDF</a></td>
+  </tr>
+  <tr>
+    <td>2-2023-000111</td>
+    <td>Concepto sin fecha reconocible en su celda</td>
+    <td>N/A</td>
+    <td>fecha ilegible</td>
+    <td>Otros</td><td>Otros</td><td>sinfecha</td>
+    <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2023-000111.pdf">Ver PDF</a></td>
+  </tr>
+  <tr>
+    <td>1-2025-019827</td>
+    <td>La columna trae el radicado de la consulta (1-), pero el PDF es la respuesta (2-)</td>
+    <td>Ley 21 de 1982</td>
+    <td>10-09-2025</td>
+    <td>Subsidio familiar</td><td>Especie</td><td>consulta</td>
+    <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2025-019142.pdf">Ver PDF</a></td>
+  </tr>
+</table>
+"""
+
+
+def _concepto_rows():
+    soup = BeautifulSoup(_CONCEPTO_HTML, "html.parser")
+    cols = {"radicado", "conclusion", "fuentes formales", "fecha", "tema", "sub tema", "palabras clave", "link"}
+    return _tablas_de_datos(soup, cols)[0].find_all("tr")[1:]
+
+
+def test_fila_concepto_maps_all_fields():
+    tr = _concepto_rows()[0]
+    doc = _fila_concepto(tr, "2015-01-01", "2026-12-31", None)
+    assert doc is not None
+    assert doc.title == "CTO_SSF_15780_2024"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Concepto"
+    assert doc.f_public == "2024-07-17"
+    assert doc.f_providencia == "2024-07-17"
+    # juridica.blob.core.windows.net tiene TLS válido -> sin verify=False
+    assert doc.link == {
+        "url": "https://juridica.blob.core.windows.net/juridica-documentos/2-2024-15780.pdf",
+        "method": "GET",
+    }
+    # el detalle guarda el radicado de la columna + la conclusión
+    assert "Radicado: 2-2024-15780" in doc.detalle
+    assert "Las cajas de compensación familiar" in doc.detalle
+    assert doc.save_path == (
+        "Superintendencia del Subsidio Familiar/2024-07-17/Concepto/CTO_SSF_15780_2024(extension)"
+    )
+
+
+def test_fila_concepto_title_comes_from_pdf_not_from_radicado_cell():
+    tr = _concepto_rows()[5]  # celda 1-2025-019827, PDF 2-2025-019142
+    doc = _fila_concepto(tr, "2015-01-01", "2026-12-31", None)
+    assert doc is not None
+    assert doc.title == "CTO_SSF_019142_2025"          # del nombre del PDF
+    assert "Radicado: 1-2025-019827" in doc.detalle    # la consulta queda registrada
+    assert doc.link["url"].endswith("/2-2025-019142.pdf")
+
+
+def test_fila_concepto_below_2015_floor_is_dropped():
+    tr = _concepto_rows()[2]  # 2014
+    assert _fila_concepto(tr, "2010-01-01", "2026-12-31", None) is None
+
+
+def test_fila_concepto_keeps_rows_from_2015_onward_not_just_2024():
+    # el piso de Conceptos es 2015, distinto al 2024 de Resoluciones/Circulares
+    tr = _concepto_rows()[1]  # 2019
+    doc = _fila_concepto(tr, "2015-01-01", "2026-12-31", None)
+    assert doc is not None
+    assert doc.title == "CTO_SSF_017014_2019"
+
+
+def test_fila_concepto_outside_requested_range_is_dropped():
+    tr = _concepto_rows()[0]  # 2024-07-17
+    assert _fila_concepto(tr, "2015-01-01", "2024-06-30", None) is None
+
+
+def test_fila_concepto_malformed_radicado_still_ingested_unverified():
+    tr = _concepto_rows()[3]  # 2-209-087668, fecha 2021
+    doc = _fila_concepto(tr, "2015-01-01", "2026-12-31", None)
+    assert doc is not None
+    assert doc.title_unverified is True
+    assert doc.title == "2-209-087668"
+    assert doc.f_public == "2021-08-20"
+    segs = doc.save_path.split("/")
+    assert len(segs) == 4 and not any(c in segs[-1] for c in '\\/*?:"<>|')
+
+
+def test_fila_concepto_without_parseable_date_is_dropped_and_warns():
+    tr = _concepto_rows()[4]
+    avisos = []
+    assert _fila_concepto(tr, "2015-01-01", "2026-12-31", avisos.append) is None
+    assert any("concepto" in m.lower() and "fecha" in m.lower() for m in avisos)
+
+
+# ---- _buscar_conceptos: ida y vuelta de tres pasos ----
+_JUR_HOME = """<html><body>
+<form method="post">
+  <p>Fecha de Radicación</p>
+  <input name="__RequestVerificationToken" type="hidden" value="TOKEN-abc123" />
+</form>
+</body></html>"""
+
+_JUR_RESULTS = """<html><body>
+<table id="tblDatos">
+  <tr><th>Radicado</th><th>Conclusión</th><th>Fuentes Formales</th><th>Fecha</th>
+      <th>Tema</th><th>Sub Tema</th><th>Palabras clave</th><th>Link</th></tr>
+  <tr><td>2-2025-019142</td><td>Conclusión de prueba</td><td>Ley X</td><td>03-03-2025</td>
+      <td>Tema</td><td>Sub</td><td>kw</td>
+      <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2025-019142.pdf">Ver PDF</a></td></tr>
+</table></body></html>"""
+
+
+@responses.activate
+def test_buscar_conceptos_three_step_flow_and_floors_fechadesde_at_2015():
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_HOME)
+    responses.add(responses.POST, _JURIDICA_URL, status=302, headers={"Location": "/"})
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_RESULTS)
+
+    html = _buscar_conceptos("2010-01-01", "2026-12-31")
+
+    assert "tblDatos" in html
+    assert responses.calls[0].request.method == "GET"
+    body = responses.calls[1].request.body
+    assert responses.calls[1].request.method == "POST"
+    assert "fechaDesde=2015-01-01" in body          # piso 2015, aunque fini sea 2010
+    assert "fechaHasta=2026-12-31" in body
+    assert "__RequestVerificationToken=TOKEN-abc123" in body
+    assert "Buscar=" in body and "Radicado=" in body
+    assert responses.calls[2].request.method == "GET"
+
+
+@responses.activate
+def test_buscar_conceptos_uses_fini_when_later_than_2015():
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_HOME)
+    responses.add(responses.POST, _JURIDICA_URL, status=302, headers={"Location": "/"})
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_RESULTS)
+
+    _buscar_conceptos("2026-01-01", "2026-01-31")
+    assert "fechaDesde=2026-01-01" in responses.calls[1].request.body
+
+
+# ---- scrap() con la sección de Conceptos integrada ----
+_RES_PAGE_CONC = _RES_PAGE
+_CIR_PAGE_CONC = _CIR_PAGE
+
+
+@responses.activate
+def test_scrap_includes_conceptos_section():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE_CONC)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE_CONC)
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_HOME)
+    responses.add(responses.POST, _JURIDICA_URL, status=302, headers={"Location": "/"})
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_RESULTS)
+
+    progreso = []
+    docs = ScrapSSF().scrap(fini="2015-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    conceptos = [d for d in docs if d.tipo == "Concepto"]
+    assert [d.title for d in conceptos] == ["CTO_SSF_019142_2025"]
+    assert any("Concepto" in m for m in progreso)
+
+
+_JUR_RESULTS_DUP = """<html><body>
+<table id="tblDatos">
+  <tr><th>Radicado</th><th>Conclusión</th><th>Fuentes Formales</th><th>Fecha</th>
+      <th>Tema</th><th>Sub Tema</th><th>Palabras clave</th><th>Link</th></tr>
+  <tr><td>1-2025-022711</td><td>Responde a una consulta</td><td>Ley X</td><td>10-11-2025</td>
+      <td>T</td><td>S</td><td>k</td>
+      <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2025-024171.pdf">Ver PDF</a></td></tr>
+  <tr><td>1-2025-022721</td><td>Responde a otra consulta con el mismo concepto</td><td>Ley X</td><td>10-11-2025</td>
+      <td>T</td><td>S</td><td>k</td>
+      <td><a href="https://juridica.blob.core.windows.net/juridica-documentos/2-2025-024171.pdf">Ver PDF</a></td></tr>
+</table></body></html>"""
+
+
+@responses.activate
+def test_scrap_conceptos_dedupes_rows_that_point_to_the_same_pdf():
+    # el sitio lista el mismo PDF de concepto en dos filas (una por cada consulta
+    # que responde); debe entrar una sola vez.
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE_CONC)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE_CONC)
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_HOME)
+    responses.add(responses.POST, _JURIDICA_URL, status=302, headers={"Location": "/"})
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_RESULTS_DUP)
+
+    docs = ScrapSSF().scrap(fini="2015-01-01", ffin="2026-12-31")
+    conceptos = [d for d in docs if d.tipo == "Concepto"]
+    assert [d.title for d in conceptos] == ["CTO_SSF_024171_2025"]
+
+
+@responses.activate
+def test_scrap_warns_when_concepto_table_missing():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE_CONC)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE_CONC)
+    responses.add(responses.GET, _JURIDICA_URL, body=_JUR_HOME)
+    responses.add(responses.POST, _JURIDICA_URL, status=302, headers={"Location": "/"})
+    responses.add(responses.GET, _JURIDICA_URL, body=_HEADER_CHANGED_PAGE)
+
+    progreso = []
+    docs = ScrapSSF().scrap(fini="2015-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    assert [d for d in docs if d.tipo == "Concepto"] == []
+    assert any("Error" in m and "Concepto" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_continues_when_conceptos_fetch_fails():
+    responses.add(responses.GET, _RES_URL, body=_RES_PAGE_CONC)
+    responses.add(responses.GET, _CIR_URL, body=_CIR_PAGE_CONC)
+    responses.add(responses.GET, _JURIDICA_URL, status=500)
+
+    progreso = []
+    docs = ScrapSSF().scrap(fini="2024-01-01", ffin="2026-12-31", on_progress=progreso.append)
+    assert {d.title for d in docs} == {"R_SSF_0789_2026", "C_SSF_0011_2025"}
+    assert any("Error" in m and "Concepto" in m for m in progreso)
