@@ -75,8 +75,8 @@ _FAMILIES = {
     ),
     "supersalud": (
         "Superintendencia Nacional de Salud",
-        "Normativa (resoluciones y circulares externas) publicada por la "
-        "Superintendencia Nacional de Salud",
+        "Normativa (resoluciones y circulares externas) y boletín jurídico "
+        "publicados por la Superintendencia Nacional de Salud",
     ),
     "ssf": (
         "Superintendencia del Subsidio Familiar",

@@ -392,9 +392,11 @@ ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
 
 ### Superintendencia Nacional de Salud (`supersalud`)
 
-- **Qué trae:** dos secciones del portal jurídico de la Supersalud —
-  **Resoluciones** y **Circulares Externas**. Las Actas de Conciliación
-  quedan fuera.
+- **Qué trae:** tres secciones del portal jurídico de la Supersalud —
+  **Resoluciones**, **Circulares Externas** y el **Boletín Jurídico** (la
+  publicación trimestral que recopila los conceptos jurídicos del periodo;
+  cada boletín entra como un documento, su PDF completo). Las Actas de
+  Conciliación quedan fuera.
 - **Desde cuándo:** año 2015 en adelante.
 - **Cómo quedan nombrados los documentos:** con un código corto del tipo
   `R_SNS_1234_2024` (una Resolución) o `C_SNS_0006_2016` (una Circular
@@ -402,7 +404,11 @@ ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
   y el último bloque es el año de publicación. Cuando el número no se puede
   determinar con certeza, el documento entra con su título original y queda
   marcado como "sin verificar" para que alguien lo revise a mano. Los anexos
-  entran como documentos aparte, con el sufijo `_A01`.
+  entran como documentos aparte, con el sufijo `_A01`. Los boletines usan
+  `BOL_SNS_0074_ENE-MAR_2026` — número del boletín, trimestre y año.
+- **Detalle técnico:** el Boletín Jurídico se obtiene de una lista de
+  SharePoint en `docs.supersalud.gov.co` que responde por API sin el bloqueo
+  ni el "vale de seguridad" que necesitan las otras dos secciones.
 - **Fuente nueva:** después de actualizar a la versión que la incluye hay
   que correr una vez el sembrado del catálogo para que aparezca en el
   listado de fuentes:
