@@ -448,7 +448,7 @@ título crudo y marca de "no verificado".
 
 Particularidad técnica: el certificado de seguridad del sitio `www.supernotariado.gov.co`
 está mal configurado, así que la familia se salta esa validación para ese host,
-igual que otras fuentes `.gov.co` (superfinanciera, constitucional y cndj).
+igual que otras fuentes `.gov.co` como `ssf`, `constitucional` y `cndj`.
 
 **Fuente nueva:** después de actualizar producción hay que correr una vez
 `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
