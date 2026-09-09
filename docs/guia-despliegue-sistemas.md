@@ -547,18 +547,36 @@ Es seguro repetirlo.
   **Resoluciones generales**, **Circulares externas**, **Circulares
   conjuntas**, **Cartas circulares** y **Conceptos jurídicos y contables**.
   Cada archivo entra como un documento; los anexos (incluidos los `.xlsx` /
-  `.doc`) entran aparte con el sufijo `_A01`.
+  `.doc`) entran aparte con el sufijo `_A01`, `_A02`, `_A03`… según cuántos
+  cuelguen de la misma circular.
 - **Desde cuándo:** año 2015 en adelante.
-- **Cómo quedan nombrados:** `R_SES_0007_2025` (resolución; el número son los
-  últimos dígitos del radicado), `CE_SES_0102_2026` (circular externa),
-  `CJ_SES_0067_2004` (circular conjunta), `CC_SES_0037_2026` (carta circular),
-  `CTO_SES_<radicado>_2026` (concepto). Cuando no se puede determinar el
-  número, el documento entra con su título original y marca de "sin verificar".
-- **Detalle técnico:** sitio Drupal con certificado válido (no se salta la
-  validación). Las 4 primeras secciones traen todo en una sola página,
-  agrupado por año; las circulares y cartas viejas no traen la fecha exacta
-  en el título, así que se fecha por el **encabezado de año** y la fecha
-  queda aproximada al 1 de enero de ese año. Conceptos es una lista paginada.
+- **Cuánto entrega hoy:** unos 570 documentos — cerca de 220 resoluciones, 260
+  circulares externas, 60 cartas circulares y 18 conceptos. **Circulares
+  conjuntas no entrega nada:** el sitio sólo tiene ahí 6 archivos de 2001 a
+  2009, sin fecha publicada y por debajo del piso de 2015. La sección se
+  consulta igual (por si publican material nuevo) y avisa en el registro con
+  una sola línea "0 documentos".
+- **Cómo quedan nombrados:** `R_SES_7935_2025` y `R_SES_8525_2024`
+  (resolución: el número son los **últimos seis dígitos del radicado**, sin los
+  ceros de la izquierda), `CE_SES_0102_2026` (circular externa),
+  `CC_SES_0037_2026` (carta circular), `CTO_SES_<radicado>_2026` (concepto).
+  Cuando no se puede determinar el número, el documento entra con su título
+  original y marca de "sin verificar" (hoy, unos 150 de los 570).
+- **Ojo con las fechas:** cerca de **un tercio de los documentos queda
+  archivado con fecha 1 de enero de su año** — son las circulares y cartas
+  viejas, cuya fecha exacta el sitio no publica en ninguna parte, así que sólo
+  se conoce el año. Por eso **conviene correr el backfill por años completos**
+  (por ejemplo 1 de enero a 31 de diciembre): un rango más corto que el año se
+  salta en silencio todos esos documentos.
+- **Detalle técnico:** sitio Drupal cuyo certificado llega **incompleto** (le
+  falta el certificado intermedio), así que —igual que en la SSF, la SNR, la
+  Corte Constitucional y la CNDJ— la fuente se salta la validación del
+  certificado; sin eso el sitio no responde y la fuente entrega 0 documentos.
+  Las 4 primeras secciones traen todo en una sola página; resoluciones,
+  circulares externas y cartas circulares vienen agrupadas por año (circulares
+  conjuntas no). Conceptos es una lista paginada, y los conceptos cuyo PDF no
+  empieza por `AAAAMMDD_` (≈1 de cada 3 de esa sección) se omiten con aviso
+  porque no hay de dónde sacarles la fecha.
 - **Fuente nueva:** después de actualizar producción, correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
