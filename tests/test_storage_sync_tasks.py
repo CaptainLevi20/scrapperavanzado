@@ -19,6 +19,9 @@ def test_reconcile_title_group_task_renames_every_sibling(db_session, test_engin
     monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
     monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
+    # El objeto al que apunta storage_key existe: camino normal de renombrado,
+    # no el auto-reparado de punteros rotos.
+    monkeypatch.setattr(storage_sync, "object_exists", lambda *a: True)
 
     source = _rama_judicial_source(db_session)
     shared_title = "T_SANT_68001_33_33_007_2025_00290_02"
@@ -49,6 +52,9 @@ def test_reconcile_document_task_renames_the_document_and_its_versions(db_sessio
     monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
     monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
+    # El objeto al que apunta storage_key existe: camino normal de renombrado,
+    # no el auto-reparado de punteros rotos.
+    monkeypatch.setattr(storage_sync, "object_exists", lambda *a: True)
 
     source = _rama_judicial_source(db_session)
     doc = repository.insert_document(
@@ -83,6 +89,9 @@ def test_reconcile_all_task_sweeps_everything(db_session, test_engine, monkeypat
     monkeypatch.setattr("worker.storage_sync_tasks.SessionLocal", task_session_factory)
     monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
     monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
+    # El objeto al que apunta storage_key existe: camino normal de renombrado,
+    # no el auto-reparado de punteros rotos.
+    monkeypatch.setattr(storage_sync, "object_exists", lambda *a: True)
 
     source = _rama_judicial_source(db_session)
     doc = repository.insert_document(

@@ -1,3 +1,7 @@
+import logging
+from datetime import date
+
+import pytest
 from sqlalchemy import text
 
 from core.db import repository
@@ -7,6 +11,16 @@ import core.storage_sync as storage_sync
 def _rama_judicial_source(db_session):
     repository.create_source_family(db_session, key="rama_judicial", display_name="Rama Judicial")
     return repository.create_source(db_session, family_key="rama_judicial", name="Tribunal", family_params={})
+
+
+@pytest.fixture(autouse=True)
+def _minio_por_defecto_todo_existe(monkeypatch):
+    """Por defecto, en estas pruebas el objeto al que apunta storage_key SÍ
+    existe en MinIO, para que reconcile_* siga el camino normal de
+    copiar + renombrar. Las pruebas del auto-reparado de punteros rotos
+    sobreescriben esto con su propio monkeypatch."""
+    monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: True)
+    monkeypatch.setattr(storage_sync, "list_objects", lambda bucket, prefix: [])
 
 
 def test_reconcile_document_renames_when_the_stored_key_does_not_match(db_session, monkeypatch):
@@ -482,3 +496,156 @@ def test_reconcile_document_versions_rolls_back_session_so_the_next_version_stil
     db_session.refresh(other_version)
     assert failing_version.storage_key == "carpeta/v3.pdf"  # unchanged, failed
     assert other_version.storage_key == f"carpeta/T-123-24-v{other_version.version_no}.pdf"  # reconciled
+
+
+# --- Auto-reparado: storage_key apuntando a un objeto que ya no existe en MinIO
+# (incidente descargas masivas, 2026-09-09) — un reconcile anterior renombró el
+# objeto en MinIO pero la escritura en la base no llegó a confirmarse, dejando
+# storage_key apuntando a una clave ya borrada. reconcile_document NO podía
+# recuperarse en corridas posteriores: hacía copy_object DESDE esa clave rota,
+# el copiado fallaba con 404, dejaba un warning y se rendía. La descarga masiva
+# lee storage_key tal cual => 404 para todos => falla total. ---
+
+
+def test_reconcile_document_repairs_pointer_when_old_key_missing_but_canonical_object_exists(db_session, monkeypatch, caplog):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        storage_bucket="iurisync-test", storage_key="Rama Judicial/2026-08-06/Auto/viejo.pdf",
+    )
+    canonica = "Rama Judicial/2026-08-06/Auto/T_SANT_68001_33_33_007_2025_00290_02.pdf"
+
+    # La clave vieja NO existe; el objeto real ya está bajo su nombre canónico.
+    monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: key == canonica)
+    copiados, borrados = [], []
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: copiados.append(a))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: borrados.append(a))
+
+    result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is True
+    assert copiados == []   # no se copia nada: el objeto ya está donde debe
+    assert borrados == []   # no se borra nada: la clave vieja ni existe
+    db_session.refresh(doc)
+    assert doc.storage_key == canonica
+    assert "objeto inexistente" in caplog.text
+
+
+def test_reconcile_document_repairs_pointer_by_unique_folder_match(db_session, monkeypatch):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        f_providencia=date(2026, 8, 6),
+        storage_bucket="iurisync-test", storage_key="carpeta/viejo.pdf",
+    )
+    # nombre canónico calculado ahora: "carpeta/T_SANT_..._2026.pdf" (año, 1
+    # sola actuación). El objeto real quedó con la fecha completa de un
+    # reconcile previo que sí lo renombró en MinIO.
+    real = "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260806.pdf"
+
+    monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: key == real)
+    monkeypatch.setattr(
+        storage_sync, "list_objects",
+        lambda bucket, prefix: [real, "carpeta/otro-documento_2025.pdf"],
+    )
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe copiar")))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe borrar")))
+
+    result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is True
+    db_session.refresh(doc)
+    assert doc.storage_key == real
+
+
+def test_reconcile_document_logs_error_and_gives_up_when_real_object_cannot_be_located(db_session, monkeypatch, caplog):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        f_providencia=date(2026, 8, 6),
+        storage_bucket="iurisync-test", storage_key="carpeta/viejo.pdf",
+    )
+    monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: False)
+    monkeypatch.setattr(storage_sync, "list_objects", lambda bucket, prefix: [])  # carpeta vacía
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe copiar")))
+
+    with caplog.at_level(logging.ERROR):
+        result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is False
+    db_session.refresh(doc)
+    assert doc.storage_key == "carpeta/viejo.pdf"  # sin cambios
+    assert "corrección manual" in caplog.text.lower()
+
+
+def test_reconcile_document_gives_up_when_folder_match_is_ambiguous(db_session, monkeypatch, caplog):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
+        f_providencia=date(2026, 8, 6),
+        storage_bucket="iurisync-test", storage_key="carpeta/viejo.pdf",
+    )
+    # Dos objetos en la carpeta reducen a la misma base (mismo radicado, dos
+    # fechas): no hay una coincidencia inequívoca => no se toca nada.
+    gemelo_a = "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260806.pdf"
+    gemelo_b = "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260820.pdf"
+    monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: False)
+    monkeypatch.setattr(storage_sync, "list_objects", lambda bucket, prefix: [gemelo_a, gemelo_b])
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe copiar")))
+
+    with caplog.at_level(logging.ERROR):
+        result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is False
+    db_session.refresh(doc)
+    assert doc.storage_key == "carpeta/viejo.pdf"
+
+
+def test_reconcile_document_versions_repairs_pointer_when_old_key_missing_but_canonical_object_exists(db_session, monkeypatch, caplog):
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T-123-24",
+        storage_bucket="iurisync-test", storage_key="carpeta/actual.pdf",
+    )
+    repository.archive_and_replace_document(db_session, doc.id, storage_bucket="iurisync-test", storage_key="carpeta/nueva.pdf")
+    doc = repository.get_document(db_session, doc.id)
+    version = repository.list_document_versions(db_session, doc.id)[0]
+    canonica_version = storage_sync._expected_version_key(doc, version, "rama_judicial", False)
+    assert canonica_version != version.storage_key  # el objeto real quedó bajo el nombre canónico
+
+    monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: key == canonica_version)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe copiar")))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe borrar")))
+
+    count = storage_sync.reconcile_document_versions(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert count == 1
+    db_session.refresh(version)
+    assert version.storage_key == canonica_version
+    assert "objeto inexistente" in caplog.text
+
+
+def test_reconcile_document_falls_back_to_normal_rename_when_minio_check_errors(db_session, monkeypatch, caplog):
+    """Si la consulta de existencia a MinIO falla (MinIO caído, permisos), NO
+    se entra al auto-reparado: se sigue el camino normal de copiar + renombrar,
+    que ya captura sus propias fallas. Nunca se bloquea al llamador."""
+    source = _rama_judicial_source(db_session)
+    doc = repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="T-123-24",
+        storage_bucket="iurisync-test", storage_key="carpeta/viejo.pdf",
+    )
+
+    def _minio_caido(bucket, key):
+        raise RuntimeError("MinIO no disponible")
+
+    monkeypatch.setattr(storage_sync, "object_exists", _minio_caido)
+    copiados = []
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: copiados.append(a))
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
+
+    result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
+
+    assert result is True
+    assert copiados == [("iurisync-test", "carpeta/viejo.pdf", "carpeta/T-123-24.pdf")]
+    db_session.refresh(doc)
+    assert doc.storage_key == "carpeta/T-123-24.pdf"

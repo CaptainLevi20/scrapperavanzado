@@ -4,6 +4,7 @@ from typing import Optional
 
 import boto3
 from botocore.client import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 from core.config import get_settings
 
@@ -78,6 +79,34 @@ def download_file(bucket: str, key: str, local_path: Path) -> None:
 def delete_object(bucket: str, key: str) -> None:
     client = _client()
     client.delete_object(Bucket=bucket, Key=key)
+
+
+def object_exists(bucket: str, key: str) -> bool:
+    """True si el objeto existe en el almacén. Un 404/NoSuchKey devuelve False;
+    cualquier otro error (permisos, MinIO caído, red) se propaga — no se puede
+    afirmar que el objeto falta si ni siquiera se pudo consultar."""
+    client = _client()
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError as exc:
+        codigo = exc.response.get("Error", {}).get("Code")
+        estado = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if codigo in ("404", "NoSuchKey", "NotFound") or estado == 404:
+            return False
+        raise
+
+
+def list_objects(bucket: str, prefix: str) -> list[str]:
+    """Lista las claves de todos los objetos bajo `prefix` (paginación
+    resuelta internamente)."""
+    client = _client()
+    paginator = client.get_paginator("list_objects_v2")
+    claves: list[str] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            claves.append(obj["Key"])
+    return claves
 
 
 def copy_object(bucket: str, old_key: str, new_key: str) -> None:
