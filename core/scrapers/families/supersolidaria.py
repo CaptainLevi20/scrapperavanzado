@@ -119,3 +119,74 @@ def _titulo_concepto(href: str, titulo_fila: str, anio: str) -> Tuple[str, bool]
     if m:
         return f"CTO_SES_{m.group(1)}_{anio}", False
     return ((titulo_fila or "").strip() or "documento")[:120].strip(" .") or "documento", True
+
+
+def _resolver_fecha(tipo, fecha_por_prosa, titulo, href, anio_h2, time_iso):
+    if fecha_por_prosa:
+        d = parse_fecha_providencia_es(titulo or "")
+        if d is not None:
+            return d.isoformat()
+        pf = _prefijo_fecha_archivo(href)
+        if pf:
+            return pf
+        return f"{anio_h2:04d}-01-01" if anio_h2 else None
+    # circulares externas / conjuntas / cartas
+    iso = _iso_de_time(time_iso) or _prefijo_fecha_archivo(href)
+    if iso:
+        return iso
+    return f"{anio_h2:04d}-01-01" if anio_h2 else None
+
+
+def _time_iso_de_paragraph(a_tag) -> Optional[str]:
+    # sube al paragraph--type--archivos-collection y busca un <time datetime=…>
+    cont = a_tag
+    for _ in range(7):
+        cont = cont.parent
+        if cont is None:
+            return None
+        clases = cont.get("class") or []
+        if any("archivos-collection" in c or "paragraph--type--archivos" in c for c in clases):
+            t = cont.find("time", attrs={"datetime": True})
+            return t["datetime"] if t else None
+    return None
+
+
+def _iter_documentos(soup):
+    # recorre todos los <h2> y <a> de span.file en orden de documento
+    for nodo in soup.find_all(["h2", "a"]):
+        if nodo.name == "h2":
+            anio = _anio_de_h2(nodo.get_text(" ", strip=True))
+            if anio is not None:
+                yield ("h2", anio)
+            continue
+        # <a>: sólo si su padre inmediato es span.file
+        padre = nodo.parent
+        if padre is None or padre.name != "span":
+            continue
+        clases = padre.get("class") or []
+        if not any(c == "file" or c.startswith("file--") for c in clases):
+            continue
+        href = (nodo.get("href") or "").strip()
+        if not href:
+            continue
+        titulo = nodo.get_text(" ", strip=True)
+        yield ("doc", (titulo, href, _time_iso_de_paragraph(nodo)))
+
+
+def _filas_concepto(html: str) -> List[Tuple[str, str, Optional[str]]]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    out: List[Tuple[str, str, Optional[str]]] = []
+    for tr in soup.select("tr"):
+        cel_tit = tr.select_one("td.views-field-title")
+        cel_dl = tr.select_one("td.views-field-nothing")
+        if cel_tit is None or cel_dl is None:
+            continue
+        a_tit = cel_tit.find("a")
+        a_dl = cel_dl.find("a", href=True)
+        if a_tit is None or a_dl is None:
+            continue
+        titulo = a_tit.get_text(" ", strip=True)
+        href = a_dl["href"].strip()
+        t = tr.find("time", attrs={"datetime": True})
+        out.append((titulo, href, t["datetime"] if t else None))
+    return out
