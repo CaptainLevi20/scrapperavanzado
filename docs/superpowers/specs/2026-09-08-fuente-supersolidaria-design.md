@@ -25,8 +25,12 @@ Cada documento (PDF, o `.xlsx`/`.doc` para anexos) entra como un `RawDocModel`.
 
 ## Construcción del sitio
 
-- **Drupal 10**, `www.supersolidaria.gov.co`, **certificado TLS válido** →
-  verificación normal, NUNCA `verify=False`.
+- **Drupal 10**, `www.supersolidaria.gov.co`. **Corrección post-implementación:**
+  el host sirve una cadena TLS incompleta (le falta el intermediario) que
+  `certifi`/`requests` no puede validar aunque `curl` sí (trust store del SO).
+  Por eso la familia **sí** usa `session.verify = False` + `link["verify"] = False`,
+  5ª familia con este patrón (ssf, constitucional, cndj, snr). El supuesto
+  original de "TLS válido" era falso.
 - Archivos bajo `/sites/default/files/` (`.../data/`, `.../normativa/`,
   `.../conceptos_juridicos_y_contables/`). Enlaces relativos → `urljoin(_BASE, …)`.
 - **Las 4 primeras secciones**: toda la lista viene en **una sola página**
@@ -93,13 +97,20 @@ encuentra el `href` interno igual.)
 - **Resoluciones:** `parse_fecha_providencia_es(titulo)` (el título trae la
   prosa "… del 30 de diciembre de 2025") → si falla, prefijo `AAAAMMDD` del
   nombre de archivo → si falla, año del `<h2>` contenedor → `AAAA-01-01`.
-- **Circulares externas / Cartas circulares:** `<time datetime>` del bloque si
-  lo hay → prefijo `AAAAMMDD` del archivo → **año del `<h2>` contenedor** →
-  `AAAA-01-01`. (El `<h2>` es la señal universal y fiable de estas dos.)
-- **Circulares conjuntas:** prefijo `AAAAMMDD` → `<time>` → año en el título si
-  lo hay → si nada, se omite con aviso.
-- **Conceptos:** prefijo `AAAAMMDD` del nombre de archivo → `<time>` de la fila
-  si lo hay → si nada, se omite con aviso.
+- **Circulares externas / Cartas circulares:** prefijo `AAAAMMDD` del archivo →
+  **año del `<h2>` contenedor** → `AAAA-01-01`. (El `<h2>` es la señal universal
+  y fiable de estas dos.)
+- **Circulares conjuntas:** prefijo `AAAAMMDD` → si nada, se omite con aviso
+  (en la práctica: 0 documentos hoy, todos < 2015 y sin fecha).
+- **Conceptos:** prefijo `AAAAMMDD` del nombre de archivo → si nada, se omite
+  con aviso.
+
+**Corrección post-implementación:** el `<time datetime>` que la primera versión
+del spec ponía como fuente PRIMARIA de circulares/cartas **no existe alcanzable**
+en el DOM real (0 de 981 anclas lo resuelven — vive en campos de nodo, uno por
+pestaña-año, no por documento). Se eliminó `_time_iso_de_paragraph` y todo el
+plumbing de `time_iso`; la fecha sale del nombre de archivo o del encabezado de
+año.
 
 Si la fecha resuelta cae fuera de `[fini, ffin]` o antes de 2015, se descarta.
 Un año-solo (`AAAA-01-01`) es deliberadamente aproximado; el título es la
