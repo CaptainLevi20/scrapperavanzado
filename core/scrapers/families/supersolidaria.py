@@ -1,10 +1,11 @@
 import datetime
 import re
 import unicodedata
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.fecha_es import parse_fecha_providencia_es
@@ -13,19 +14,32 @@ from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
 
+# www.supersolidaria.gov.co entrega una cadena TLS incompleta (le falta el
+# certificado intermedio), así que `certifi` no puede validarla y `requests`
+# aborta con CERTIFICATE_VERIFY_FAILED aunque `curl` —que usa el almacén de
+# confianza del sistema— sí pase. Mismo caso que la Corte Constitucional, la
+# CNDJ, la SSF y la SNR: se salta la verificación TLS para este host (sesión
+# aquí + link["verify"] = False para la descarga posterior).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 _BASE = "https://www.supersolidaria.gov.co"
 _SOURCE = "Superintendencia de la Economía Solidaria"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 _ANIO_MIN = 2015
+_MAX_TITULO = 120
 
 _URL_CONCEPTOS = f"{_BASE}/es/conceptos-juridicos-y-contables"
 
-# (url, tipo mostrado, prefijo de título, fecha_por_prosa)
+# (url, tipo mostrado, prefijo de título, fecha_por_prosa, avisa_doc_a_doc)
+# `avisa_doc_a_doc=False` en Circulares Conjuntas: esa página no tiene
+# encabezados de año ni prefijos de fecha en los archivos, así que sus 6
+# adjuntos (2001-2009, todos bajo el piso) se descartan siempre; en vez de 6
+# avisos por corrida se emite una sola línea resumen.
 _SECCIONES_TABLA = [
-    (f"{_BASE}/es/content/resoluciones-generales", "Resolución", "R", True),
-    (f"{_BASE}/es/content/circulares-externas-por-ano", "Circular Externa", "CE", False),
-    (f"{_BASE}/es/content/circulares-conjuntas", "Circular Conjunta", "CJ", False),
-    (f"{_BASE}/es/content/cartas-circulares", "Carta Circular", "CC", False),
+    (f"{_BASE}/es/content/resoluciones-generales", "Resolución", "R", True, True),
+    (f"{_BASE}/es/content/circulares-externas-por-ano", "Circular Externa", "CE", False, True),
+    (f"{_BASE}/es/content/circulares-conjuntas", "Circular Conjunta", "CJ", False, False),
+    (f"{_BASE}/es/content/cartas-circulares", "Carta Circular", "CC", False, True),
 ]
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
@@ -33,10 +47,23 @@ _H2_ANIO_RE = re.compile(
     r"(?i)(?:resoluciones\s+generales|circulares\s+externas|cartas\s+circulares)\s*(20\d{2})\b"
 )
 _FECHA_ARCHIVO_RE = re.compile(r"/(\d{4})(\d{2})(\d{2})_[^/]+$")
-_RADICADO_RE = re.compile(r"\b(\d{7,})\b")
-_NUM_MARCADO_RE = re.compile(r"(?:N[°º]|No\.?)\s*0*(\d+)", re.IGNORECASE)
-_ENTERO_SUELTO_RE = re.compile(r"\b0*(\d{1,6})\b")
+# Radicado de resolución: año de 4 dígitos + letras opcionales intercaladas +
+# consecutivo + letra final opcional. Casos reales: `2025430007935`,
+# `2023SES008005`, `202506201000001R`. Los límites son «no alfanumérico» (y no
+# `\b`) para que `Resolución_2019300001805` también case, ya que `_` es \w.
+_RADICADO_RE = re.compile(r"(?i)(?<![0-9A-Z])(\d{4}[A-Z]{0,4}\d{6,}[A-Z]{0,4})(?![0-9A-Z])")
+# Forma corta antigua: el número va inmediatamente después de «Resolución»
+# (`Resolución 745 de 2003`, `Resolución 001 – Enero 2009`).
+_CORTO_RE = re.compile(r"(?i)\bresoluci[oó]n\s*(?:N[°ºo]\.?|Nro\.?)?\s*0*(\d{1,5})\b(?!\d)")
+_NUM_MARCADO_RE = re.compile(r"(?:N[°º]|No\.?|Nro\.?)\s*0*(\d+)", re.IGNORECASE)
+# Respaldo para circulares/cartas sin marcador: `Circular Externa 52`,
+# `Carta Circular 001`. `(\d{1,4})\b(?!\d)` evita morder radicados largos como
+# `Circular Externa 20224400083742`, que quedan sin verificar (correcto).
+_NUM_TRAS_TIPO_RE = re.compile(
+    r"(?i)(?:circular(?:\s+externa|\s+conjunta)?|carta\s+circular)\s*0*(\d{1,4})\b(?!\d)"
+)
 _ANEXO_RE = re.compile(r"^(anexo|matriz de)\b")
+_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{1,5}$")
 
 
 def _sin_acentos(s: str) -> str:
@@ -46,13 +73,14 @@ def _sin_acentos(s: str) -> str:
 
 
 def _safe_title(title: str) -> str:
-    return _INVALID_PATH_CHARS.sub("-", title)[:120].strip(" .")
+    return _INVALID_PATH_CHARS.sub("-", title)[:_MAX_TITULO].strip(" .")
 
 
-def _extension_del_href(href: str) -> str:
-    ruta = (href or "").split("?")[0].split("#")[0]
-    m = re.search(r"\.([A-Za-z0-9]{1,5})$", ruta)
-    return m.group(1).lower() if m else ""
+def _stem_del_href(href: str) -> str:
+    """Nombre del archivo sin extensión, saneado. Discriminador determinista
+    (misma URL -> mismo sufijo en cada corrida) para títulos que colisionan."""
+    nombre = (href or "").split("?")[0].split("#")[0].rstrip("/").split("/")[-1]
+    return _INVALID_PATH_CHARS.sub("-", _EXTENSION_RE.sub("", nombre))[:60].strip(" .")
 
 
 def _es_anexo(titulo: str) -> bool:
@@ -64,14 +92,12 @@ def _num_seccion(prefijo: str, titulo: str) -> Optional[int]:
     if prefijo == "R":
         m = _RADICADO_RE.search(t)
         if m:
-            d = m.group(1)
-            return int(d[-6:]) if len(d) >= 7 else int(d)
-        m = _ENTERO_SUELTO_RE.search(t)
+            # los últimos 6 dígitos del radicado (ignorando las letras)
+            return int(re.sub(r"[^\d]", "", m.group(1))[-6:])
+        m = _CORTO_RE.search(t)
         return int(m.group(1)) if m else None
-    m = _NUM_MARCADO_RE.search(t)
-    if m:
-        return int(m.group(1))
-    return None
+    m = _NUM_MARCADO_RE.search(t) or _NUM_TRAS_TIPO_RE.search(t)
+    return int(m.group(1)) if m else None
 
 
 def _anio_de_h2(texto: str) -> Optional[int]:
@@ -90,23 +116,21 @@ def _prefijo_fecha_archivo(href: str) -> Optional[str]:
         return None
 
 
-def _iso_de_time(time_iso: Optional[str]) -> Optional[str]:
-    if not time_iso:
-        return None
-    try:
-        return datetime.date.fromisoformat(time_iso[:10]).isoformat()
-    except ValueError:
-        return None
+def _crudo(titulo: str) -> str:
+    """Título original de la página, recortado y saneado como título de respaldo."""
+    return ((titulo or "").strip() or "documento")[:_MAX_TITULO].strip(" .") or "documento"
 
 
-def _fecha_concepto(href: str, time_iso: Optional[str]) -> Optional[str]:
-    return _prefijo_fecha_archivo(href) or _iso_de_time(time_iso)
+def _con_discriminador(base: str, disc: str) -> str:
+    """`base [disc]`, dejando sitio al sufijo dentro del largo máximo."""
+    sufijo = f" [{disc}]"
+    return (base[: _MAX_TITULO - len(sufijo)]).strip(" .") + sufijo
 
 
-def _titulo(prefijo: str, tipo: str, titulo_crudo: str, anio: str, es_anexo: bool) -> Tuple[str, bool]:
+def _titulo(prefijo: str, titulo_crudo: str, anio: str, es_anexo: bool) -> Tuple[str, bool]:
     numero = _num_seccion(prefijo, titulo_crudo)
     if numero is None:
-        return ((titulo_crudo or "").strip() or "documento")[:120].strip(" .") or "documento", True
+        return _crudo(titulo_crudo), True
     base = f"{prefijo}_SES_{numero:04d}_{anio}"
     if es_anexo:
         base = f"{base}_A01"
@@ -118,37 +142,22 @@ def _titulo_concepto(href: str, titulo_fila: str, anio: str) -> Tuple[str, bool]
     m = re.search(r"_(\d{10,})\.pdf$", nombre, re.IGNORECASE)
     if m:
         return f"CTO_SES_{m.group(1)}_{anio}", False
-    return ((titulo_fila or "").strip() or "documento")[:120].strip(" .") or "documento", True
+    return _crudo(titulo_fila), True
 
 
-def _resolver_fecha(tipo, fecha_por_prosa, titulo, href, anio_h2, time_iso):
+def _resolver_fecha(fecha_por_prosa, titulo, href, anio_h2):
+    """El sitio no expone una fecha por documento: el `<time>` del nodo es la
+    fecha de la pestaña-año, no la del archivo. La cadena real es prosa del
+    título (sólo resoluciones) -> prefijo AAAAMMDD del archivo -> año del `<h2>`
+    (que deja la fecha aproximada al 1 de enero)."""
     if fecha_por_prosa:
         d = parse_fecha_providencia_es(titulo or "")
         if d is not None:
             return d.isoformat()
-        pf = _prefijo_fecha_archivo(href)
-        if pf:
-            return pf
-        return f"{anio_h2:04d}-01-01" if anio_h2 else None
-    # circulares externas / conjuntas / cartas
-    iso = _iso_de_time(time_iso) or _prefijo_fecha_archivo(href)
-    if iso:
-        return iso
-    return f"{anio_h2:04d}-01-01" if anio_h2 else None
-
-
-def _time_iso_de_paragraph(a_tag) -> Optional[str]:
-    # sube al paragraph--type--archivos-collection y busca un <time datetime=…>
-    cont = a_tag
-    while cont is not None:
-        cont = cont.parent
-        if cont is None:
-            return None
-        clases = cont.get("class") or []
-        if any("archivos-collection" in c or "paragraph--type--archivos" in c for c in clases):
-            t = cont.find("time", attrs={"datetime": True})
-            return t["datetime"] if t else None
-    return None
+    pf = _prefijo_fecha_archivo(href)
+    if pf:
+        return pf
+    return f"{anio_h2:04d}-01-01" if anio_h2 is not None else None
 
 
 def _iter_documentos(soup):
@@ -169,13 +178,12 @@ def _iter_documentos(soup):
         href = (nodo.get("href") or "").strip()
         if not href:
             continue
-        titulo = nodo.get_text(" ", strip=True)
-        yield ("doc", (titulo, href, _time_iso_de_paragraph(nodo)))
+        yield ("doc", (nodo.get_text(" ", strip=True), href))
 
 
-def _filas_concepto(html: str) -> List[Tuple[str, str, Optional[str]]]:
+def _filas_concepto(html: str) -> List[Tuple[str, str]]:
     soup = BeautifulSoup(html or "", "html.parser")
-    out: List[Tuple[str, str, Optional[str]]] = []
+    out: List[Tuple[str, str]] = []
     for tr in soup.select("tr"):
         cel_tit = tr.select_one("td.views-field-title")
         cel_dl = tr.select_one("td.views-field-nothing")
@@ -185,34 +193,67 @@ def _filas_concepto(html: str) -> List[Tuple[str, str, Optional[str]]]:
         a_dl = cel_dl.find("a", href=True)
         if a_tit is None or a_dl is None:
             continue
-        titulo = a_tit.get_text(" ", strip=True)
-        href = a_dl["href"].strip()
-        t = tr.find("time", attrs={"datetime": True})
-        out.append((titulo, href, t["datetime"] if t else None))
+        out.append((a_tit.get_text(" ", strip=True), a_dl["href"].strip()))
     return out
 
 
-def _agregar(docs, vistos, ya_emitidos, source, tipo, url_pdf, titulo, fecha, prefijo, es_anexo, limit):
-    """Construye y agrega un RawDocModel; devuelve True si se alcanzó `limit`."""
+def _clave_unica(claves, source, tipo, fecha, title, unverified, es_anexo, titulo_crudo, url_pdf):
+    """Devuelve `(title, unverified, save_path)` con una clave libre para esta
+    URL. `claves` registra TODOS los documentos emitidos (verificados o no),
+    porque lo que se pisa en almacenamiento es la ruta, no el título; la clave
+    es `(tipo, título saneado)`, que es más estricta que la ruta —dos fechas
+    distintas ya dan rutas distintas— y de paso evita títulos repetidos."""
+    def ruta(t: str) -> str:
+        return storage_path(source, fecha, tipo, f"{_safe_title(t)}(extension)")
+
+    def libre(t: str) -> bool:
+        return claves.get((tipo, _safe_title(t))) in (None, url_pdf)
+
+    if libre(title):
+        return title, unverified, ruta(title)
+    # anexo numerado: _A01 -> _A02 -> _A03… hasta encontrar hueco
+    if not unverified and es_anexo and title.endswith("_A01"):
+        base = title[: -len("_A01")]
+        for n in range(2, 100):
+            cand = f"{base}_A{n:02d}"
+            if libre(cand):
+                return cand, unverified, ruta(cand)
+    # degradar al título crudo de la página; si ese también está tomado (muchos
+    # adjuntos hermanos comparten el mismo texto), discriminar por el nombre
+    # del archivo, que sí es único y estable entre corridas.
+    crudo = _crudo(titulo_crudo)
+    if libre(crudo):
+        return crudo, True, ruta(crudo)
+    stem = _stem_del_href(url_pdf)
+    for n in range(1, 100):
+        disc = stem if n == 1 and stem else f"{stem}-{n}" if stem else str(n)
+        cand = _con_discriminador(crudo, disc)
+        if libre(cand):
+            return cand, True, ruta(cand)
+    return crudo, True, ruta(crudo)
+
+
+def _agregar(docs, vistos, claves, source, tipo, url_pdf, titulo_crudo, fecha,
+             title, unverified, es_anexo, limit):
+    """Construye y agrega un RawDocModel con `save_path` única; devuelve True si
+    se alcanzó `limit`."""
     if url_pdf in vistos:
         return False
-    title, unverified = _titulo(prefijo, tipo, titulo, fecha[:4], es_anexo)
-    if not unverified and title in ya_emitidos and ya_emitidos[title] != url_pdf:
-        # colisión de clave con archivo distinto -> degradar
-        title, unverified = ((titulo or "").strip() or "documento")[:120].strip(" .") or "documento", True
     vistos.add(url_pdf)
-    if not unverified:
-        ya_emitidos[title] = url_pdf
-    safe = _safe_title(title)
+    title, unverified, ruta = _clave_unica(
+        claves, source, tipo, fecha, title, unverified, es_anexo, titulo_crudo, url_pdf
+    )
+    claves[(tipo, _safe_title(title))] = url_pdf
     docs.append(RawDocModel(
         source=source,
-        link={"url": url_pdf, "method": "GET"},
+        # verify=False: cadena TLS incompleta del host; ver nota del módulo.
+        link={"url": url_pdf, "method": "GET", "verify": False},
         title=title,
         tipo=tipo,
         f_public=fecha,
         f_providencia=fecha,
-        detalle=(titulo or "").strip() or None,
-        save_path=storage_path(source, fecha, tipo, f"{safe}(extension)"),
+        detalle=(titulo_crudo or "").strip() or None,
+        save_path=ruta,
         title_unverified=unverified,
     ))
     return len(docs) >= limit
@@ -227,13 +268,15 @@ class ScrapSupersolidaria(BaseScrapper):
 
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         session = requests.Session()
+        # Cadena TLS incompleta del sitio; ver nota al inicio del módulo.
+        session.verify = False
         session.headers.update({"User-Agent": _UA})
         docs: List[RawDocModel] = []
         vistos: set = set()
-        ya_emitidos: dict = {}
+        claves: Dict[Tuple[str, str], str] = {}
         piso = f"{_ANIO_MIN:04d}-01-01"
 
-        for url, tipo, prefijo, fecha_por_prosa in _SECCIONES_TABLA:
+        for url, tipo, prefijo, fecha_por_prosa, avisa_doc_a_doc in _SECCIONES_TABLA:
             if stop_event is not None and stop_event.is_set():
                 return docs[:limit]
             if on_progress:
@@ -247,24 +290,32 @@ class ScrapSupersolidaria(BaseScrapper):
                 continue
             soup = BeautifulSoup(resp.text, "html.parser")
             anio_actual: Optional[int] = None
+            n_antes = len(docs)
             for kind, payload in _iter_documentos(soup):
                 if stop_event is not None and stop_event.is_set():
                     return docs[:limit]
                 if kind == "h2":
                     anio_actual = payload
                     continue
-                titulo, href, time_iso = payload
+                titulo, href = payload
                 url_pdf = urljoin(_BASE, href)
-                fecha = _resolver_fecha(tipo, fecha_por_prosa, titulo, href, anio_actual, time_iso)
+                fecha = _resolver_fecha(fecha_por_prosa, titulo, href, anio_actual)
                 if fecha is None:
-                    if on_progress:
+                    if on_progress and avisa_doc_a_doc:
                         on_progress(f"[{_SOURCE}] Aviso: {tipo} sin fecha «{titulo[:70]}», se omite")
                     continue
                 if fecha < piso or fecha < fini or fecha > ffin:
                     continue
-                if _agregar(docs, vistos, ya_emitidos, _SOURCE, tipo, url_pdf, titulo, fecha,
-                            prefijo, _es_anexo(titulo), limit):
+                es_anexo = _es_anexo(titulo)
+                title, unverified = _titulo(prefijo, titulo, fecha[:4], es_anexo)
+                if _agregar(docs, vistos, claves, _SOURCE, tipo, url_pdf, titulo, fecha,
+                            title, unverified, es_anexo, limit):
                     return docs[:limit]
+            if on_progress and not avisa_doc_a_doc and len(docs) == n_antes:
+                on_progress(
+                    f"[{_SOURCE}] {tipo}: 0 documentos "
+                    f"(sección sin fechas resolubles; hoy todos < {_ANIO_MIN})"
+                )
 
         # --- Conceptos (vista paginada) ---
         if stop_event is not None and stop_event.is_set():
@@ -285,13 +336,15 @@ class ScrapSupersolidaria(BaseScrapper):
             filas = _filas_concepto(resp.text)
             if not filas:
                 break
-            for titulo, href, time_iso in filas:
+            for titulo, href in filas:
                 if not href:
                     continue
                 url_pdf = urljoin(_BASE, href)
                 if url_pdf in vistos:
                     continue
-                fecha = _fecha_concepto(href, time_iso)
+                # el PDF trae la fecha en el prefijo AAAAMMDD_ del nombre; los
+                # que no lo traen (≈1/3 de la sección) se omiten con aviso.
+                fecha = _prefijo_fecha_archivo(href)
                 if fecha is None:
                     if on_progress:
                         on_progress(f"[{_SOURCE}] Aviso: Concepto sin fecha «{titulo[:70]}», se omite")
@@ -299,20 +352,8 @@ class ScrapSupersolidaria(BaseScrapper):
                 if fecha < piso or fecha < fini or fecha > ffin:
                     continue
                 title, unverified = _titulo_concepto(href, titulo, fecha[:4])
-                vistos.add(url_pdf)
-                safe = _safe_title(title)
-                docs.append(RawDocModel(
-                    source=_SOURCE,
-                    link={"url": url_pdf, "method": "GET"},
-                    title=title,
-                    tipo="Concepto",
-                    f_public=fecha,
-                    f_providencia=fecha,
-                    detalle=(titulo or "").strip() or None,
-                    save_path=storage_path(_SOURCE, fecha, "Concepto", f"{safe}(extension)"),
-                    title_unverified=unverified,
-                ))
-                if len(docs) >= limit:
+                if _agregar(docs, vistos, claves, _SOURCE, "Concepto", url_pdf, titulo, fecha,
+                            title, unverified, False, limit):
                     return docs[:limit]
             page += 1
             if page > 200:
