@@ -172,3 +172,204 @@ def test_filas_concepto():
 def test_filas_concepto_pagina_vacia():
     assert _filas_concepto("<table><thead><tr><th>Nombre</th></tr></thead><tbody></tbody></table>") == []
     assert _filas_concepto("<html><body>nada</body></html>") == []
+
+
+import threading
+
+import responses
+
+from core.scrapers.registry import FAMILY_REGISTRY
+from core.scrapers.families.supersolidaria import ScrapSupersolidaria
+
+_RES_URL = "https://www.supersolidaria.gov.co/es/content/resoluciones-generales"
+_CE_URL = "https://www.supersolidaria.gov.co/es/content/circulares-externas-por-ano"
+_CJ_URL = "https://www.supersolidaria.gov.co/es/content/circulares-conjuntas"
+_CC_URL = "https://www.supersolidaria.gov.co/es/content/cartas-circulares"
+_CTO_URL = "https://www.supersolidaria.gov.co/es/conceptos-juridicos-y-contables"
+
+
+def _doc(href, titulo):
+    return (
+        '<div class="paragraph paragraph--type--archivos-collection">'
+        '<div class="field field--name-field-archivo"><table><tbody><tr><td>'
+        f'<span class="file file--mime-application-pdf"><a href="{href}" title="x">{titulo}</a></span>'
+        '<span>(1 KB)</span></td></tr></tbody></table></div></div>'
+    )
+
+
+def _pagina_tabla(h2_y_docs):
+    # h2_y_docs: lista de ("h2","Circulares Externas 2026") | ("doc", href, titulo)
+    partes = []
+    for item in h2_y_docs:
+        if item[0] == "h2":
+            partes.append(f'<h2 class="western">{item[1]}</h2>')
+        else:
+            partes.append(_doc(item[1], item[2]))
+    return "<html><body>" + "".join(partes) + "</body></html>"
+
+
+def _pagina_conceptos(filas):
+    trs = "".join(
+        f'<tr><td class="views-field views-field-title"><a href="/es/content/{i}">{t}</a></td>'
+        f'<td class="views-field views-field-body"><p>r</p></td>'
+        f'<td class="views-field views-field-nothing"><a href="{h}">Ver más</a></td></tr>'
+        for i, (t, h) in enumerate(filas)
+    )
+    return f"<html><body><table><tbody>{trs}</tbody></table></body></html>"
+
+
+def _vacias():
+    return {
+        _RES_URL: "<html><body></body></html>",
+        _CE_URL: "<html><body></body></html>",
+        _CJ_URL: "<html><body></body></html>",
+        _CC_URL: "<html><body></body></html>",
+    }
+
+
+def _registrar(paginas, conceptos_por_pagina):
+    # `responses` entrega múltiples registros de la misma URL en orden y repite
+    # el último; la query `?page=N` no distingue (matching por path). Así que se
+    # registran las páginas de conceptos en secuencia + una vacía al final.
+    for url, body in paginas.items():
+        responses.add(responses.GET, url, body=body)
+    for filas in conceptos_por_pagina:
+        responses.add(responses.GET, _CTO_URL, body=_pagina_conceptos(filas))
+    responses.add(responses.GET, _CTO_URL, body=_pagina_conceptos([]))
+
+
+def test_supersolidaria_registrada():
+    import core.scrapers.families  # noqa: F401
+    assert FAMILY_REGISTRY["supersolidaria"].__name__ == "ScrapSupersolidaria"
+
+
+def test_filters_by_publication_date_activo():
+    assert ScrapSupersolidaria.filters_by_publication_date is True
+
+
+@responses.activate
+def test_scrap_resolucion_por_prosa_y_circular_por_h2():
+    pag = _vacias()
+    pag[_RES_URL] = _pagina_tabla([
+        ("h2", "Resoluciones Generales 2025"),
+        ("doc", "/sites/default/files/data/20260101_resolucion_2025430007935.pdf",
+         "Resolución 2025430007935 del 30 de diciembre de 2025"),
+    ])
+    pag[_CE_URL] = _pagina_tabla([
+        ("h2", "Circulares Externas 2020"),
+        ("doc", "/sites/default/files/data/circular_externa_60.pdf", "Circular Externa N° 60"),
+    ])
+    _registrar(pag, [])
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31")
+    por = {d.title: d for d in docs}
+    assert por["R_SES_7935_2025"].f_public == "2025-12-30"
+    assert por["R_SES_7935_2025"].tipo == "Resolución"
+    assert por["R_SES_7935_2025"].link == {
+        "url": "https://www.supersolidaria.gov.co/sites/default/files/data/20260101_resolucion_2025430007935.pdf",
+        "method": "GET",
+    }
+    assert "verify" not in por["R_SES_7935_2025"].link
+    assert por["CE_SES_0060_2020"].f_public == "2020-01-01"
+    assert por["CE_SES_0060_2020"].save_path == (
+        "Superintendencia de la Economía Solidaria/2020-01-01/Circular Externa/CE_SES_0060_2020(extension)"
+    )
+
+
+@responses.activate
+def test_scrap_anexo_recibe_sufijo_a01():
+    pag = _vacias()
+    pag[_CE_URL] = _pagina_tabla([
+        ("h2", "Circulares Externas 2026"),
+        ("doc", "/sites/default/files/data/20260520_circular_externa_101.pdf", "Circular Externa N° 101"),
+        ("doc", "/sites/default/files/data/20260521_anexo_tecnico_circ_101.pdf", "Anexo - Circular Externa N° 101"),
+        ("doc", "/sites/default/files/data/20260521_matriz.xlsx", "Matriz de Comentarios - Circular N° 101"),
+    ])
+    _registrar(pag, [])
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31")
+    titles = {d.title for d in docs}
+    assert "CE_SES_0101_2026" in titles
+    assert "CE_SES_0101_2026_A01" in titles
+    # el 2º anexo del mismo número colisiona -> degradado a crudo
+    assert any(d.title_unverified and "Matriz" in d.title for d in docs)
+
+
+@responses.activate
+def test_scrap_aplica_piso_2015_y_rango():
+    pag = _vacias()
+    pag[_CE_URL] = _pagina_tabla([
+        ("h2", "Circulares Externas 2013"),
+        ("doc", "/x/circular_externa_5.pdf", "Circular Externa N° 5"),
+        ("h2", "Circulares Externas 2026"),
+        ("doc", "/x/circular_externa_99.pdf", "Circular Externa N° 99"),
+    ])
+    _registrar(pag, [])
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31")
+    assert {d.title for d in docs} == {"CE_SES_0099_2026"}
+
+
+@responses.activate
+def test_scrap_conceptos_pagina_hasta_vacio():
+    _registrar(_vacias(), [
+        [("Principales aspectos", "/sites/default/files/conceptos_juridicos_y_contables/20260821_concepto_20261100232001.pdf")],
+        [("Concepto Unificado", "/sites/default/files/conceptos_juridicos_y_contables/20250516_concept_uni.pdf")],
+    ])
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31")
+    conc = {d.title: d for d in docs if d.tipo == "Concepto"}
+    assert set(conc) == {"CTO_SES_20261100232001_2026", "Concepto Unificado"}
+    assert conc["CTO_SES_20261100232001_2026"].f_public == "2026-08-21"
+    assert conc["Concepto Unificado"].title_unverified is True
+    assert conc["Concepto Unificado"].f_public == "2025-05-16"
+
+
+@responses.activate
+def test_scrap_omite_doc_sin_fecha_y_avisa():
+    pag = _vacias()
+    pag[_CJ_URL] = _pagina_tabla([("doc", "/sites/default/files/normativa/circular-conjunta-nov-09.pdf", "circular-conjunta-nov-09")])
+    _registrar(pag, [])
+    avisos = []
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31", on_progress=avisos.append)
+    assert [d for d in docs if d.tipo == "Circular Conjunta"] == []
+    assert any("sin fecha" in m.lower() for m in avisos)
+
+
+@responses.activate
+def test_scrap_continua_si_una_seccion_falla():
+    pag = _vacias()
+    responses.add(responses.GET, _RES_URL, status=500)
+    del pag[_RES_URL]
+    pag[_CE_URL] = _pagina_tabla([("h2", "Circulares Externas 2026"), ("doc", "/x/circular_externa_7.pdf", "Circular Externa N° 7")])
+    _registrar(pag, [])
+    avisos = []
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31", on_progress=avisos.append)
+    assert {d.title for d in docs} == {"CE_SES_0007_2026"}
+    assert any("Error" in m and "Resoluci" in m for m in avisos)
+
+
+@responses.activate
+def test_scrap_dedup_por_url():
+    pag = _vacias()
+    dup = "/sites/default/files/data/20260520_circular_externa_101.pdf"
+    pag[_CE_URL] = _pagina_tabla([
+        ("h2", "Circulares Externas 2026"),
+        ("doc", dup, "Circular Externa N° 101"),
+        ("doc", dup, "Circular Externa N° 101"),
+    ])
+    _registrar(pag, [])
+    docs = ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31")
+    assert len([d for d in docs if d.tipo == "Circular Externa"]) == 1
+
+
+@responses.activate
+def test_scrap_respeta_stop_event():
+    ev = threading.Event(); ev.set()
+    assert ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31", stop_event=ev) == []
+    assert len(responses.calls) == 0
+
+@responses.activate
+def test_scrap_limit_corta():
+    pag = _vacias()
+    pag[_CE_URL] = _pagina_tabla([("h2", "Circulares Externas 2026"),
+                                  ("doc", "/x/circular_externa_1.pdf", "Circular Externa N° 1"),
+                                  ("doc", "/x/circular_externa_2.pdf", "Circular Externa N° 2")])
+    _registrar(pag, [])
+    assert len(ScrapSupersolidaria().scrap(fini="2015-01-01", ffin="2026-12-31", limit=1)) == 1

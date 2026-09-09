@@ -140,7 +140,7 @@ def _resolver_fecha(tipo, fecha_por_prosa, titulo, href, anio_h2, time_iso):
 def _time_iso_de_paragraph(a_tag) -> Optional[str]:
     # sube al paragraph--type--archivos-collection y busca un <time datetime=…>
     cont = a_tag
-    for _ in range(7):
+    while cont is not None:
         cont = cont.parent
         if cont is None:
             return None
@@ -190,3 +190,134 @@ def _filas_concepto(html: str) -> List[Tuple[str, str, Optional[str]]]:
         t = tr.find("time", attrs={"datetime": True})
         out.append((titulo, href, t["datetime"] if t else None))
     return out
+
+
+def _agregar(docs, vistos, ya_emitidos, source, tipo, url_pdf, titulo, fecha, prefijo, es_anexo, limit):
+    """Construye y agrega un RawDocModel; devuelve True si se alcanzó `limit`."""
+    if url_pdf in vistos:
+        return False
+    title, unverified = _titulo(prefijo, tipo, titulo, fecha[:4], es_anexo)
+    if not unverified and title in ya_emitidos and ya_emitidos[title] != url_pdf:
+        # colisión de clave con archivo distinto -> degradar
+        title, unverified = ((titulo or "").strip() or "documento")[:120].strip(" .") or "documento", True
+    vistos.add(url_pdf)
+    if not unverified:
+        ya_emitidos[title] = url_pdf
+    safe = _safe_title(title)
+    docs.append(RawDocModel(
+        source=source,
+        link={"url": url_pdf, "method": "GET"},
+        title=title,
+        tipo=tipo,
+        f_public=fecha,
+        f_providencia=fecha,
+        detalle=(titulo or "").strip() or None,
+        save_path=storage_path(source, fecha, tipo, f"{safe}(extension)"),
+        title_unverified=unverified,
+    ))
+    return len(docs) >= limit
+
+
+@register_family("supersolidaria")
+class ScrapSupersolidaria(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        docs: List[RawDocModel] = []
+        vistos: set = set()
+        ya_emitidos: dict = {}
+        piso = f"{_ANIO_MIN:04d}-01-01"
+
+        for url, tipo, prefijo, fecha_por_prosa in _SECCIONES_TABLA:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+            try:
+                resp = session.get(url, timeout=90)
+                resp.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Error consultando {tipo}: {e}")
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            anio_actual: Optional[int] = None
+            for kind, payload in _iter_documentos(soup):
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                if kind == "h2":
+                    anio_actual = payload
+                    continue
+                titulo, href, time_iso = payload
+                url_pdf = urljoin(_BASE, href)
+                fecha = _resolver_fecha(tipo, fecha_por_prosa, titulo, href, anio_actual, time_iso)
+                if fecha is None:
+                    if on_progress:
+                        on_progress(f"[{_SOURCE}] Aviso: {tipo} sin fecha «{titulo[:70]}», se omite")
+                    continue
+                if fecha < piso or fecha < fini or fecha > ffin:
+                    continue
+                if _agregar(docs, vistos, ya_emitidos, _SOURCE, tipo, url_pdf, titulo, fecha,
+                            prefijo, _es_anexo(titulo), limit):
+                    return docs[:limit]
+
+        # --- Conceptos (vista paginada) ---
+        if stop_event is not None and stop_event.is_set():
+            return docs[:limit]
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Procesando Concepto...")
+        page = 0
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            try:
+                resp = session.get(_URL_CONCEPTOS, params={"page": page}, timeout=90)
+                resp.raise_for_status()
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Error consultando Concepto (page {page}): {e}")
+                break
+            filas = _filas_concepto(resp.text)
+            if not filas:
+                break
+            for titulo, href, time_iso in filas:
+                if not href:
+                    continue
+                url_pdf = urljoin(_BASE, href)
+                if url_pdf in vistos:
+                    continue
+                fecha = _fecha_concepto(href, time_iso)
+                if fecha is None:
+                    if on_progress:
+                        on_progress(f"[{_SOURCE}] Aviso: Concepto sin fecha «{titulo[:70]}», se omite")
+                    continue
+                if fecha < piso or fecha < fini or fecha > ffin:
+                    continue
+                title, unverified = _titulo_concepto(href, titulo, fecha[:4])
+                vistos.add(url_pdf)
+                safe = _safe_title(title)
+                docs.append(RawDocModel(
+                    source=_SOURCE,
+                    link={"url": url_pdf, "method": "GET"},
+                    title=title,
+                    tipo="Concepto",
+                    f_public=fecha,
+                    f_providencia=fecha,
+                    detalle=(titulo or "").strip() or None,
+                    save_path=storage_path(_SOURCE, fecha, "Concepto", f"{safe}(extension)"),
+                    title_unverified=unverified,
+                ))
+                if len(docs) >= limit:
+                    return docs[:limit]
+            page += 1
+            if page > 200:
+                if on_progress:
+                    on_progress(f"[{_SOURCE}] Aviso: tope de 200 páginas de Concepto alcanzado")
+                break
+
+        return docs[:limit]
