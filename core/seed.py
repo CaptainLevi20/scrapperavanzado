@@ -93,6 +93,12 @@ _FAMILIES = {
         "Boletín jurídico (mensual) y boletín contable (semestral) de "
         "recopilación de conceptos, publicados por la Superintendencia de Sociedades",
     ),
+    "supersolidaria": (
+        "Superintendencia de la Economía Solidaria",
+        "Normativa (resoluciones generales, circulares externas, circulares "
+        "conjuntas, cartas circulares y conceptos jurídicos y contables) "
+        "publicada por la Superintendencia de la Economía Solidaria",
+    ),
 }
 
 
@@ -216,6 +222,11 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="supersociedades", name="Superintendencia de Sociedades", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="supersolidaria",
+        name="Superintendencia de la Economía Solidaria", family_params={}
     )
 
 

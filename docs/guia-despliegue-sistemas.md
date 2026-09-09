@@ -540,3 +540,25 @@ Es seguro repetirlo.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
+
+### Superintendencia de la Economía Solidaria (`supersolidaria`)
+
+- **Qué trae:** cinco secciones del sitio jurídico de la Supersolidaria —
+  **Resoluciones generales**, **Circulares externas**, **Circulares
+  conjuntas**, **Cartas circulares** y **Conceptos jurídicos y contables**.
+  Cada archivo entra como un documento; los anexos (incluidos los `.xlsx` /
+  `.doc`) entran aparte con el sufijo `_A01`.
+- **Desde cuándo:** año 2015 en adelante.
+- **Cómo quedan nombrados:** `R_SES_0007_2025` (resolución; el número son los
+  últimos dígitos del radicado), `CE_SES_0102_2026` (circular externa),
+  `CJ_SES_0067_2004` (circular conjunta), `CC_SES_0037_2026` (carta circular),
+  `CTO_SES_<radicado>_2026` (concepto). Cuando no se puede determinar el
+  número, el documento entra con su título original y marca de "sin verificar".
+- **Detalle técnico:** sitio Drupal con certificado válido (no se salta la
+  validación). Las 4 primeras secciones traen todo en una sola página,
+  agrupado por año; las circulares y cartas viejas no traen la fecha exacta
+  en el título, así que se fecha por el **encabezado de año** y la fecha
+  queda aproximada al 1 de enero de ese año. Conceptos es una lista paginada.
+- **Fuente nueva:** después de actualizar producción, correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
+  Es seguro repetirlo.
