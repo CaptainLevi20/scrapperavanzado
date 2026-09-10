@@ -1,0 +1,76 @@
+ 
+ -------------- celery@LEVI v5.6.3 (recovery)
+--- ***** ----- 
+-- ******* ---- Windows-11-10.0.26200-SP0 2026-09-09 10:53:50
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         iurisync:0x2013a1e7380
+- ** ---------- .> transport:   redis://localhost:6379/0
+- ** ---------- .> results:     redis://localhost:6379/0
+- *** --- * --- .> concurrency: 16 (solo)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . worker.build_bulk_download_zip
+  . worker.descargar_decretos_cali_task
+  . worker.finalize_run
+  . worker.generate_document_preview_pdf
+  . worker.orchestrate_run
+  . worker.reconcile_all_task
+  . worker.reconcile_document_task
+  . worker.reconcile_title_group_task
+  . worker.retry_failed_run_sources
+  . worker.scrape_source_task
+  . worker.trigger_scheduled_bulk_download
+  . worker.trigger_scheduled_run
+
+[2026-09-09 10:53:50,516: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-09-09 10:53:50,522: INFO/MainProcess] mingle: searching for neighbors
+[2026-09-09 10:53:51,557: INFO/MainProcess] mingle: all alone
+[2026-09-09 10:53:51,644: INFO/MainProcess] celery@LEVI ready.
+[2026-09-09 10:58:59,395: INFO/MainProcess] Task worker.orchestrate_run[710457a7-4c19-4c35-9a11-3786f2938552] received
+[2026-09-09 10:58:59,505: INFO/MainProcess] Task worker.orchestrate_run[710457a7-4c19-4c35-9a11-3786f2938552] succeeded in 0.10922870000013063s: None
+[2026-09-09 10:58:59,507: INFO/MainProcess] Task worker.scrape_source_task[a6433367-632c-4d83-9dce-7a03041050b7] received
+[2026-09-09 10:58:59,519: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Resolución...
+[2026-09-09 10:59:00,017: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Circular Externa...
+[2026-09-09 10:59:00,356: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Circular Conjunta...
+[2026-09-09 10:59:00,394: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Circular Conjunta: 0 documentos (sección sin fechas resolubles; hoy todos < 2015)
+[2026-09-09 10:59:00,394: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Carta Circular...
+[2026-09-09 10:59:00,522: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Concepto...
+[2026-09-09 10:59:00,653: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «ASAMBLEAS NO PRESENCIALES Y MIXTAS EN LAS ORGANIZACIONES SOLIDARIAS», se omite
+[2026-09-09 10:59:00,653: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «PROCEDENCIA DE LAS REUNIONES POR DERECHO PROPIO EN LAS ORGANIZACIONES », se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «REQUISITOS PARA QUE LAS ORGANIZACIONES DE LA ECONOMÍA SOLIDARIA UTILIC», se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «SERVICIOS PERMITIDOS A LAS INSTITUCIONES AUXILIARES DEL COOPERATIVISMO», se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «OPERACIONES PERMITIDAS A LAS ORGANIZACIONES SOLIDARIAS QUE NO EJERCEN », se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «USO DE LOS MENSAJES DE DATOS PARA LA OPERACIÓN DE LAS ORGANIZACIONES S», se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «APLICABILIDAD DE LA RESERVA LEGAL A TODOS LOS INFORMES DE LOS INSPECTO», se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «APLICABILIDAD DE LOS INSTITUTOS DE SALVAMENTO EN LAS COOPERATIVAS QUE », se omite
+[2026-09-09 10:59:00,713: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «Vínculo Común de Asociación en Fondo de Empleados», se omite
+[2026-09-09 10:59:01,515: INFO/MainProcess] Task worker.scrape_source_task[a6433367-632c-4d83-9dce-7a03041050b7] succeeded in 2.00786429999971s: None
+[2026-09-09 10:59:01,518: INFO/MainProcess] Task worker.finalize_run[497b9e92-68e7-42a0-888b-a8f0af57e916] received
+[2026-09-09 10:59:01,528: INFO/MainProcess] Task worker.finalize_run[497b9e92-68e7-42a0-888b-a8f0af57e916] succeeded in 0.009562799999912386s: None
+[2026-09-09 10:59:59,062: INFO/MainProcess] Task worker.orchestrate_run[6cb037f7-d41b-4d78-8712-ea026499fb7d] received
+[2026-09-09 10:59:59,084: INFO/MainProcess] Task worker.orchestrate_run[6cb037f7-d41b-4d78-8712-ea026499fb7d] succeeded in 0.02134860000023764s: None
+[2026-09-09 10:59:59,086: INFO/MainProcess] Task worker.scrape_source_task[304d6619-cc32-444b-a2ff-5a434b060f5d] received
+[2026-09-09 10:59:59,097: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Resolución...
+[2026-09-09 10:59:59,492: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Circular Externa...
+[2026-09-09 10:59:59,940: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Circular Conjunta...
+[2026-09-09 10:59:59,980: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Circular Conjunta: 0 documentos (sección sin fechas resolubles; hoy todos < 2015)
+[2026-09-09 10:59:59,980: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Carta Circular...
+[2026-09-09 11:00:00,111: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Procesando Concepto...
+[2026-09-09 11:00:00,217: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «ASAMBLEAS NO PRESENCIALES Y MIXTAS EN LAS ORGANIZACIONES SOLIDARIAS», se omite
+[2026-09-09 11:00:00,217: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «PROCEDENCIA DE LAS REUNIONES POR DERECHO PROPIO EN LAS ORGANIZACIONES », se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «REQUISITOS PARA QUE LAS ORGANIZACIONES DE LA ECONOMÍA SOLIDARIA UTILIC», se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «SERVICIOS PERMITIDOS A LAS INSTITUCIONES AUXILIARES DEL COOPERATIVISMO», se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «OPERACIONES PERMITIDAS A LAS ORGANIZACIONES SOLIDARIAS QUE NO EJERCEN », se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «USO DE LOS MENSAJES DE DATOS PARA LA OPERACIÓN DE LAS ORGANIZACIONES S», se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «APLICABILIDAD DE LA RESERVA LEGAL A TODOS LOS INFORMES DE LOS INSPECTO», se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «APLICABILIDAD DE LOS INSTITUTOS DE SALVAMENTO EN LAS COOPERATIVAS QUE », se omite
+[2026-09-09 11:00:00,269: INFO/MainProcess] [Superintendencia de la Economía Solidaria] Aviso: Concepto sin fecha «Vínculo Común de Asociación en Fondo de Empleados», se omite
+[2026-09-09 11:00:04,132: INFO/MainProcess] Task worker.scrape_source_task[304d6619-cc32-444b-a2ff-5a434b060f5d] succeeded in 5.045924400000331s: None
+[2026-09-09 11:00:04,134: INFO/MainProcess] Task worker.finalize_run[ad0df173-925b-401f-a4a1-614503043255] received
+[2026-09-09 11:00:04,145: INFO/MainProcess] Task worker.finalize_run[ad0df173-925b-401f-a4a1-614503043255] succeeded in 0.010336700000152632s: None

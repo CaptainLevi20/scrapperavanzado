@@ -136,29 +136,31 @@ def reconcile_document(db: Session, document: Document, family_key: Optional[str
     if _objeto_falta(document.storage_bucket, old_key, f"documento {document.id}"):
         # storage_key quedó apuntando a un objeto que ya no existe (un reconcile
         # anterior lo renombró en MinIO pero la escritura en la base no se
-        # confirmó). No se puede copiar desde una clave inexistente: hay que
-        # ubicar el archivo real y solo corregir el puntero en la base — sin
-        # tocar MinIO (regresión: incidente descargas masivas 2026-09-09).
+        # confirmó). No se puede copiar desde una clave inexistente: se intenta
+        # ubicar el archivo real y corregir solo el puntero en la base, sin
+        # tocar MinIO (regresión: incidente descargas masivas 2026-09-09). Si
+        # no se logra ubicar, se cae al camino normal de abajo — que intentará
+        # copiar desde old_key y fallará con un warning, igual que antes de
+        # este parche (nunca se bloquea al llamador).
         clave_real = _clave_real_del_objeto(
             document.storage_bucket, old_key, nueva_key, f"documento {document.id}"
         )
-        if clave_real is None:
-            return False
-        try:
-            repository.update_document_storage_key(db, document.id, clave_real)
-        except Exception as exc:
+        if clave_real is not None:
+            try:
+                repository.update_document_storage_key(db, document.id, clave_real)
+            except Exception as exc:
+                logger.warning(
+                    "No se pudo actualizar storage_key del documento %s al reparar un puntero roto: %s",
+                    document.id, exc,
+                )
+                db.rollback()
+                return False
             logger.warning(
-                "No se pudo actualizar storage_key del documento %s al reparar un puntero roto: %s",
-                document.id, exc,
+                "storage_key del documento %s apuntaba a un objeto inexistente (%s); "
+                "se reparó apuntando a %s (sin copiar ni borrar nada en MinIO).",
+                document.id, old_key, clave_real,
             )
-            db.rollback()
-            return False
-        logger.warning(
-            "storage_key del documento %s apuntaba a un objeto inexistente (%s); "
-            "se reparó apuntando a %s (sin copiar ni borrar nada en MinIO).",
-            document.id, old_key, clave_real,
-        )
-        return True
+            return True
 
     try:
         copy_object(document.storage_bucket, old_key, nueva_key)
@@ -213,29 +215,30 @@ def reconcile_document_versions(
 
         if _objeto_falta(version.storage_bucket, old_key, f"versión {version.id}"):
             # Igual que en reconcile_document: storage_key apunta a un objeto ya
-            # inexistente — se ubica el archivo real y solo se corrige el
-            # puntero en la base, sin tocar MinIO.
+            # inexistente — se intenta ubicar el archivo real y corregir solo el
+            # puntero en la base, sin tocar MinIO. Si no se logra ubicar, se cae
+            # al camino normal de abajo (copiar desde old_key, que fallará con
+            # un warning igual que antes de este parche).
             clave_real = _clave_real_del_objeto(
                 version.storage_bucket, old_key, nueva_key, f"versión {version.id}"
             )
-            if clave_real is None:
-                continue
-            try:
-                repository.update_document_version_storage_key(db, version.id, clave_real)
-            except Exception as exc:
+            if clave_real is not None:
+                try:
+                    repository.update_document_version_storage_key(db, version.id, clave_real)
+                except Exception as exc:
+                    logger.warning(
+                        "No se pudo actualizar storage_key de la versión %s al reparar un puntero roto: %s",
+                        version.id, exc,
+                    )
+                    db.rollback()
+                    continue
                 logger.warning(
-                    "No se pudo actualizar storage_key de la versión %s al reparar un puntero roto: %s",
-                    version.id, exc,
+                    "storage_key de la versión %s apuntaba a un objeto inexistente (%s); "
+                    "se reparó apuntando a %s (sin copiar ni borrar nada en MinIO).",
+                    version.id, old_key, clave_real,
                 )
-                db.rollback()
+                renombradas += 1
                 continue
-            logger.warning(
-                "storage_key de la versión %s apuntaba a un objeto inexistente (%s); "
-                "se reparó apuntando a %s (sin copiar ni borrar nada en MinIO).",
-                version.id, old_key, clave_real,
-            )
-            renombradas += 1
-            continue
 
         try:
             copy_object(version.storage_bucket, old_key, nueva_key)

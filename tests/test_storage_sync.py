@@ -558,7 +558,7 @@ def test_reconcile_document_repairs_pointer_by_unique_folder_match(db_session, m
     assert doc.storage_key == real
 
 
-def test_reconcile_document_logs_error_and_gives_up_when_real_object_cannot_be_located(db_session, monkeypatch, caplog):
+def test_reconcile_document_logs_error_and_falls_back_to_normal_rename_when_real_object_cannot_be_located(db_session, monkeypatch, caplog):
     source = _rama_judicial_source(db_session)
     doc = repository.insert_document(
         db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
@@ -567,18 +567,26 @@ def test_reconcile_document_logs_error_and_gives_up_when_real_object_cannot_be_l
     )
     monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: False)
     monkeypatch.setattr(storage_sync, "list_objects", lambda bucket, prefix: [])  # carpeta vacía
-    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe copiar")))
+    # No se pudo ubicar el archivo real: el auto-reparado NO corta el flujo, cae
+    # al camino normal de renombrado, que intenta copiar desde la clave vieja y
+    # (como de verdad no existe) falla con un warning — exactamente el
+    # comportamiento previo a este parche.
+    def _copy_falla(bucket, old_key, new_key):
+        raise RuntimeError("el objeto origen no existe")
 
-    with caplog.at_level(logging.ERROR):
+    monkeypatch.setattr(storage_sync, "copy_object", _copy_falla)
+
+    with caplog.at_level(logging.WARNING):
         result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
     assert result is False
     db_session.refresh(doc)
     assert doc.storage_key == "carpeta/viejo.pdf"  # sin cambios
-    assert "corrección manual" in caplog.text.lower()
+    assert "corrección manual" in caplog.text.lower()          # el error queda visible
+    assert "No se pudo renombrar el documento" in caplog.text  # y sí se intentó el camino normal
 
 
-def test_reconcile_document_gives_up_when_folder_match_is_ambiguous(db_session, monkeypatch, caplog):
+def test_reconcile_document_falls_back_when_folder_match_is_ambiguous(db_session, monkeypatch, caplog):
     source = _rama_judicial_source(db_session)
     doc = repository.insert_document(
         db_session, doc_id="d1", source_id=source.id, title="T_SANT_68001_33_33_007_2025_00290_02",
@@ -586,19 +594,23 @@ def test_reconcile_document_gives_up_when_folder_match_is_ambiguous(db_session, 
         storage_bucket="iurisync-test", storage_key="carpeta/viejo.pdf",
     )
     # Dos objetos en la carpeta reducen a la misma base (mismo radicado, dos
-    # fechas): no hay una coincidencia inequívoca => no se toca nada.
+    # fechas): no hay una coincidencia inequívoca => se registra el error y se
+    # cae al camino normal.
     gemelo_a = "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260806.pdf"
     gemelo_b = "carpeta/T_SANT_68001_33_33_007_2025_00290_02_20260820.pdf"
     monkeypatch.setattr(storage_sync, "object_exists", lambda bucket, key: False)
     monkeypatch.setattr(storage_sync, "list_objects", lambda bucket, prefix: [gemelo_a, gemelo_b])
-    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: (_ for _ in ()).throw(AssertionError("no debe copiar")))
+    intentos_copy = []
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: intentos_copy.append(a) or (_ for _ in ()).throw(RuntimeError("origen no existe")))
 
     with caplog.at_level(logging.ERROR):
         result = storage_sync.reconcile_document(db_session, doc, "rama_judicial", tiene_actuaciones=False)
 
     assert result is False
+    assert intentos_copy == [("iurisync-test", "carpeta/viejo.pdf", "carpeta/T_SANT_68001_33_33_007_2025_00290_02_2026.pdf")]
     db_session.refresh(doc)
     assert doc.storage_key == "carpeta/viejo.pdf"
+    assert "candidatos" in caplog.text.lower()
 
 
 def test_reconcile_document_versions_repairs_pointer_when_old_key_missing_but_canonical_object_exists(db_session, monkeypatch, caplog):

@@ -1,0 +1,169 @@
+[2026-08-26 09:05:40,150: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2026-08-26 09:05:40,155: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-26 09:05:41,176: INFO/MainProcess] mingle: all alone
+[2026-08-26 09:05:41,216: INFO/MainProcess] celery@LEVI ready.
+[2026-08-26 09:05:41,218: INFO/MainProcess] Task worker.reconcile_document_task[aaba3369-f6e6-4c50-9d1d-47e5a0e4923e] received
+[2026-08-26 09:05:41,352: INFO/MainProcess] Task worker.reconcile_document_task[aaba3369-f6e6-4c50-9d1d-47e5a0e4923e] succeeded in 0.13358969999990222s: None
+[2026-08-26 09:05:41,355: INFO/MainProcess] Task worker.reconcile_document_task[fd5b528a-ed7c-461d-adae-088755992f10] received
+[2026-08-26 09:05:41,359: INFO/MainProcess] Task worker.reconcile_document_task[fd5b528a-ed7c-461d-adae-088755992f10] succeeded in 0.004340599999977712s: None
+[2026-08-26 09:25:39,235: INFO/MainProcess] Task worker.reconcile_document_task[537ffd3e-1f8c-4012-9304-9cc3ac2348cc] received
+[2026-08-26 09:25:39,240: INFO/MainProcess] Task worker.reconcile_document_task[537ffd3e-1f8c-4012-9304-9cc3ac2348cc] succeeded in 0.004252499999893189s: None
+[2026-08-26 09:25:39,685: INFO/MainProcess] Task worker.reconcile_document_task[7aae336a-c03d-4740-a317-0fc54a5eea73] received
+[2026-08-26 09:25:39,689: INFO/MainProcess] Task worker.reconcile_document_task[7aae336a-c03d-4740-a317-0fc54a5eea73] succeeded in 0.0035366000001886277s: None
+[2026-08-26 09:38:42,357: INFO/MainProcess] Task worker.reconcile_document_task[39035e94-0926-4697-b1e9-fdc41cbf440d] received
+[2026-08-26 09:38:42,361: INFO/MainProcess] Task worker.reconcile_document_task[39035e94-0926-4697-b1e9-fdc41cbf440d] succeeded in 0.0038977000003797s: None
+[2026-08-26 09:38:42,813: INFO/MainProcess] Task worker.reconcile_document_task[93db19cc-aade-419a-88b2-96b9bed99f8a] received
+[2026-08-26 09:38:42,817: INFO/MainProcess] Task worker.reconcile_document_task[93db19cc-aade-419a-88b2-96b9bed99f8a] succeeded in 0.0033924999997907435s: None
+[2026-08-26 09:51:28,301: INFO/MainProcess] Task worker.reconcile_document_task[90fd049a-f917-4465-b8d0-5556ff7d82d5] received
+[2026-08-26 09:51:28,307: INFO/MainProcess] Task worker.reconcile_document_task[90fd049a-f917-4465-b8d0-5556ff7d82d5] succeeded in 0.0062293000000863685s: None
+[2026-08-26 09:51:28,819: INFO/MainProcess] Task worker.reconcile_document_task[e3c062a2-2afa-4ff3-a04d-d4a6ddb4c862] received
+[2026-08-26 09:51:28,823: INFO/MainProcess] Task worker.reconcile_document_task[e3c062a2-2afa-4ff3-a04d-d4a6ddb4c862] succeeded in 0.0035843999994540354s: None
+[2026-08-26 10:19:08,362: INFO/MainProcess] Task worker.reconcile_document_task[ebe96085-4aa1-4efb-9f88-eb2ea27783fb] received
+[2026-08-26 10:19:08,369: INFO/MainProcess] Task worker.reconcile_document_task[ebe96085-4aa1-4efb-9f88-eb2ea27783fb] succeeded in 0.0060868000000482425s: None
+[2026-08-26 10:19:08,858: INFO/MainProcess] Task worker.reconcile_document_task[f4b06c9c-327a-485d-bb0f-5aa77c15d02c] received
+[2026-08-26 10:19:08,863: INFO/MainProcess] Task worker.reconcile_document_task[f4b06c9c-327a-485d-bb0f-5aa77c15d02c] succeeded in 0.004349700000602752s: None
+[2026-08-26 10:37:29,270: INFO/MainProcess] Task worker.reconcile_document_task[bb46d661-3c54-4a74-8e0c-f69c6c79f186] received
+[2026-08-26 10:37:29,276: INFO/MainProcess] Task worker.reconcile_document_task[bb46d661-3c54-4a74-8e0c-f69c6c79f186] succeeded in 0.005472000000736443s: None
+[2026-08-26 10:37:29,726: INFO/MainProcess] Task worker.reconcile_document_task[6b21ea21-f150-4931-8e39-c5eb156c54f7] received
+[2026-08-26 10:37:29,732: INFO/MainProcess] Task worker.reconcile_document_task[6b21ea21-f150-4931-8e39-c5eb156c54f7] succeeded in 0.0047285000000556465s: None
+[2026-08-26 10:51:53,648: INFO/MainProcess] Task worker.reconcile_document_task[e19d6f8e-c7fc-40f0-a1a5-389281abd74b] received
+[2026-08-26 10:51:53,653: INFO/MainProcess] Task worker.reconcile_document_task[e19d6f8e-c7fc-40f0-a1a5-389281abd74b] succeeded in 0.00402840000060678s: None
+[2026-08-26 10:51:54,074: INFO/MainProcess] Task worker.reconcile_document_task[d3d1d139-39b8-456a-99b3-0f4d3d56d0c1] received
+[2026-08-26 10:51:54,078: INFO/MainProcess] Task worker.reconcile_document_task[d3d1d139-39b8-456a-99b3-0f4d3d56d0c1] succeeded in 0.004184399998848676s: None
+[2026-08-26 11:00:05,638: INFO/MainProcess] Task worker.reconcile_document_task[3ffa8272-d465-4634-93c6-11cb419ce30e] received
+[2026-08-26 11:00:05,643: INFO/MainProcess] Task worker.reconcile_document_task[3ffa8272-d465-4634-93c6-11cb419ce30e] succeeded in 0.004838499999095802s: None
+[2026-08-26 11:00:06,087: INFO/MainProcess] Task worker.reconcile_document_task[88da3d67-c3c8-4a76-87e3-0f4ad608b385] received
+[2026-08-26 11:00:06,090: INFO/MainProcess] Task worker.reconcile_document_task[88da3d67-c3c8-4a76-87e3-0f4ad608b385] succeeded in 0.003454800000326941s: None
+[2026-08-26 13:44:10,177: INFO/MainProcess] Task worker.reconcile_document_task[62c0baba-88a6-4174-9ab0-fda44112fc09] received
+[2026-08-26 13:44:10,202: INFO/MainProcess] Task worker.reconcile_document_task[62c0baba-88a6-4174-9ab0-fda44112fc09] succeeded in 0.022391000002244255s: None
+[2026-08-26 13:44:10,629: INFO/MainProcess] Task worker.reconcile_document_task[9c07add8-0af0-4062-bb3e-640ffee57da1] received
+[2026-08-26 13:44:10,633: INFO/MainProcess] Task worker.reconcile_document_task[9c07add8-0af0-4062-bb3e-640ffee57da1] succeeded in 0.004066400000738213s: None
+[2026-08-26 14:03:58,271: INFO/MainProcess] Task worker.reconcile_document_task[161b20a8-deba-455b-8579-701f9c00b543] received
+[2026-08-26 14:03:58,278: INFO/MainProcess] Task worker.reconcile_document_task[161b20a8-deba-455b-8579-701f9c00b543] succeeded in 0.007259800000610994s: None
+[2026-08-26 14:03:58,736: INFO/MainProcess] Task worker.reconcile_document_task[1bcba029-0805-459f-a3f3-59e793443183] received
+[2026-08-26 14:03:58,741: INFO/MainProcess] Task worker.reconcile_document_task[1bcba029-0805-459f-a3f3-59e793443183] succeeded in 0.004719299999123905s: None
+[2026-08-26 14:37:33,117: INFO/MainProcess] Task worker.reconcile_document_task[c80ab244-3c4a-4c02-8a59-de93ca5568d9] received
+[2026-08-26 14:37:33,130: INFO/MainProcess] Task worker.reconcile_document_task[c80ab244-3c4a-4c02-8a59-de93ca5568d9] succeeded in 0.011722999999619788s: None
+[2026-08-26 14:37:33,582: INFO/MainProcess] Task worker.reconcile_document_task[226cdfea-be1d-45d0-9502-053319470c50] received
+[2026-08-26 14:37:33,586: INFO/MainProcess] Task worker.reconcile_document_task[226cdfea-be1d-45d0-9502-053319470c50] succeeded in 0.004138799999054754s: None
+[2026-08-26 14:59:54,081: INFO/MainProcess] Task worker.reconcile_document_task[1454f061-d7a2-496a-99e5-a3cd217c5a7c] received
+[2026-08-26 14:59:54,087: INFO/MainProcess] Task worker.reconcile_document_task[1454f061-d7a2-496a-99e5-a3cd217c5a7c] succeeded in 0.00522360000104527s: None
+[2026-08-26 14:59:54,572: INFO/MainProcess] Task worker.reconcile_document_task[ab15d1f1-dc3e-46d4-86e0-d07c1b2a485c] received
+[2026-08-26 14:59:54,576: INFO/MainProcess] Task worker.reconcile_document_task[ab15d1f1-dc3e-46d4-86e0-d07c1b2a485c] succeeded in 0.003964500003348803s: None
+[2026-08-26 17:16:26,940: INFO/MainProcess] Task worker.reconcile_document_task[62f6f2d9-7d46-467b-bcab-fc870a350378] received
+[2026-08-26 17:16:26,969: INFO/MainProcess] Task worker.reconcile_document_task[62f6f2d9-7d46-467b-bcab-fc870a350378] succeeded in 0.025682200001028832s: None
+[2026-08-26 17:16:27,444: INFO/MainProcess] Task worker.reconcile_document_task[29942735-b8f3-4095-a3ae-62e422cf52b0] received
+[2026-08-26 17:16:27,449: INFO/MainProcess] Task worker.reconcile_document_task[29942735-b8f3-4095-a3ae-62e422cf52b0] succeeded in 0.005220200000621844s: None
+[2026-08-26 23:02:13,388: WARNING/MainProcess] consumer: Connection to broker lost. Trying to re-establish the connection...
+Traceback (most recent call last):
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\retry.py", line 105, in call_with_retry
+    return do()
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\client.py", line 915, in <lambda>
+    lambda: command(*args, **kwargs),
+            ~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\client.py", line 936, in try_read
+    return conn.read_response(disconnect_on_error=False, push_request=True)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\connection.py", line 650, in read_response
+    response = self._parser.read_response(disable_decoding=disable_decoding)
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\resp2.py", line 15, in read_response
+    result = self._read_response(disable_decoding=disable_decoding)
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\resp2.py", line 25, in _read_response
+    raw = self._buffer.readline()
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\socket.py", line 115, in readline
+    self._read_from_socket()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\socket.py", line 68, in _read_from_socket
+    raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
+redis.exceptions.ConnectionError: Connection closed by server.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\celery\worker\consumer\consumer.py", line 346, in start
+    blueprint.start(self)
+    ~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\celery\bootsteps.py", line 116, in start
+    step.start(parent)
+    ~~~~~~~~~~^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\celery\worker\consumer\consumer.py", line 788, in start
+    c.loop(*c.loop_args())
+    ~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\celery\worker\loops.py", line 168, in synloop
+    _loop_cycle()
+    ~~~~~~~~~~~^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\celery\worker\loops.py", line 157, in _loop_cycle
+    connection.drain_events(timeout=2.0)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\connection.py", line 343, in drain_events
+    return self.transport.drain_events(self.connection, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\transport\virtual\base.py", line 997, in drain_events
+    get(self._deliver, timeout=timeout)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\transport\redis.py", line 601, in get
+    ret = self.handle_event(fileno, event)
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\transport\redis.py", line 583, in handle_event
+    return self.on_readable(fileno), self
+           ~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\transport\redis.py", line 579, in on_readable
+    chan.handlers[type]()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\transport\redis.py", line 931, in _receive
+    ret.append(self._receive_one(c))
+               ~~~~~~~~~~~~~~~~~^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\kombu\transport\redis.py", line 941, in _receive_one
+    response = c.parse_response()
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\client.py", line 938, in parse_response
+    response = self._execute(conn, try_read)
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\client.py", line 914, in _execute
+    return conn.retry.call_with_retry(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lambda: command(*args, **kwargs),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda _: self._reconnect(conn),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\retry.py", line 108, in call_with_retry
+    fail(error)
+    ~~~~^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\client.py", line 916, in <lambda>
+    lambda _: self._reconnect(conn),
+              ~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\client.py", line 904, in _reconnect
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\connection.py", line 380, in connect
+    self.connect_check_health(check_health=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\connection.py", line 403, in connect_check_health
+    self.on_connect_check_health(check_health=check_health)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\connection.py", line 523, in on_connect_check_health
+    self.read_response()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\connection.py", line 650, in read_response
+    response = self._parser.read_response(disable_decoding=disable_decoding)
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\resp2.py", line 15, in read_response
+    result = self._read_response(disable_decoding=disable_decoding)
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\resp2.py", line 25, in _read_response
+    raw = self._buffer.readline()
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\socket.py", line 115, in readline
+    self._read_from_socket()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\redis\_parsers\socket.py", line 68, in _read_from_socket
+    raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
+redis.exceptions.ConnectionError: Connection closed by server.
+[2026-08-26 23:02:13,470: WARNING/MainProcess] C:\Users\asant\scrapper-avanzado\.venv\Lib\site-packages\celery\worker\consumer\consumer.py:397: CPendingDeprecationWarning: 
+In Celery 5.1 we introduced an optional breaking change which
+on connection loss cancels all currently executed tasks with late acknowledgement enabled.
+These tasks cannot be acknowledged as the connection is gone, and the tasks are automatically redelivered
+back to the queue. You can enable this behavior using the worker_cancel_long_running_tasks_on_connection_loss
+setting. In Celery 5.1 it is set to False by default. The setting will be set to True by default in Celery 6.0.
+
+  warnings.warn(CANCEL_TASKS_BY_DEFAULT, CPendingDeprecationWarning)
+
+[2026-08-26 23:02:13,512: ERROR/MainProcess] consumer: Cannot connect to redis://localhost:6379/0: Connection closed by server..
+Trying again in 2.00 seconds... (1/100)
+
