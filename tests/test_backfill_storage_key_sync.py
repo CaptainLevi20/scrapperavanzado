@@ -13,6 +13,9 @@ def test_run_backfill_renames_a_mismatched_document(db_session, monkeypatch):
 
     monkeypatch.setattr(core.storage_sync, "copy_object", lambda *a: None)
     monkeypatch.setattr(core.storage_sync, "delete_object", lambda *a: None)
+    # El objeto al que apunta storage_key existe: camino normal de renombrado,
+    # no el auto-reparado de punteros rotos.
+    monkeypatch.setattr(core.storage_sync, "object_exists", lambda *a: True)
 
     result = run_backfill(db_session)
 
