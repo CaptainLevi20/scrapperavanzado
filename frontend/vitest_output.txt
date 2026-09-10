@@ -1,9 +1,0 @@
-
- RUN  v4.1.10 C:/Users/asant/scrapper-avanzado/frontend
-
-
- Test Files  42 passed (42)
-      Tests  359 passed (359)
-   Start at  13:20:05
-   Duration  19.28s (transform 6.42s, setup 20.14s, import 31.69s, tests 65.13s, environment 105.37s)
-
