@@ -107,3 +107,50 @@ def _head_info(session: requests.Session, url: str) -> dict:
     raw_len = resp.headers.get("Content-Length", "")
     content_length = int(raw_len) if raw_len.isdigit() else None
     return {"filename": filename, "content_length": content_length}
+
+
+def _texto(item, sel: str) -> str:
+    node = item.select_one(sel)
+    return _norm_texto(node.get_text(" ", strip=True)) if node else ""
+
+
+def _fila_a_doc(item, tipo, pref, head_info, fini, ffin, hoy, on_progress) -> Optional[RawDocModel]:
+    href = item.get("data-href") or ""
+    if not href:
+        btn = item.select_one("a.s_dl_btn_download")
+        href = btn.get("href", "") if btn else ""
+    doc_id = _id_de_href(href)
+    if not doc_id:
+        return None
+
+    nombre_txt = _texto(item, ".s_dl_doc_name")
+    meta_txt = _texto(item, ".s_dl_doc_meta")
+
+    fecha = _fecha_de_meta(meta_txt, hoy)
+    if fecha is None:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Aviso: {tipo} sin fecha «{nombre_txt[:70]}», se omite")
+        return None
+    if fecha.year < _ANIO_MINIMO:
+        return None
+    iso = fecha.isoformat()
+    if iso < fini or iso > ffin:
+        return None
+
+    filename = head_info.get("filename") or ""
+    numero = _num_en_texto(filename) or _num_en_texto(nombre_txt) or _num_al_inicio(nombre_txt) or _num_en_prosa(nombre_txt)
+    filename_stem = filename.rsplit(".", 1)[0] or None if filename else None
+    title, unverified = _titulo(pref, numero, fecha.year, nombre_txt, filename_stem)
+    safe = _safe_title(title)
+
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": f"{_BASE}/web/content/{doc_id}?download=true", "method": "GET"},
+        title=title,
+        tipo=tipo,
+        f_public=iso,
+        f_providencia=iso,
+        detalle=nombre_txt or None,
+        save_path=storage_path(_SOURCE, iso, tipo, f"{safe}(extension)"),
+        title_unverified=unverified,
+    )

@@ -2,6 +2,7 @@ import datetime
 
 import requests
 import responses
+from bs4 import BeautifulSoup
 
 from core.scrapers.families.supervigilancia import (
     _SOURCE,
@@ -15,6 +16,7 @@ from core.scrapers.families.supervigilancia import (
     _fecha_de_meta,
     _titulo,
     _head_info,
+    _fila_a_doc,
 )
 
 
@@ -118,3 +120,134 @@ def test_head_info_sin_disposition():
 def test_head_info_excepcion_de_red_devuelve_vacio():
     responses.add(responses.HEAD, _URL, body=requests.ConnectionError("boom"))
     assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": None}
+
+
+HOY = datetime.date(2026, 9, 10)
+FINI, FFIN = "2000-01-01", "2100-12-31"
+
+
+def _item(html: str):
+    return BeautifulSoup(html, "html.parser").select_one("div.s_dl_item")
+
+
+_ITEM_CON_NUM_LISTADO = _item(
+    '<div class="s_dl_item" data-category="acuerdos" data-href="/web/content/10260?download=true">'
+    '<span class="s_dl_file_size">394 Kb</span>'
+    '<div class="s_dl_doc_type">resoluciones</div>'
+    '<div class="s_dl_doc_name">20263200005647CS <b>Por la cual se actualiza el Manual</b></div>'
+    '<div class="s_dl_doc_meta"><span>Publicación: 08/05/2026</span></div></div>'
+)
+
+
+def test_numero_desde_head_filename_gana():
+    head = {"filename": "20261000015947CS RESOLUCION DE LINEAMIENTOS Y PAGO.pdf", "content_length": 403369}
+    doc = _fila_a_doc(_ITEM_CON_NUM_LISTADO, "Resolución", "R", head, FINI, FFIN, HOY, None)
+    assert doc.title == "R_SVySP_20261000015947CS_2026"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Resolución"
+    assert doc.f_public == "2026-05-08" and doc.f_providencia == "2026-05-08"
+    assert doc.link == {"url": "https://www.supervigilancia.gov.co/web/content/10260?download=true", "method": "GET"}
+    assert "verify" not in doc.link
+    assert doc.save_path.startswith(f"{_SOURCE}/2026-05-08/Resolución/")
+
+
+def test_numero_desde_listado_cuando_head_sin_filename():
+    head = {"filename": None, "content_length": None}
+    doc = _fila_a_doc(_ITEM_CON_NUM_LISTADO, "Resolución", "R", head, FINI, FFIN, HOY, None)
+    assert doc.title == "R_SVySP_20263200005647CS_2026"
+
+
+def test_numero_en_prosa():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/900?download=true">'
+        '<div class="s_dl_doc_name">POR MEDIO DE LA CUAL SE EFECTÚA UNA CORRECCIÓN A LA RESOLUCIÓN No. 2023320000649</div>'
+        '<div class="s_dl_doc_meta"><span>|Expedición: 30/10/2025</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    assert doc.title == "R_SVySP_2023320000649_2025"
+
+
+def test_sin_numero_se_guarda_con_title_unverified():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/901?download=true">'
+        '<div class="s_dl_doc_name"><strong>LINEAMIENTOS PARA LA AUTORIZACIÓN DE PRESTACIÓN DE SERVICIOS</strong></div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: 15/09/2025</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    assert doc.title == "LINEAMIENTOS PARA LA AUTORIZACIÓN DE PRESTACIÓN DE SERVICIOS"
+    assert doc.title_unverified is True
+
+
+def test_fecha_hoy():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/902?download=true">'
+        '<div class="s_dl_doc_name">20263100016027CS - Manual</div>'
+        '<div class="s_dl_doc_meta"><span>Publicación: Hoy</span><span>|</span><span>Expedición: --</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    assert doc.f_public == "2026-09-10"
+
+
+def test_fecha_ausente_descarta_con_aviso():
+    avisos = []
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/903?download=true">'
+        '<div class="s_dl_doc_name">Algo sin fecha</div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: --</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, avisos.append)
+    assert doc is None
+    assert avisos and "sin fecha" in avisos[0]
+
+
+def test_zero_width_en_titulo_se_limpia():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/904?download=true">'
+        '<div class="s_dl_doc_name">Res​olución sin número</div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: 01/02/2020</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    assert doc.title == "Resolución sin número"
+
+
+def test_piso_2015():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/905?download=true">'
+        '<div class="s_dl_doc_name">Vieja</div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: 17/03/2009</span></div></div>'
+    )
+    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None) is None
+
+
+def test_fuera_de_rango_fini_ffin():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/906?download=true">'
+        '<div class="s_dl_doc_name">20251300003057CS x</div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: 04/03/2025</span></div></div>'
+    )
+    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, "2026-01-01", "2026-12-31", HOY, None) is None
+
+
+def test_etiquetas_basura_no_afectan_el_tipo():
+    item = _item(
+        '<div class="s_dl_item" data-category="circulares" data-href="/web/content/907?download=true">'
+        '<div class="s_dl_doc_type">CIRCULAR</div>'
+        '<div class="s_dl_doc_name">RESOLUCION No. 202540000099737CS - Por la cual...</div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: 01/12/2025</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    assert doc.tipo == "Resolución"
+    assert doc.title == "R_SVySP_202540000099737CS_2025"
+
+
+def test_concepto_titulo_es_nombre_de_archivo():
+    item = _item(
+        '<div class="s_dl_item" data-category="decretos" data-href="/web/content/7786?download=true">'
+        '<div class="s_dl_doc_type">circular</div>'
+        '<div class="s_dl_doc_name"><strong>Renting operativo.pdf</strong></div>'
+        '<div class="s_dl_doc_meta"><span>Expedición: <span>28/05/2018</span></span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Concepto", "CTO", {"filename": "Renting operativo.pdf", "content_length": 2696244}, FINI, FFIN, HOY, None)
+    assert doc.tipo == "Concepto"
+    assert doc.title == "Renting operativo"
+    assert doc.title_unverified is True
