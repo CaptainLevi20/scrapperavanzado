@@ -1,5 +1,8 @@
 import datetime
 
+import requests
+import responses
+
 from core.scrapers.families.supervigilancia import (
     _SOURCE,
     _ANIO_MINIMO,
@@ -11,6 +14,7 @@ from core.scrapers.families.supervigilancia import (
     _num_en_prosa,
     _fecha_de_meta,
     _titulo,
+    _head_info,
 )
 
 
@@ -77,3 +81,40 @@ def test_titulo_sin_numero_cae_a_filename_stem_cuando_texto_vacio():
 
 def test_titulo_sin_numero_fallback_documento():
     assert _titulo("R", None, 2025, "", None)[0] == "documento"
+
+
+_URL = "https://www.supervigilancia.gov.co/web/content/10102?download=true"
+
+
+@responses.activate
+def test_head_info_parsea_filename_y_length():
+    responses.add(
+        responses.HEAD, _URL,
+        headers={
+            "Content-Disposition": 'attachment; filename="20261000015947CS RESOLUCION.pdf"',
+            "Content-Length": "403369",
+        },
+    )
+    got = _head_info(requests.Session(), _URL)
+    assert got == {"filename": "20261000015947CS RESOLUCION.pdf", "content_length": 403369}
+
+
+@responses.activate
+def test_head_info_filename_sin_comillas():
+    responses.add(
+        responses.HEAD, _URL,
+        headers={"Content-Disposition": "attachment; filename=20263100016027CS.pdf"},
+    )
+    assert _head_info(requests.Session(), _URL)["filename"] == "20263100016027CS.pdf"
+
+
+@responses.activate
+def test_head_info_sin_disposition():
+    responses.add(responses.HEAD, _URL, headers={"Content-Length": "10"})
+    assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": 10}
+
+
+@responses.activate
+def test_head_info_excepcion_de_red_devuelve_vacio():
+    responses.add(responses.HEAD, _URL, body=requests.ConnectionError("boom"))
+    assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": None}

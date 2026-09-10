@@ -91,3 +91,19 @@ def _titulo(
     if not base and filename_stem:
         base = _PDF_SUFIJO.sub("", _norm_texto(filename_stem))
     return (base or "documento")[:120], True
+
+
+_FILENAME_RE = re.compile(r'filename="?([^"\r\n;]+)"?', re.I)
+
+
+def _head_info(session: requests.Session, url: str) -> dict:
+    try:
+        resp = session.head(url, timeout=30, allow_redirects=True)
+    except requests.RequestException:
+        return {"filename": None, "content_length": None}
+    disp = resp.headers.get("Content-Disposition", "")
+    m = _FILENAME_RE.search(disp)
+    filename = m.group(1).strip() if m else None
+    raw_len = resp.headers.get("Content-Length", "")
+    content_length = int(raw_len) if raw_len.isdigit() else None
+    return {"filename": filename, "content_length": content_length}
