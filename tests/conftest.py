@@ -69,11 +69,20 @@ class DummyFamilyScraper(BaseScrapper):
     """Registered once at test-collection time; used by pipeline tests instead of hitting a real site."""
 
     docs_to_return: list[RawDocModel] = []
+    # None by default (base class behavior); a test sets this to exercise the
+    # scheduled-run lookback widening in worker.tasks.scrape_source_task.
+    scheduled_min_lookback_days: int | None = None
+    # Captured by scrap() below so a test can assert what fini/ffin the task
+    # actually computed and passed in.
+    received_fini: str | None = None
+    received_ffin: str | None = None
 
     def __init__(self, **_params):
         pass
 
     def scrap(self, fini, ffin, **kwargs):
+        DummyFamilyScraper.received_fini = fini
+        DummyFamilyScraper.received_ffin = ffin
         return DummyFamilyScraper.docs_to_return
 
 

@@ -2545,3 +2545,65 @@ def test_finalize_run_still_completes_when_assembly_fails(db_session, test_engin
         assert repository.get_run(assertion_session, run.id).status == "completed"
     finally:
         assertion_session.close()
+
+
+def test_scrape_source_task_widens_fini_on_a_scheduled_run_for_a_family_with_min_lookback(
+    db_session, test_engine, monkeypatch
+):
+    """Corte Constitucional's own site indexes documents days after the fact —
+    the daily scheduled run's short lookback window kept sliding past them
+    before they ever became searchable, so the source silently produced zero
+    new documents for two weeks straight (reported 2026-09-15). A family that
+    declares scheduled_min_lookback_days must have fini pulled back to at
+    least that many days before today, but ONLY for a scheduled run."""
+    from datetime import timedelta
+
+    celery_app.conf.task_always_eager = True
+    DummyFamilyScraper.docs_to_return = []
+    DummyFamilyScraper.scheduled_min_lookback_days = 21
+    try:
+        repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+        source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+        # The run's own configured window (3 days back) is shorter than the
+        # family's required minimum (21 days) — the family's minimum must win.
+        run = repository.create_run(
+            db_session, triggered_by="scheduled", fini=date.today() - timedelta(days=3), ffin=date.today()
+        )
+        run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+        task_session_factory = sessionmaker(bind=test_engine, future=True)
+        monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+        scrape_source_task(run_source.id)
+
+        expected_fini = (date.today() - timedelta(days=21)).strftime("%Y-%m-%d")
+        assert DummyFamilyScraper.received_fini == expected_fini
+        assert DummyFamilyScraper.received_ffin == date.today().strftime("%Y-%m-%d")
+    finally:
+        DummyFamilyScraper.scheduled_min_lookback_days = None
+
+
+def test_scrape_source_task_does_not_widen_fini_on_a_manual_run(db_session, test_engine, monkeypatch):
+    """A manual run's explicit range is a deliberate choice (testing, backfill)
+    and must be respected as-is, even for a family that declares
+    scheduled_min_lookback_days for its scheduled run."""
+    from datetime import timedelta
+
+    celery_app.conf.task_always_eager = True
+    DummyFamilyScraper.docs_to_return = []
+    DummyFamilyScraper.scheduled_min_lookback_days = 21
+    try:
+        repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+        source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+        manual_fini = date.today() - timedelta(days=3)
+        run = repository.create_run(db_session, triggered_by="manual", fini=manual_fini, ffin=date.today())
+        run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+        task_session_factory = sessionmaker(bind=test_engine, future=True)
+        monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+        scrape_source_task(run_source.id)
+
+        assert DummyFamilyScraper.received_fini == manual_fini.strftime("%Y-%m-%d")
+    finally:
+        DummyFamilyScraper.scheduled_min_lookback_days = None

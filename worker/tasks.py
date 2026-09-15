@@ -9,7 +9,7 @@ import time
 import zipfile
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -322,7 +322,20 @@ def scrape_source_task(run_source_id: int):
         progress = _ScrapProgressCollector()
         try:
             scraper = resolve_scraper(source.family_key, scraper_params)
-            fini = _default_date_str(run.fini)
+            fini_date = run.fini
+            # The daily scheduled run's window is normally short (a few days'
+            # lookback) — fine for sources whose listing reflects new documents
+            # right away. A family whose own site indexes documents with a
+            # multi-day lag (Corte Constitucional: confirmed empirically to take
+            # 10+ days) would otherwise never see a document land inside that
+            # short window before it slides past it, permanently missing it. Only
+            # widen for scheduled runs — a manual run's explicit range is a
+            # deliberate choice (e.g. testing, backfill) and must be respected.
+            if run.triggered_by == "scheduled" and scraper.scheduled_min_lookback_days:
+                earliest = date.today() - timedelta(days=scraper.scheduled_min_lookback_days)
+                if fini_date is None or fini_date > earliest:
+                    fini_date = earliest
+            fini = _default_date_str(fini_date)
             ffin = _default_date_str(run.ffin)
             docs = scraper.scrap(fini=fini, ffin=ffin, on_progress=progress)
         except Exception as exc:
