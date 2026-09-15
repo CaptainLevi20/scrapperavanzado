@@ -29,6 +29,16 @@ class BaseScrapper:
     # re-listed, permanently hiding it from the republication check above.
     doc_id_uses_publication_date = True
 
+    # For the DAILY SCHEDULED run only (not a manual run's explicit range):
+    # the minimum number of days back "today" that fini must cover, even if
+    # the configured lookback window is shorter. None (the default) leaves
+    # the scheduled run's own window untouched. A family sets this when its
+    # own site publishes/indexes documents with a lag longer than the normal
+    # lookback — otherwise a short, steadily-advancing window would slide
+    # past a document before the source ever surfaces it, permanently
+    # hiding it rather than just delaying it by a day or two.
+    scheduled_min_lookback_days: int | None = None
+
     def scrap(self, fini, ffin, q="", limit=100, stop_event=None, on_progress=None):
         raise NotImplementedError("Subclasses must implement this method.")
 

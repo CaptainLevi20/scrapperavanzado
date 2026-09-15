@@ -69,6 +69,15 @@ def _normalize_title(prov_sentencia: str, tipo: str) -> str:
 
 @register_family("constitucional")
 class ScrapConstitucional(BaseScrapper):
+    # buscador_new (the search endpoint below) lags well behind the court's own
+    # decision dates — verified 2026-09-15 by querying real narrow windows: the
+    # last 10 days returned 0 hits while the last 11-13 days returned results.
+    # The daily scheduled run's default lookback (3 days) is shorter than that
+    # lag, so every day's window closed before a document ever became
+    # searchable — the source silently produced zero new documents for two
+    # weeks straight. 21 days gives comfortable margin over the measured lag.
+    scheduled_min_lookback_days = 21
+
     def __init__(self):
         self.source = "Corte Constitucional"
 
