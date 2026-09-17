@@ -55,10 +55,9 @@ export function formatMonth(value: string | null): string {
   const match = MONTH_ONLY_PATTERN.exec(value);
   if (!match) return value;
   const [, year, month] = match;
-  const label = new Date(Number(year), Number(month) - 1, 1).toLocaleDateString("es-CO", {
-    year: "numeric",
-    month: "long",
-  });
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  const monthName = date.toLocaleDateString("es-CO", { month: "long" });
+  const label = `${monthName} ${year}`;
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
