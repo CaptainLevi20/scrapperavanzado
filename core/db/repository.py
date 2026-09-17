@@ -1513,3 +1513,78 @@ def set_document_preview_key(db: Session, document_id: int, preview_storage_key:
     db.commit()
     db.refresh(document)
     return document
+
+
+def summarize_run_sources_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    stmt = (
+        select(
+            Source.id,
+            Source.name,
+            func.coalesce(func.sum(RunSource.docs_new), 0),
+            func.coalesce(func.sum(RunSource.docs_updated), 0),
+            func.coalesce(func.sum(RunSource.docs_errors), 0),
+            func.bool_or(RunSource.status == "failed"),
+        )
+        .select_from(RunSource)
+        .join(Run, RunSource.run_id == Run.id)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+        .group_by(Source.id, Source.name)
+        .order_by(Source.name)
+    )
+    return [
+        {
+            "source_id": source_id,
+            "source_name": source_name,
+            "docs_new": docs_new,
+            "docs_updated": docs_updated,
+            "docs_errors": docs_errors,
+            "had_failure": had_failure,
+        }
+        for source_id, source_name, docs_new, docs_updated, docs_errors, had_failure in db.execute(stmt).all()
+    ]
+
+
+def list_active_sources_without_activity_in_period(db: Session, period_start: datetime, period_end: datetime) -> list[str]:
+    active_subq = (
+        select(RunSource.source_id)
+        .join(Run, RunSource.run_id == Run.id)
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+    )
+    stmt = (
+        select(Source.name)
+        .where(Source.active.is_(True), Source.id.not_in(active_subq))
+        .order_by(Source.name)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def list_run_errors_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    stmt = (
+        select(RunError, Source.name)
+        .join(RunSource, RunError.run_source_id == RunSource.id)
+        .join(Run, RunSource.run_id == Run.id)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+        .order_by(RunError.occurred_at)
+    )
+    return [
+        {"source_name": source_name, "message": error.message, "occurred_at": error.occurred_at}
+        for error, source_name in db.execute(stmt).all()
+    ]
+
+
+def count_runs_by_status_for_period(db: Session, period_start: datetime, period_end: datetime) -> dict[str, int]:
+    stmt = (
+        select(Run.status, func.count(Run.id))
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+        .group_by(Run.status)
+    )
+    return dict(db.execute(stmt).all())
+
+
+def sum_document_storage_for_period(db: Session, period_start: datetime, period_end: datetime) -> int:
+    stmt = select(func.coalesce(func.sum(Document.file_size_bytes), 0)).where(
+        Document.downloaded_at >= period_start, Document.downloaded_at < period_end
+    )
+    return db.scalar(stmt) or 0
