@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Archive, FileStack, Gauge, GitMerge, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Radar, Wand2 } from "lucide-react";
+import { Archive, FileBarChart2, FileStack, Gauge, GitMerge, LogOut, PanelLeftClose, PanelLeftOpen, PlayCircle, Radar, Wand2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
@@ -19,6 +19,7 @@ const LINKS: NavLinkConfig[] = [
   { to: "/documents", label: "Documentos", end: false, icon: FileStack },
   { to: "/expedientes", label: "Expedientes", end: false, icon: GitMerge },
   { to: "/bulk-downloads", label: "Descargas masivas", end: false, icon: Archive },
+  { to: "/reports", label: "Reportes", end: false, icon: FileBarChart2 },
   { to: "/laboratorio", label: "Laboratorio", end: false, icon: Wand2, adminOnly: true },
 ];
 
