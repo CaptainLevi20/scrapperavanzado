@@ -44,6 +44,36 @@ export function formatDate(value: string | null): string {
   return parseDateOnlyAsLocal(value).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
 }
 
+const MONTH_ONLY_PATTERN = /^(\d{4})-(\d{2})/;
+
+// "period" llega como fecha del día 1 ("2026-08-01"); se muestra solo mes y año
+// en español, con la misma corrección de zona horaria que parseDateOnlyAsLocal
+// (si no, en América/Bogotá el mes mostrado puede quedar un día atrás y cruzar
+// al mes anterior).
+export function formatMonth(value: string | null): string {
+  if (!value) return "—";
+  const match = MONTH_ONLY_PATTERN.exec(value);
+  if (!match) return value;
+  const [, year, month] = match;
+  const label = new Date(Number(year), Number(month) - 1, 1).toLocaleDateString("es-CO", {
+    year: "numeric",
+    month: "long",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+// "YYYY-MM" del mes calendario anterior al de `from` (por defecto, hoy), en
+// hora local — mismo criterio de "hoy local" que todayDateString. Es el tope
+// permitido para generar un reporte manual (el mes actual todavía no cerró).
+export function getPreviousMonthString(from: Date = new Date()): string {
+  const year = from.getFullYear();
+  const month = from.getMonth(); // 0-indexed; month-1 en 1-indexed es el mes anterior
+  const previous = new Date(year, month - 1, 1);
+  const previousYear = previous.getFullYear();
+  const previousMonth = String(previous.getMonth() + 1).padStart(2, "0");
+  return `${previousYear}-${previousMonth}`;
+}
+
 // Formatea el radicado del PROCESO (los primeros 21 dígitos, que son idénticos
 // en todas las instancias de un expediente) con la separación que usan los
 // tribunales: ciudad-corp-esp-despacho-año-consecutivo. Se ignoran los dos
