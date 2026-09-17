@@ -40,6 +40,7 @@ def test_build_monthly_report_data_for_an_empty_month_is_all_zeros(db_session):
     assert data["por_fuente"] == []
     assert data["errores"] == []
     assert data["comparacion"] == []
+    assert data["documentos_por_tipo"] == []
 
 
 def test_build_monthly_report_data_totals_the_summary_from_per_source_rows(db_session):
@@ -128,3 +129,58 @@ def test_build_monthly_report_data_a_closed_month_is_not_partial(db_session, mon
 
     assert data["is_partial"] is False
     assert data["as_of_label"] is None
+
+
+def test_build_monthly_report_data_documentos_por_tipo_groups_by_source_and_tipo(db_session):
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+
+    repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="Doc 1",
+        storage_bucket="iurisync-test", storage_key="d1.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title="Doc 2",
+        storage_bucket="iurisync-test", storage_key="d2.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d3", source_id=source.id, title="Doc 3",
+        storage_bucket="iurisync-test", storage_key="d3.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d4", source_id=source.id, title="Doc 4",
+        storage_bucket="iurisync-test", storage_key="d4.pdf", tipo="Auto",
+        downloaded_at=datetime(2026, 8, 12, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d5", source_id=source.id, title="Doc 5",
+        storage_bucket="iurisync-test", storage_key="d5.pdf", tipo="Auto",
+        downloaded_at=datetime(2026, 8, 13, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d6", source_id=source.id, title="Doc 6",
+        storage_bucket="iurisync-test", storage_key="d6.pdf", tipo=None,
+        downloaded_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d7", source_id=source.id, title="Doc 7",
+        storage_bucket="iurisync-test", storage_key="d7.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 7, 30, tzinfo=timezone.utc),
+    )
+
+    data = build_monthly_report_data(db_session, date(2026, 8, 1))
+
+    assert data["documentos_por_tipo"] == [
+        {
+            "source_name": "Corte Constitucional",
+            "total": 6,
+            "tipos": [
+                {"tipo": "Sentencia", "count": 3},
+                {"tipo": "Auto", "count": 2},
+                {"tipo": "Sin tipo", "count": 1},
+            ],
+        }
+    ]

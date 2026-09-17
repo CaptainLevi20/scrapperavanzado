@@ -10,6 +10,7 @@ _DATA_VACIA = {
     "comparacion": [],
     "is_partial": False,
     "as_of_label": None,
+    "documentos_por_tipo": [],
 }
 
 _DATA_CON_CONTENIDO = {
@@ -33,6 +34,16 @@ _DATA_CON_CONTENIDO = {
     ],
     "is_partial": True,
     "as_of_label": "datos hasta el 17 de septiembre de 2026",
+    "documentos_por_tipo": [
+        {
+            "source_name": "Corte Constitucional",
+            "total": 5,
+            "tipos": [
+                {"tipo": "Sentencia", "count": 3},
+                {"tipo": "Auto", "count": 2},
+            ],
+        }
+    ],
 }
 
 

@@ -45,6 +45,27 @@ def _variacion_pct(actual: int, anterior: int) -> Optional[float]:
     return round((actual - anterior) / anterior * 100, 1)
 
 
+def _build_documentos_por_tipo(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    rows = repository.summarize_documents_by_source_and_tipo_for_period(db, period_start, period_end)
+
+    por_fuente: dict[str, list[dict]] = {}
+    for row in rows:
+        tipo_label = row["tipo"] if row["tipo"] is not None else "Sin tipo"
+        por_fuente.setdefault(row["source_name"], []).append({"tipo": tipo_label, "count": row["count"]})
+
+    documentos_por_tipo = []
+    for source_name, tipos in por_fuente.items():
+        tipos_ordenados = sorted(tipos, key=lambda t: t["count"], reverse=True)
+        documentos_por_tipo.append(
+            {
+                "source_name": source_name,
+                "total": sum(t["count"] for t in tipos_ordenados),
+                "tipos": tipos_ordenados,
+            }
+        )
+    return documentos_por_tipo
+
+
 def build_monthly_report_data(db: Session, period: date) -> dict:
     period_start, period_end = _bounds(period)
     prev_start, prev_end = _bounds(previous_period(period))
@@ -97,4 +118,5 @@ def build_monthly_report_data(db: Session, period: date) -> dict:
         "comparacion": comparacion,
         "is_partial": is_partial,
         "as_of_label": as_of_label,
+        "documentos_por_tipo": _build_documentos_por_tipo(db, period_start, period_end),
     }

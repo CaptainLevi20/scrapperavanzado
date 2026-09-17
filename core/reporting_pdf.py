@@ -92,6 +92,30 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         story.append(Paragraph(f"Fuentes activas sin actividad este mes: {nombres}.", styles["Normal"]))
     story.append(Spacer(1, 18))
 
+    # Documentos por fuente y tipo
+    story.append(Paragraph("Documentos por fuente y tipo", styles["Heading2"]))
+    story.append(
+        Paragraph(
+            "Contados por fecha de descarga del documento; puede diferir de 'Documentos nuevos' del resumen.",
+            styles["Italic"],
+        )
+    )
+    story.append(Spacer(1, 6))
+    documentos_por_tipo = data.get("documentos_por_tipo")
+    if documentos_por_tipo:
+        tipo_rows = [["Fuente", "Tipo", "Cantidad"]]
+        for fuente in documentos_por_tipo:
+            source_label = Paragraph(escape(f"{fuente['source_name']} — total {fuente['total']}"), _CELL_STYLE)
+            tipo_rows.append([source_label, "", ""])
+            for tipo_row in fuente["tipos"]:
+                tipo_rows.append(["", tipo_row["tipo"], str(tipo_row["count"])])
+        tipo_table = Table(tipo_rows, hAlign="LEFT")
+        tipo_table.setStyle(_TABLE_STYLE)
+        story.append(tipo_table)
+    else:
+        story.append(Paragraph("Ninguna fuente descargó documentos este mes.", styles["Normal"]))
+    story.append(Spacer(1, 18))
+
     # Detalle de errores
     story.append(Paragraph("Detalle de errores", styles["Heading2"]))
     errores = data["errores"]

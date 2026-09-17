@@ -2238,3 +2238,39 @@ def test_sum_document_storage_for_period_only_counts_documents_downloaded_within
     total = repository.sum_document_storage_for_period(db_session, period_start, period_end)
 
     assert total == 1000
+
+
+def test_summarize_documents_by_source_and_tipo_for_period(db_session):
+    from datetime import datetime, timezone
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="Doc 1",
+        storage_bucket="iurisync-test", storage_key="d1.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title="Doc 2",
+        storage_bucket="iurisync-test", storage_key="d2.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d3", source_id=source.id, title="Doc 3",
+        storage_bucket="iurisync-test", storage_key="d3.pdf", tipo=None,
+        downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d4", source_id=source.id, title="Doc 4",
+        storage_bucket="iurisync-test", storage_key="d4.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    rows = repository.summarize_documents_by_source_and_tipo_for_period(db_session, period_start, period_end)
+
+    by_tipo = {row["tipo"]: row["count"] for row in rows}
+    assert by_tipo == {"Sentencia": 2, None: 1}
+    assert all(row["source_name"] == "JEP" for row in rows)

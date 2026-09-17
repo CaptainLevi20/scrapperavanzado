@@ -1588,3 +1588,18 @@ def sum_document_storage_for_period(db: Session, period_start: datetime, period_
         Document.downloaded_at >= period_start, Document.downloaded_at < period_end
     )
     return db.scalar(stmt) or 0
+
+
+def summarize_documents_by_source_and_tipo_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    stmt = (
+        select(Source.name, Document.tipo, func.count(Document.id))
+        .select_from(Document)
+        .join(Source, Document.source_id == Source.id)
+        .where(Document.downloaded_at >= period_start, Document.downloaded_at < period_end)
+        .group_by(Source.name, Document.tipo)
+        .order_by(Source.name, func.count(Document.id).desc())
+    )
+    return [
+        {"source_name": source_name, "tipo": tipo, "count": count}
+        for source_name, tipo, count in db.execute(stmt).all()
+    ]
