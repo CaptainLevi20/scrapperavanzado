@@ -43,3 +43,33 @@ def test_render_monthly_report_pdf_produces_a_valid_pdf_with_full_content():
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 1000
+
+
+def test_render_monthly_report_pdf_wraps_long_text_cells_with_special_chars():
+    """Regression test: long text + & and < characters must wrap and escape properly."""
+    long_source = "Superintendencia de Vigilancia & Seguridad Privada"
+    long_message = "Error downloading document: connection timeout after 300s & retry < 3 times attempted due to network < issues & server unavailable status reported from upstream API endpoint which indicates the remote service was temporarily down for maintenance or overloaded with requests processing queue was full and could not accept new submissions at the time of the request " + ("x" * 50)  # ~300 chars with special chars
+
+    data_con_texto_largo = {
+        "period": None,
+        "period_label": "Agosto 2026",
+        "resumen": {
+            "docs_new": 1, "docs_updated": 0, "docs_errors": 1,
+            "runs_by_status": {"failed": 1}, "storage_bytes": 0,
+        },
+        "por_fuente": [
+            {"source_id": 1, "source_name": long_source, "docs_new": 1, "docs_updated": 0, "docs_errors": 1, "had_failure": True},
+        ],
+        "fuentes_sin_actividad": [],
+        "errores": [
+            {"source_name": long_source, "message": long_message, "occurred_at": __import__("datetime").datetime(2026, 8, 15, 10, 30)},
+        ],
+        "comparacion": [
+            {"source_name": long_source, "docs_new_actual": 1, "docs_new_anterior": 0, "variacion_pct": None},
+        ],
+    }
+
+    pdf_bytes = render_monthly_report_pdf(data_con_texto_largo)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 1000

@@ -1,9 +1,10 @@
 from io import BytesIO
 from typing import Optional
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
@@ -18,6 +19,8 @@ _TABLE_STYLE = TableStyle(
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]
 )
+
+_CELL_STYLE = ParagraphStyle("cell", parent=getSampleStyleSheet()["Normal"], fontSize=9, leading=11)
 
 
 def _format_bytes(value: int) -> str:
@@ -66,7 +69,7 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         for row in por_fuente:
             fuente_rows.append(
                 [
-                    row["source_name"],
+                    Paragraph(escape(row["source_name"]), _CELL_STYLE),
                     str(row["docs_new"]),
                     str(row["docs_updated"]),
                     str(row["docs_errors"]),
@@ -91,7 +94,11 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         error_rows = [["Fuente", "Fecha", "Mensaje"]]
         for error in errores:
             error_rows.append(
-                [error["source_name"], error["occurred_at"].strftime("%Y-%m-%d %H:%M"), error["message"]]
+                [
+                    Paragraph(escape(error["source_name"]), _CELL_STYLE),
+                    error["occurred_at"].strftime("%Y-%m-%d %H:%M"),
+                    Paragraph(escape(error["message"]), _CELL_STYLE),
+                ]
             )
         error_table = Table(error_rows, hAlign="LEFT", colWidths=[4 * cm, 3 * cm, 9 * cm])
         error_table.setStyle(_TABLE_STYLE)
@@ -108,7 +115,7 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         for row in comparacion:
             comparacion_rows.append(
                 [
-                    row["source_name"],
+                    Paragraph(escape(row["source_name"]), _CELL_STYLE),
                     str(row["docs_new_actual"]),
                     str(row["docs_new_anterior"]),
                     _variacion_texto(row["variacion_pct"]),
