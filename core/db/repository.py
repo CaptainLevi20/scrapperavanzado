@@ -7,7 +7,7 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, up
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
@@ -383,6 +383,38 @@ def delete_bulk_download(db: Session, bulk_download_id: int) -> Optional[dict]:
         "zip_storage_key": zip_storage_key,
         "storage_bucket": storage_bucket,
     }
+
+
+def create_monthly_report(db: Session, period: date, triggered_by: str) -> MonthlyReport:
+    monthly_report = MonthlyReport(period=period, status="pending", triggered_by=triggered_by)
+    db.add(monthly_report)
+    db.commit()
+    db.refresh(monthly_report)
+    return monthly_report
+
+
+def get_monthly_report(db: Session, monthly_report_id: int) -> Optional[MonthlyReport]:
+    return db.get(MonthlyReport, monthly_report_id)
+
+
+def list_monthly_reports(db: Session, limit: int = 50, offset: int = 0) -> list[MonthlyReport]:
+    stmt = (
+        select(MonthlyReport)
+        .order_by(MonthlyReport.created_at.desc(), MonthlyReport.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def set_monthly_report_status(db: Session, monthly_report_id: int, status: str, **fields) -> None:
+    monthly_report = db.get(MonthlyReport, monthly_report_id)
+    if monthly_report is None:
+        return
+    monthly_report.status = status
+    for key, value in fields.items():
+        setattr(monthly_report, key, value)
+    db.commit()
 
 
 def document_exists(db: Session, doc_id: str) -> bool:
@@ -1481,3 +1513,93 @@ def set_document_preview_key(db: Session, document_id: int, preview_storage_key:
     db.commit()
     db.refresh(document)
     return document
+
+
+def summarize_run_sources_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    stmt = (
+        select(
+            Source.id,
+            Source.name,
+            func.coalesce(func.sum(RunSource.docs_new), 0),
+            func.coalesce(func.sum(RunSource.docs_updated), 0),
+            func.coalesce(func.sum(RunSource.docs_errors), 0),
+            func.bool_or(RunSource.status == "failed"),
+        )
+        .select_from(RunSource)
+        .join(Run, RunSource.run_id == Run.id)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+        .group_by(Source.id, Source.name)
+        .order_by(Source.name)
+    )
+    return [
+        {
+            "source_id": source_id,
+            "source_name": source_name,
+            "docs_new": docs_new,
+            "docs_updated": docs_updated,
+            "docs_errors": docs_errors,
+            "had_failure": had_failure,
+        }
+        for source_id, source_name, docs_new, docs_updated, docs_errors, had_failure in db.execute(stmt).all()
+    ]
+
+
+def list_active_sources_without_activity_in_period(db: Session, period_start: datetime, period_end: datetime) -> list[str]:
+    active_subq = (
+        select(RunSource.source_id)
+        .join(Run, RunSource.run_id == Run.id)
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+    )
+    stmt = (
+        select(Source.name)
+        .where(Source.active.is_(True), Source.id.not_in(active_subq))
+        .order_by(Source.name)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def list_run_errors_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    stmt = (
+        select(RunError, Source.name)
+        .join(RunSource, RunError.run_source_id == RunSource.id)
+        .join(Run, RunSource.run_id == Run.id)
+        .join(Source, RunSource.source_id == Source.id)
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+        .order_by(RunError.occurred_at)
+    )
+    return [
+        {"source_name": source_name, "message": error.message, "occurred_at": error.occurred_at}
+        for error, source_name in db.execute(stmt).all()
+    ]
+
+
+def count_runs_by_status_for_period(db: Session, period_start: datetime, period_end: datetime) -> dict[str, int]:
+    stmt = (
+        select(Run.status, func.count(Run.id))
+        .where(Run.started_at >= period_start, Run.started_at < period_end)
+        .group_by(Run.status)
+    )
+    return dict(db.execute(stmt).all())
+
+
+def sum_document_storage_for_period(db: Session, period_start: datetime, period_end: datetime) -> int:
+    stmt = select(func.coalesce(func.sum(Document.file_size_bytes), 0)).where(
+        Document.downloaded_at >= period_start, Document.downloaded_at < period_end
+    )
+    return db.scalar(stmt) or 0
+
+
+def summarize_documents_by_source_and_tipo_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+    stmt = (
+        select(Source.name, Document.tipo, func.count(Document.id))
+        .select_from(Document)
+        .join(Source, Document.source_id == Source.id)
+        .where(Document.downloaded_at >= period_start, Document.downloaded_at < period_end)
+        .group_by(Source.name, Document.tipo)
+        .order_by(Source.name, func.count(Document.id).desc())
+    )
+    return [
+        {"source_name": source_name, "tipo": tipo, "count": count}
+        for source_name, tipo, count in db.execute(stmt).all()
+    ]

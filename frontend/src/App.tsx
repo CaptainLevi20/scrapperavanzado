@@ -23,6 +23,7 @@ const RunsPage = lazy(() => import("./pages/RunsPage").then((m) => ({ default: m
 const RunDetailPage = lazy(() => import("./pages/RunDetailPage").then((m) => ({ default: m.RunDetailPage })));
 const DocumentsPage = lazy(() => import("./pages/DocumentsPage").then((m) => ({ default: m.DocumentsPage })));
 const BulkDownloadsPage = lazy(() => import("./pages/BulkDownloadsPage").then((m) => ({ default: m.BulkDownloadsPage })));
+const ReportsPage = lazy(() => import("./pages/ReportsPage").then((m) => ({ default: m.ReportsPage })));
 const FormatterPage = lazy(() => import("./pages/FormatterPage").then((m) => ({ default: m.FormatterPage })));
 const ExpedientesPage = lazy(() => import("./pages/ExpedientesPage").then((m) => ({ default: m.ExpedientesPage })));
 const CaseLinkDetailPage = lazy(() =>
@@ -47,6 +48,7 @@ export function App() {
                 <Route path="/runs/:runId" element={<RunDetailPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/bulk-downloads" element={<BulkDownloadsPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/expedientes" element={<ExpedientesPage />} />
                 <Route path="/expedientes/:caseLinkId" element={<CaseLinkDetailPage />} />
                 <Route element={<AdminRoute />}>

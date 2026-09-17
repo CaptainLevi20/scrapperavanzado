@@ -100,6 +100,21 @@ class BulkDownload(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
+class MonthlyReport(Base):
+    __tablename__ = "monthly_reports"
+
+    id = Column(Integer, primary_key=True)
+    period = Column(Date, nullable=False)  # primer día del mes que cubre
+    status = Column(String, nullable=False, default="pending")  # pending | running | completed | failed
+    triggered_by = Column(String, nullable=False)  # 'manual' | 'scheduled'
+    storage_bucket = Column(String, nullable=True)  # solo si status == completed
+    storage_key = Column(Text, nullable=True)  # solo si status == completed
+    error_message = Column(Text, nullable=True)  # solo si status == failed
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
 class Document(Base):
     __tablename__ = "documents"
 

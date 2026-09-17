@@ -83,3 +83,40 @@ def test_trigger_scheduled_bulk_download_skips_when_no_new_useful_docs(db_sessio
 def test_beat_schedule_incluye_la_descarga_masiva_diaria():
     entrada = beat_schedule.celery_app.conf.beat_schedule["daily-bulk-download"]
     assert entrada["task"] == "worker.trigger_scheduled_bulk_download"
+
+
+def test_trigger_monthly_report_creates_the_previous_month_and_dispatches(db_session, test_engine, monkeypatch):
+    from datetime import date
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr(beat_schedule, "SessionLocal", task_session_factory)
+    monkeypatch.setattr(beat_schedule, "date", type("_FixedDate", (date,), {"today": staticmethod(lambda: date(2026, 9, 1))}))
+    dispatched = []
+    monkeypatch.setattr(beat_schedule.build_monthly_report, "delay", lambda report_id: dispatched.append(report_id))
+
+    beat_schedule.trigger_monthly_report()
+
+    reports = repository.list_monthly_reports(db_session)
+    assert len(reports) == 1
+    assert reports[0].period == date(2026, 8, 1)
+    assert reports[0].triggered_by == "scheduled"
+    assert dispatched == [reports[0].id]
+
+
+def test_trigger_monthly_report_handles_year_rollover(db_session, test_engine, monkeypatch):
+    from datetime import date
+
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr(beat_schedule, "SessionLocal", task_session_factory)
+    monkeypatch.setattr(beat_schedule, "date", type("_FixedDate", (date,), {"today": staticmethod(lambda: date(2026, 1, 1))}))
+    monkeypatch.setattr(beat_schedule.build_monthly_report, "delay", lambda report_id: None)
+
+    beat_schedule.trigger_monthly_report()
+
+    reports = repository.list_monthly_reports(db_session)
+    assert reports[0].period == date(2025, 12, 1)
+
+
+def test_beat_schedule_incluye_el_reporte_mensual():
+    entrada = beat_schedule.celery_app.conf.beat_schedule["monthly-report"]
+    assert entrada["task"] == "worker.trigger_monthly_report"

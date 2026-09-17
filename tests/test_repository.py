@@ -103,6 +103,45 @@ def test_bulk_download_lifecycle(db_session):
     assert refreshed.zip_storage_key == "bulk-downloads/1.zip"
 
 
+def test_monthly_report_lifecycle(db_session):
+    from datetime import date, datetime, timezone
+
+    report = repository.create_monthly_report(db_session, period=date(2026, 8, 1), triggered_by="manual")
+    assert report.status == "pending"
+    assert report.period == date(2026, 8, 1)
+    assert report.triggered_by == "manual"
+
+    repository.set_monthly_report_status(
+        db_session, report.id, "running", started_at=datetime.now(timezone.utc)
+    )
+    refreshed = repository.get_monthly_report(db_session, report.id)
+    assert refreshed.status == "running"
+    assert refreshed.started_at is not None
+
+    repository.set_monthly_report_status(
+        db_session,
+        report.id,
+        "completed",
+        storage_bucket="iurisync-test",
+        storage_key="reportes/2026-08_1.pdf",
+        finished_at=datetime.now(timezone.utc),
+    )
+    refreshed = repository.get_monthly_report(db_session, report.id)
+    assert refreshed.status == "completed"
+    assert refreshed.storage_key == "reportes/2026-08_1.pdf"
+
+
+def test_list_monthly_reports_orders_by_most_recent_first(db_session):
+    from datetime import date
+
+    first = repository.create_monthly_report(db_session, period=date(2026, 7, 1), triggered_by="scheduled")
+    second = repository.create_monthly_report(db_session, period=date(2026, 8, 1), triggered_by="manual")
+
+    reports = repository.list_monthly_reports(db_session)
+
+    assert [r.id for r in reports] == [second.id, first.id]
+
+
 def test_set_run_status_does_not_raise_for_a_nonexistent_run(db_session):
     """Regression test: this used to be a bare db.get(Run, run_id) with no None
     check — a run that was deleted (or a stale/wrong id from a leftover Celery
@@ -2056,3 +2095,182 @@ def test_heredar_review_status_de_anexo_no_hace_nada_si_la_madre_esta_pending(db
     assert changed is False
     db_session.refresh(anexo)
     assert anexo.review_status == "pending"
+
+
+def _fuente_con_corrida(db_session, source_name, started_at, docs_new=0, docs_updated=0, docs_errors=0, run_status="completed", active=True):
+    from core.db import repository as repo
+
+    family_key = source_name.lower().replace(" ", "-")
+    repo.create_source_family(db_session, key=family_key, display_name=source_name)
+    source = repo.create_source(db_session, family_key=family_key, name=source_name, family_params={})
+    if not active:
+        repo.update_source(db_session, source.id, active=False)
+    run = repo.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    repo.set_run_status(db_session, run.id, run_status, started_at=started_at)
+    run_source = repo.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    repo.set_run_source_status(
+        db_session, run_source.id, run_status, docs_new=docs_new, docs_updated=docs_updated, docs_errors=docs_errors
+    )
+    return source, run, run_source
+
+
+def test_summarize_run_sources_for_period_sums_only_runs_started_within_range(db_session):
+    from datetime import datetime, timezone
+
+    dentro = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    fuera = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    _fuente_con_corrida(db_session, "Corte Constitucional", dentro, docs_new=5, docs_updated=2, docs_errors=1)
+    _fuente_con_corrida(db_session, "CSJ", fuera, docs_new=99)
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    rows = repository.summarize_run_sources_for_period(db_session, period_start, period_end)
+
+    assert len(rows) == 1
+    assert rows[0]["source_name"] == "Corte Constitucional"
+    assert rows[0]["docs_new"] == 5
+    assert rows[0]["docs_updated"] == 2
+    assert rows[0]["docs_errors"] == 1
+    assert rows[0]["had_failure"] is False
+
+
+def test_summarize_run_sources_for_period_sums_across_multiple_runs_of_the_same_source(db_session):
+    from datetime import datetime, timezone
+
+    family_key = "constitucional"
+    repository.create_source_family(db_session, key=family_key, display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key=family_key, name="Corte Constitucional", family_params={})
+    for started_at, docs_new in [(datetime(2026, 8, 5, tzinfo=timezone.utc), 3), (datetime(2026, 8, 20, tzinfo=timezone.utc), 4)]:
+        run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+        repository.set_run_status(db_session, run.id, "completed", started_at=started_at)
+        run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+        repository.set_run_source_status(db_session, run_source.id, "completed", docs_new=docs_new)
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    rows = repository.summarize_run_sources_for_period(db_session, period_start, period_end)
+
+    assert rows[0]["docs_new"] == 7
+
+
+def test_summarize_run_sources_for_period_flags_had_failure(db_session):
+    from datetime import datetime, timezone
+
+    dentro = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    _fuente_con_corrida(db_session, "Minjusticia", dentro, docs_errors=3, run_status="failed")
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    rows = repository.summarize_run_sources_for_period(db_session, period_start, period_end)
+
+    assert rows[0]["had_failure"] is True
+
+
+def test_list_active_sources_without_activity_in_period_excludes_ones_with_runs_and_inactive_ones(db_session):
+    from datetime import datetime, timezone
+
+    dentro = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    _fuente_con_corrida(db_session, "Corte Constitucional", dentro, docs_new=1)  # tuvo actividad
+    repository.create_source_family(db_session, key="minhacienda", display_name="Minhacienda")
+    repository.create_source(db_session, family_key="minhacienda", name="Minhacienda", family_params={})  # activa, sin corridas
+    inactiva = repository.create_source_family(db_session, key="mintransporte", display_name="MinTransporte")
+    fuente_inactiva = repository.create_source(db_session, family_key="mintransporte", name="MinTransporte", family_params={})
+    repository.update_source(db_session, fuente_inactiva.id, active=False)
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    nombres = repository.list_active_sources_without_activity_in_period(db_session, period_start, period_end)
+
+    assert nombres == ["Minhacienda"]
+
+
+def test_list_run_errors_for_period_filters_by_run_started_at(db_session):
+    from datetime import datetime, timezone
+
+    _, _, run_source_dentro = _fuente_con_corrida(db_session, "Corte Constitucional", datetime(2026, 8, 10, tzinfo=timezone.utc))
+    repository.add_run_error(db_session, run_source_dentro.id, "Timeout al descargar")
+    _, _, run_source_fuera = _fuente_con_corrida(db_session, "CSJ", datetime(2026, 7, 10, tzinfo=timezone.utc))
+    repository.add_run_error(db_session, run_source_fuera.id, "Error de julio, no debe salir")
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    errores = repository.list_run_errors_for_period(db_session, period_start, period_end)
+
+    assert len(errores) == 1
+    assert errores[0]["source_name"] == "Corte Constitucional"
+    assert errores[0]["message"] == "Timeout al descargar"
+
+
+def test_count_runs_by_status_for_period(db_session):
+    from datetime import datetime, timezone
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+    for status in ["completed", "completed", "failed"]:
+        run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+        repository.set_run_status(db_session, run.id, status, started_at=datetime(2026, 8, 5, tzinfo=timezone.utc))
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    counts = repository.count_runs_by_status_for_period(db_session, period_start, period_end)
+
+    assert counts == {"completed": 2, "failed": 1}
+
+
+def test_sum_document_storage_for_period_only_counts_documents_downloaded_within_range(db_session):
+    from datetime import date, datetime, timezone
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+    repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="Doc 1",
+        storage_bucket="iurisync-test", storage_key="d1.pdf", file_size_bytes=1000,
+        downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title="Doc 2",
+        storage_bucket="iurisync-test", storage_key="d2.pdf", file_size_bytes=500,
+        downloaded_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    total = repository.sum_document_storage_for_period(db_session, period_start, period_end)
+
+    assert total == 1000
+
+
+def test_summarize_documents_by_source_and_tipo_for_period(db_session):
+    from datetime import datetime, timezone
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+
+    repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="Doc 1",
+        storage_bucket="iurisync-test", storage_key="d1.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title="Doc 2",
+        storage_bucket="iurisync-test", storage_key="d2.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d3", source_id=source.id, title="Doc 3",
+        storage_bucket="iurisync-test", storage_key="d3.pdf", tipo=None,
+        downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
+    repository.insert_document(
+        db_session, doc_id="d4", source_id=source.id, title="Doc 4",
+        storage_bucket="iurisync-test", storage_key="d4.pdf", tipo="Sentencia",
+        downloaded_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+
+    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    rows = repository.summarize_documents_by_source_and_tipo_for_period(db_session, period_start, period_end)
+
+    by_tipo = {row["tipo"]: row["count"] for row in rows}
+    assert by_tipo == {"Sentencia": 2, None: 1}
+    assert all(row["source_name"] == "JEP" for row in rows)

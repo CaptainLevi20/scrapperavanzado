@@ -130,6 +130,22 @@ class BulkDownloadDeletionOut(BaseModel):
     documents_freed: int
 
 
+class MonthlyReportCreate(BaseModel):
+    period: date
+
+
+class MonthlyReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    period: date
+    status: str
+    triggered_by: str
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: datetime
+
+
 class DocumentVersionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
