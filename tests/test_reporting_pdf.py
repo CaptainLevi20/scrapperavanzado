@@ -73,3 +73,21 @@ def test_render_monthly_report_pdf_wraps_long_text_cells_with_special_chars():
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 1000
+
+
+def test_render_monthly_report_pdf_escapes_special_chars_in_fuentes_sin_actividad():
+    """Regression test: source names with XML special chars in fuentes_sin_actividad must be escaped."""
+    data_with_special_chars = {
+        "period": None,
+        "period_label": "Agosto 2026",
+        "resumen": {"docs_new": 0, "docs_updated": 0, "docs_errors": 0, "runs_by_status": {}, "storage_bytes": 0},
+        "por_fuente": [],
+        "fuentes_sin_actividad": ["Super & Cía <Vigilancia>"],
+        "errores": [],
+        "comparacion": [],
+    }
+
+    pdf_bytes = render_monthly_report_pdf(data_with_special_chars)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 1000

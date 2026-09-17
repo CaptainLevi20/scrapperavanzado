@@ -83,7 +83,7 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         story.append(Paragraph("Ninguna fuente tuvo actividad este mes.", styles["Normal"]))
     if data["fuentes_sin_actividad"]:
         story.append(Spacer(1, 8))
-        nombres = ", ".join(data["fuentes_sin_actividad"])
+        nombres = ", ".join(escape(nombre) for nombre in data["fuentes_sin_actividad"])
         story.append(Paragraph(f"Fuentes activas sin actividad este mes: {nombres}.", styles["Normal"]))
     story.append(Spacer(1, 18))
 

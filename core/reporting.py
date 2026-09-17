@@ -14,6 +14,9 @@ _MENSAJE_MAX_LEN = 300
 
 
 def _bounds(period: date) -> tuple[datetime, datetime]:
+    # Límites del mes en UTC: una corrida en las últimas ~5h del mes en hora
+    # de Colombia (UTC-5) cuenta en el mes siguiente. Los scrapes programados
+    # corren 06:00 COT, así que solo corridas manuales cerca de medianoche podrían desplazarse.
     start = datetime(period.year, period.month, 1, tzinfo=timezone.utc)
     if period.month == 12:
         end = datetime(period.year + 1, 1, 1, tzinfo=timezone.utc)
