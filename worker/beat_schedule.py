@@ -7,7 +7,7 @@ from core.config import get_settings
 from core.db import repository
 from core.db.session import SessionLocal
 from worker.celery_app import celery_app
-from worker.tasks import build_bulk_download_zip, orchestrate_run
+from worker.tasks import build_bulk_download_zip, build_monthly_report, orchestrate_run
 from worker.storage_sync_tasks import reconcile_all_task  # noqa: F401 — registra la tarea en beat_schedule
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,23 @@ def trigger_scheduled_bulk_download():
     build_bulk_download_zip.delay(bulk_download_id)
 
 
+@celery_app.task(name="worker.trigger_monthly_report")
+def trigger_monthly_report():
+    today = date.today()
+    if today.month == 1:
+        period = date(today.year - 1, 12, 1)
+    else:
+        period = date(today.year, today.month - 1, 1)
+
+    db = SessionLocal()
+    try:
+        report = repository.create_monthly_report(db, period=period, triggered_by="scheduled")
+        report_id = report.id
+    finally:
+        db.close()
+    build_monthly_report.delay(report_id)
+
+
 celery_app.conf.beat_schedule = {
     "daily-scrape": {
         "task": "worker.trigger_scheduled_run",
@@ -63,5 +80,11 @@ celery_app.conf.beat_schedule = {
     "nightly-storage-sync": {
         "task": "worker.reconcile_all_task",
         "schedule": crontab(hour=2, minute=0),
+    },
+    "monthly-report": {
+        "task": "worker.trigger_monthly_report",
+        # Día 1 de cada mes, después de nightly-storage-sync (02:00) y antes
+        # del scrape diario (06:00), para no competir por recursos.
+        "schedule": crontab(day_of_month=1, hour=3, minute=30),
     },
 }
