@@ -1583,19 +1583,23 @@ def count_runs_by_status_for_period(db: Session, period_start: datetime, period_
     return dict(db.execute(stmt).all())
 
 
-def sum_document_storage_for_period(db: Session, period_start: datetime, period_end: datetime) -> int:
+def sum_document_storage_for_period(db: Session, period_start: date, period_end: date) -> int:
+    """Suma file_size_bytes de documentos cuya fecha de PUBLICACIÓN (f_public) cae en
+    [period_start, period_end). Usada por el reporte mensual (por fecha de publicación)."""
     stmt = select(func.coalesce(func.sum(Document.file_size_bytes), 0)).where(
-        Document.downloaded_at >= period_start, Document.downloaded_at < period_end
+        Document.f_public >= period_start, Document.f_public < period_end
     )
     return db.scalar(stmt) or 0
 
 
-def summarize_documents_by_source_and_tipo_for_period(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+def summarize_documents_by_source_and_tipo_for_period(db: Session, period_start: date, period_end: date) -> list[dict]:
+    """Agrupa documentos por fuente y tipo, filtrando por fecha de PUBLICACIÓN
+    (f_public) en [period_start, period_end). Usada por el reporte mensual."""
     stmt = (
         select(Source.name, Document.tipo, func.count(Document.id))
         .select_from(Document)
         .join(Source, Document.source_id == Source.id)
-        .where(Document.downloaded_at >= period_start, Document.downloaded_at < period_end)
+        .where(Document.f_public >= period_start, Document.f_public < period_end)
         .group_by(Source.name, Document.tipo)
         .order_by(Source.name, func.count(Document.id).desc())
     )
@@ -1603,3 +1607,41 @@ def summarize_documents_by_source_and_tipo_for_period(db: Session, period_start:
         {"source_name": source_name, "tipo": tipo, "count": count}
         for source_name, tipo, count in db.execute(stmt).all()
     ]
+
+
+def summarize_documents_by_source_for_period(db: Session, start_date: date, end_date: date) -> list[dict]:
+    """Documentos publicados (f_public) por fuente en [start_date, end_date), para el
+    reporte mensual. Ordenado por total desc, luego nombre de fuente asc."""
+    stmt = (
+        select(Source.id, Source.name, func.count(Document.id))
+        .select_from(Document)
+        .join(Source, Document.source_id == Source.id)
+        .where(Document.f_public >= start_date, Document.f_public < end_date)
+        .group_by(Source.id, Source.name)
+        .order_by(func.count(Document.id).desc(), Source.name)
+    )
+    return [
+        {"source_id": source_id, "source_name": source_name, "total": total}
+        for source_id, source_name, total in db.execute(stmt).all()
+    ]
+
+
+def list_active_sources_without_publications_in_period(db: Session, start_date: date, end_date: date) -> list[str]:
+    """Fuentes activas sin ningún documento cuya f_public caiga en [start_date, end_date)."""
+    published_subq = (
+        select(Document.source_id).where(Document.f_public >= start_date, Document.f_public < end_date)
+    )
+    stmt = (
+        select(Source.name)
+        .where(Source.active.is_(True), Source.id.not_in(published_subq))
+        .order_by(Source.name)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def count_documents_for_period(db: Session, start_date: date, end_date: date) -> int:
+    """Cuenta documentos cuya f_public cae en [start_date, end_date)."""
+    stmt = select(func.count(Document.id)).where(
+        Document.f_public >= start_date, Document.f_public < end_date
+    )
+    return db.scalar(stmt) or 0

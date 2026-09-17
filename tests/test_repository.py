@@ -2217,7 +2217,10 @@ def test_count_runs_by_status_for_period(db_session):
     assert counts == {"completed": 2, "failed": 1}
 
 
-def test_sum_document_storage_for_period_only_counts_documents_downloaded_within_range(db_session):
+def test_sum_document_storage_for_period_counts_documents_by_publication_date(db_session):
+    """Basis is f_public (publication date), not downloaded_at — d1's downloaded_at is
+    outside the period but its f_public is inside, so it counts; d2 is the reverse and
+    is excluded. This proves the basis switched from downloaded_at to f_public."""
     from datetime import date, datetime, timezone
 
     repository.create_source_family(db_session, key="jep", display_name="JEP")
@@ -2225,23 +2228,25 @@ def test_sum_document_storage_for_period_only_counts_documents_downloaded_within
     repository.insert_document(
         db_session, doc_id="d1", source_id=source.id, title="Doc 1",
         storage_bucket="iurisync-test", storage_key="d1.pdf", file_size_bytes=1000,
-        downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+        f_public=date(2026, 8, 15), downloaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     repository.insert_document(
         db_session, doc_id="d2", source_id=source.id, title="Doc 2",
         storage_bucket="iurisync-test", storage_key="d2.pdf", file_size_bytes=500,
-        downloaded_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+        f_public=date(2026, 7, 15), downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
     )
 
-    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    period_start = date(2026, 8, 1)
+    period_end = date(2026, 9, 1)
     total = repository.sum_document_storage_for_period(db_session, period_start, period_end)
 
     assert total == 1000
 
 
 def test_summarize_documents_by_source_and_tipo_for_period(db_session):
-    from datetime import datetime, timezone
+    """Basis is f_public — d4's downloaded_at falls inside August but its f_public is
+    July, so it must be excluded. This proves the basis switched from downloaded_at."""
+    from datetime import date, datetime, timezone
 
     repository.create_source_family(db_session, key="jep", display_name="JEP")
     source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
@@ -2249,28 +2254,102 @@ def test_summarize_documents_by_source_and_tipo_for_period(db_session):
     repository.insert_document(
         db_session, doc_id="d1", source_id=source.id, title="Doc 1",
         storage_bucket="iurisync-test", storage_key="d1.pdf", tipo="Sentencia",
-        downloaded_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+        f_public=date(2026, 8, 5), downloaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     repository.insert_document(
         db_session, doc_id="d2", source_id=source.id, title="Doc 2",
         storage_bucket="iurisync-test", storage_key="d2.pdf", tipo="Sentencia",
-        downloaded_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+        f_public=date(2026, 8, 10), downloaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     repository.insert_document(
         db_session, doc_id="d3", source_id=source.id, title="Doc 3",
         storage_bucket="iurisync-test", storage_key="d3.pdf", tipo=None,
-        downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+        f_public=date(2026, 8, 15), downloaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     repository.insert_document(
         db_session, doc_id="d4", source_id=source.id, title="Doc 4",
         storage_bucket="iurisync-test", storage_key="d4.pdf", tipo="Sentencia",
-        downloaded_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+        f_public=date(2026, 7, 15), downloaded_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
     )
 
-    period_start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-    period_end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    period_start = date(2026, 8, 1)
+    period_end = date(2026, 9, 1)
     rows = repository.summarize_documents_by_source_and_tipo_for_period(db_session, period_start, period_end)
 
     by_tipo = {row["tipo"]: row["count"] for row in rows}
     assert by_tipo == {"Sentencia": 2, None: 1}
     assert all(row["source_name"] == "JEP" for row in rows)
+
+
+def test_summarize_documents_by_source_for_period_sorts_by_total_desc_then_name(db_session):
+    from datetime import date
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source_a = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.create_source_family(db_session, key="csj", display_name="CSJ")
+    source_b = repository.create_source(db_session, family_key="csj", name="CSJ", family_params={})
+
+    for i in range(3):
+        repository.insert_document(
+            db_session, doc_id=f"a{i}", source_id=source_a.id, title=f"A{i}",
+            storage_bucket="iurisync-test", storage_key=f"a{i}.pdf", f_public=date(2026, 8, 10),
+        )
+    repository.insert_document(
+        db_session, doc_id="b1", source_id=source_b.id, title="B1",
+        storage_bucket="iurisync-test", storage_key="b1.pdf", f_public=date(2026, 8, 10),
+    )
+    # Fuera del periodo: no debe contar.
+    repository.insert_document(
+        db_session, doc_id="a-fuera", source_id=source_a.id, title="A fuera",
+        storage_bucket="iurisync-test", storage_key="a-fuera.pdf", f_public=date(2026, 7, 10),
+    )
+
+    rows = repository.summarize_documents_by_source_for_period(db_session, date(2026, 8, 1), date(2026, 9, 1))
+
+    assert rows == [
+        {"source_id": source_a.id, "source_name": "Corte Constitucional", "total": 3},
+        {"source_id": source_b.id, "source_name": "CSJ", "total": 1},
+    ]
+
+
+def test_list_active_sources_without_publications_in_period_excludes_ones_with_docs_and_inactive_ones(db_session):
+    from datetime import date
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source_con_pub = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    repository.insert_document(
+        db_session, doc_id="d1", source_id=source_con_pub.id, title="Doc 1",
+        storage_bucket="iurisync-test", storage_key="d1.pdf", f_public=date(2026, 8, 10),
+    )
+    repository.create_source_family(db_session, key="minhacienda", display_name="Minhacienda")
+    repository.create_source(db_session, family_key="minhacienda", name="Minhacienda", family_params={})  # activa, sin publicaciones
+    inactiva_family = repository.create_source_family(db_session, key="mintransporte", display_name="MinTransporte")
+    fuente_inactiva = repository.create_source(db_session, family_key="mintransporte", name="MinTransporte", family_params={})
+    repository.update_source(db_session, fuente_inactiva.id, active=False)
+
+    nombres = repository.list_active_sources_without_publications_in_period(db_session, date(2026, 8, 1), date(2026, 9, 1))
+
+    assert nombres == ["Minhacienda"]
+
+
+def test_count_documents_for_period_counts_by_publication_date(db_session):
+    from datetime import date
+
+    repository.create_source_family(db_session, key="jep", display_name="JEP")
+    source = repository.create_source(db_session, family_key="jep", name="JEP", family_params={})
+    repository.insert_document(
+        db_session, doc_id="d1", source_id=source.id, title="Doc 1",
+        storage_bucket="iurisync-test", storage_key="d1.pdf", f_public=date(2026, 8, 1),
+    )
+    repository.insert_document(
+        db_session, doc_id="d2", source_id=source.id, title="Doc 2",
+        storage_bucket="iurisync-test", storage_key="d2.pdf", f_public=date(2026, 8, 31),
+    )
+    repository.insert_document(
+        db_session, doc_id="d3", source_id=source.id, title="Doc 3",
+        storage_bucket="iurisync-test", storage_key="d3.pdf", f_public=date(2026, 9, 1),
+    )
+
+    total = repository.count_documents_for_period(db_session, date(2026, 8, 1), date(2026, 9, 1))
+
+    assert total == 2
