@@ -49,57 +49,57 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         story.append(Paragraph(escape(f"Reporte parcial — {as_of_label}."), styles["Italic"]))
         story.append(Spacer(1, 12))
 
-    # Resumen general
-    story.append(Paragraph("Resumen general", styles["Heading2"]))
-    resumen = data["resumen"]
+    # Resumen del mes
+    story.append(Paragraph("Resumen del mes", styles["Heading2"]))
+    resumen = data.get("resumen", {})
     resumen_rows = [
         ["Métrica", "Valor"],
-        ["Documentos nuevos", str(resumen["docs_new"])],
-        ["Documentos actualizados", str(resumen["docs_updated"])],
-        ["Documentos con error", str(resumen["docs_errors"])],
-        ["Espacio agregado este mes", _format_bytes(resumen["storage_bytes"])],
+        ["Documentos publicados este mes", str(resumen.get("total_documentos", 0))],
+        ["Espacio de esos documentos", _format_bytes(resumen.get("storage_bytes", 0))],
+        ["Fuentes con publicaciones", str(resumen.get("num_fuentes", 0))],
     ]
-    for run_status, count in sorted(resumen["runs_by_status"].items()):
-        resumen_rows.append([f"Corridas — {run_status}", str(count)])
     resumen_table = Table(resumen_rows, hAlign="LEFT")
     resumen_table.setStyle(_TABLE_STYLE)
     story.append(resumen_table)
+    story.append(Spacer(1, 6))
+    story.append(
+        Paragraph(
+            escape(
+                "Cuenta documentos cuya fecha de publicación cae en el mes y que ya han sido "
+                "descargados; puede aumentar si luego se descargan más."
+            ),
+            styles["Italic"],
+        )
+    )
     story.append(Spacer(1, 18))
 
-    # Detalle por fuente
-    story.append(Paragraph("Detalle por fuente", styles["Heading2"]))
-    por_fuente = data["por_fuente"]
+    # Documentos por fuente
+    story.append(Paragraph("Documentos por fuente", styles["Heading2"]))
+    por_fuente = data.get("por_fuente", [])
     if por_fuente:
-        fuente_rows = [["Fuente", "Nuevos", "Actualizados", "Errores", "Con fallas"]]
+        fuente_rows = [["Fuente", "Documentos publicados"]]
         for row in por_fuente:
             fuente_rows.append(
                 [
                     Paragraph(escape(row["source_name"]), _CELL_STYLE),
-                    str(row["docs_new"]),
-                    str(row["docs_updated"]),
-                    str(row["docs_errors"]),
-                    "Sí" if row["had_failure"] else "No",
+                    str(row["total"]),
                 ]
             )
         fuente_table = Table(fuente_rows, hAlign="LEFT")
         fuente_table.setStyle(_TABLE_STYLE)
         story.append(fuente_table)
     else:
-        story.append(Paragraph("Ninguna fuente tuvo actividad este mes.", styles["Normal"]))
-    if data["fuentes_sin_actividad"]:
+        story.append(Paragraph("Ninguna fuente publicó documentos este mes.", styles["Normal"]))
+    fuentes_sin_publicaciones = data.get("fuentes_sin_publicaciones", [])
+    if fuentes_sin_publicaciones:
         story.append(Spacer(1, 8))
-        nombres = ", ".join(escape(nombre) for nombre in data["fuentes_sin_actividad"])
-        story.append(Paragraph(f"Fuentes activas sin actividad este mes: {nombres}.", styles["Normal"]))
+        nombres = ", ".join(escape(nombre) for nombre in fuentes_sin_publicaciones)
+        story.append(Paragraph(f"Fuentes activas sin publicaciones este mes: {nombres}.", styles["Normal"]))
     story.append(Spacer(1, 18))
 
     # Documentos por fuente y tipo
     story.append(Paragraph("Documentos por fuente y tipo", styles["Heading2"]))
-    story.append(
-        Paragraph(
-            "Contados por fecha de descarga del documento; puede diferir de 'Documentos nuevos' del resumen.",
-            styles["Italic"],
-        )
-    )
+    story.append(Paragraph("Documentos publicados en el mes, por tipo.", styles["Italic"]))
     story.append(Spacer(1, 6))
     documentos_por_tipo = data.get("documentos_por_tipo")
     if documentos_por_tipo:
@@ -113,40 +113,20 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         tipo_table.setStyle(_TABLE_STYLE)
         story.append(tipo_table)
     else:
-        story.append(Paragraph("Ninguna fuente descargó documentos este mes.", styles["Normal"]))
-    story.append(Spacer(1, 18))
-
-    # Detalle de errores
-    story.append(Paragraph("Detalle de errores", styles["Heading2"]))
-    errores = data["errores"]
-    if errores:
-        error_rows = [["Fuente", "Fecha", "Mensaje"]]
-        for error in errores:
-            error_rows.append(
-                [
-                    Paragraph(escape(error["source_name"]), _CELL_STYLE),
-                    error["occurred_at"].strftime("%Y-%m-%d %H:%M"),
-                    Paragraph(escape(error["message"]), _CELL_STYLE),
-                ]
-            )
-        error_table = Table(error_rows, hAlign="LEFT", colWidths=[4 * cm, 3 * cm, 9 * cm])
-        error_table.setStyle(_TABLE_STYLE)
-        story.append(error_table)
-    else:
-        story.append(Paragraph("Sin errores registrados este mes.", styles["Normal"]))
+        story.append(Paragraph("Ninguna fuente publicó documentos este mes.", styles["Normal"]))
     story.append(Spacer(1, 18))
 
     # Comparación con el mes anterior
     story.append(Paragraph("Comparación con el mes anterior", styles["Heading2"]))
-    comparacion = data["comparacion"]
+    comparacion = data.get("comparacion", [])
     if comparacion:
         comparacion_rows = [["Fuente", "Este mes", "Mes anterior", "Variación"]]
         for row in comparacion:
             comparacion_rows.append(
                 [
                     Paragraph(escape(row["source_name"]), _CELL_STYLE),
-                    str(row["docs_new_actual"]),
-                    str(row["docs_new_anterior"]),
+                    str(row["total_actual"]),
+                    str(row["total_anterior"]),
                     _variacion_texto(row["variacion_pct"]),
                 ]
             )
@@ -155,6 +135,45 @@ def render_monthly_report_pdf(data: dict) -> bytes:
         story.append(comparacion_table)
     else:
         story.append(Paragraph("Sin datos suficientes para comparar con el mes anterior.", styles["Normal"]))
+    story.append(Spacer(1, 18))
+
+    # Actividad de extracción del mes (aparte — no es la métrica principal del reporte)
+    story.append(Paragraph("Actividad de extracción del mes", styles["Heading2"]))
+    story.append(
+        Paragraph(
+            "Esto refleja cuándo se ejecutaron los scrapeos (no la fecha de publicación).",
+            styles["Italic"],
+        )
+    )
+    story.append(Spacer(1, 6))
+    runs_by_status = data.get("actividad", {}).get("runs_by_status", {})
+    errores = data.get("errores", [])
+    if not runs_by_status and not errores:
+        story.append(Paragraph("Sin actividad de extracción registrada este mes.", styles["Normal"]))
+    else:
+        if runs_by_status:
+            runs_rows = [["Estado", "Corridas"]]
+            for run_status, count in sorted(runs_by_status.items()):
+                runs_rows.append([run_status, str(count)])
+            runs_table = Table(runs_rows, hAlign="LEFT")
+            runs_table.setStyle(_TABLE_STYLE)
+            story.append(runs_table)
+            story.append(Spacer(1, 12))
+        if errores:
+            error_rows = [["Fuente", "Fecha", "Mensaje"]]
+            for error in errores:
+                error_rows.append(
+                    [
+                        Paragraph(escape(error["source_name"]), _CELL_STYLE),
+                        error["occurred_at"].strftime("%Y-%m-%d %H:%M"),
+                        Paragraph(escape(error["message"]), _CELL_STYLE),
+                    ]
+                )
+            error_table = Table(error_rows, hAlign="LEFT", colWidths=[4 * cm, 3 * cm, 9 * cm])
+            error_table.setStyle(_TABLE_STYLE)
+            story.append(error_table)
+        else:
+            story.append(Paragraph("Sin errores registrados este mes.", styles["Normal"]))
 
     doc.build(story)
     return buffer.getvalue()

@@ -25,6 +25,16 @@ def _bounds(period: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _date_bounds(period: date) -> tuple[date, date]:
+    """Límites del mes como fechas (no datetimes), para comparar contra
+    documents.f_public (columna Date). Medio-abierto [start, end)."""
+    if period.month == 12:
+        end = date(period.year + 1, 1, 1)
+    else:
+        end = date(period.year, period.month + 1, 1)
+    return period, end
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -45,7 +55,7 @@ def _variacion_pct(actual: int, anterior: int) -> Optional[float]:
     return round((actual - anterior) / anterior * 100, 1)
 
 
-def _build_documentos_por_tipo(db: Session, period_start: datetime, period_end: datetime) -> list[dict]:
+def _build_documentos_por_tipo(db: Session, period_start: date, period_end: date) -> list[dict]:
     rows = repository.summarize_documents_by_source_and_tipo_for_period(db, period_start, period_end)
 
     por_fuente: dict[str, list[dict]] = {}
@@ -67,43 +77,45 @@ def _build_documentos_por_tipo(db: Session, period_start: datetime, period_end: 
 
 
 def build_monthly_report_data(db: Session, period: date) -> dict:
-    period_start, period_end = _bounds(period)
-    prev_start, prev_end = _bounds(previous_period(period))
+    # Actividad de extracción (corridas/errores) sigue midiéndose por Run.started_at,
+    # en UTC datetimes — es un aparte, no la métrica principal del reporte.
+    period_start_dt, period_end_dt = _bounds(period)
+    # Todo lo demás cuenta por fecha de PUBLICACIÓN (documents.f_public, columna Date).
+    date_start, date_end = _date_bounds(period)
+    prev_date_start, prev_date_end = _date_bounds(previous_period(period))
 
-    por_fuente = repository.summarize_run_sources_for_period(db, period_start, period_end)
-    por_fuente_anterior = repository.summarize_run_sources_for_period(db, prev_start, prev_end)
-    docs_new_anterior_by_source = {row["source_id"]: row["docs_new"] for row in por_fuente_anterior}
+    por_fuente = repository.summarize_documents_by_source_for_period(db, date_start, date_end)
+    por_fuente_anterior = repository.summarize_documents_by_source_for_period(db, prev_date_start, prev_date_end)
+    total_anterior_by_source = {row["source_id"]: row["total"] for row in por_fuente_anterior}
 
     comparacion = []
     for row in por_fuente:
-        actual = row["docs_new"]
-        anterior = docs_new_anterior_by_source.get(row["source_id"], 0)
+        actual = row["total"]
+        anterior = total_anterior_by_source.get(row["source_id"], 0)
         if actual == 0 and anterior == 0:
             continue
         comparacion.append(
             {
                 "source_name": row["source_name"],
-                "docs_new_actual": actual,
-                "docs_new_anterior": anterior,
+                "total_actual": actual,
+                "total_anterior": anterior,
                 "variacion_pct": _variacion_pct(actual, anterior),
             }
         )
 
-    errores = repository.list_run_errors_for_period(db, period_start, period_end)
+    errores = repository.list_run_errors_for_period(db, period_start_dt, period_end_dt)
     for error in errores:
         if len(error["message"]) > _MENSAJE_MAX_LEN:
             error["message"] = error["message"][:_MENSAJE_MAX_LEN] + "…"
 
     resumen = {
-        "docs_new": sum(row["docs_new"] for row in por_fuente),
-        "docs_updated": sum(row["docs_updated"] for row in por_fuente),
-        "docs_errors": sum(row["docs_errors"] for row in por_fuente),
-        "runs_by_status": repository.count_runs_by_status_for_period(db, period_start, period_end),
-        "storage_bytes": repository.sum_document_storage_for_period(db, period_start, period_end),
+        "total_documentos": repository.count_documents_for_period(db, date_start, date_end),
+        "storage_bytes": repository.sum_document_storage_for_period(db, date_start, date_end),
+        "num_fuentes": len(por_fuente),
     }
 
     now = _now()
-    is_partial = period_end > now
+    is_partial = period_end_dt > now
     as_of_label = (
         f"datos hasta el {now.day} de {_MESES_ES[now.month]} de {now.year}" if is_partial else None
     )
@@ -111,12 +123,15 @@ def build_monthly_report_data(db: Session, period: date) -> dict:
     return {
         "period": period,
         "period_label": period_label(period),
-        "resumen": resumen,
-        "por_fuente": por_fuente,
-        "fuentes_sin_actividad": repository.list_active_sources_without_activity_in_period(db, period_start, period_end),
-        "errores": errores,
-        "comparacion": comparacion,
         "is_partial": is_partial,
         "as_of_label": as_of_label,
-        "documentos_por_tipo": _build_documentos_por_tipo(db, period_start, period_end),
+        "resumen": resumen,
+        "por_fuente": por_fuente,
+        "fuentes_sin_publicaciones": repository.list_active_sources_without_publications_in_period(db, date_start, date_end),
+        "documentos_por_tipo": _build_documentos_por_tipo(db, date_start, date_end),
+        "comparacion": comparacion,
+        "actividad": {
+            "runs_by_status": repository.count_runs_by_status_for_period(db, period_start_dt, period_end_dt),
+        },
+        "errores": errores,
     }
