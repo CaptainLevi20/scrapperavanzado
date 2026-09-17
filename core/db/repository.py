@@ -7,7 +7,7 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, up
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
 
@@ -383,6 +383,38 @@ def delete_bulk_download(db: Session, bulk_download_id: int) -> Optional[dict]:
         "zip_storage_key": zip_storage_key,
         "storage_bucket": storage_bucket,
     }
+
+
+def create_monthly_report(db: Session, period: date, triggered_by: str) -> MonthlyReport:
+    monthly_report = MonthlyReport(period=period, status="pending", triggered_by=triggered_by)
+    db.add(monthly_report)
+    db.commit()
+    db.refresh(monthly_report)
+    return monthly_report
+
+
+def get_monthly_report(db: Session, monthly_report_id: int) -> Optional[MonthlyReport]:
+    return db.get(MonthlyReport, monthly_report_id)
+
+
+def list_monthly_reports(db: Session, limit: int = 50, offset: int = 0) -> list[MonthlyReport]:
+    stmt = (
+        select(MonthlyReport)
+        .order_by(MonthlyReport.created_at.desc(), MonthlyReport.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def set_monthly_report_status(db: Session, monthly_report_id: int, status: str, **fields) -> None:
+    monthly_report = db.get(MonthlyReport, monthly_report_id)
+    if monthly_report is None:
+        return
+    monthly_report.status = status
+    for key, value in fields.items():
+        setattr(monthly_report, key, value)
+    db.commit()
 
 
 def document_exists(db: Session, doc_id: str) -> bool:

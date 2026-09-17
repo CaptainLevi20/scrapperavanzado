@@ -103,6 +103,45 @@ def test_bulk_download_lifecycle(db_session):
     assert refreshed.zip_storage_key == "bulk-downloads/1.zip"
 
 
+def test_monthly_report_lifecycle(db_session):
+    from datetime import date, datetime, timezone
+
+    report = repository.create_monthly_report(db_session, period=date(2026, 8, 1), triggered_by="manual")
+    assert report.status == "pending"
+    assert report.period == date(2026, 8, 1)
+    assert report.triggered_by == "manual"
+
+    repository.set_monthly_report_status(
+        db_session, report.id, "running", started_at=datetime.now(timezone.utc)
+    )
+    refreshed = repository.get_monthly_report(db_session, report.id)
+    assert refreshed.status == "running"
+    assert refreshed.started_at is not None
+
+    repository.set_monthly_report_status(
+        db_session,
+        report.id,
+        "completed",
+        storage_bucket="iurisync-test",
+        storage_key="reportes/2026-08_1.pdf",
+        finished_at=datetime.now(timezone.utc),
+    )
+    refreshed = repository.get_monthly_report(db_session, report.id)
+    assert refreshed.status == "completed"
+    assert refreshed.storage_key == "reportes/2026-08_1.pdf"
+
+
+def test_list_monthly_reports_orders_by_most_recent_first(db_session):
+    from datetime import date
+
+    first = repository.create_monthly_report(db_session, period=date(2026, 7, 1), triggered_by="scheduled")
+    second = repository.create_monthly_report(db_session, period=date(2026, 8, 1), triggered_by="manual")
+
+    reports = repository.list_monthly_reports(db_session)
+
+    assert [r.id for r in reports] == [second.id, first.id]
+
+
 def test_set_run_status_does_not_raise_for_a_nonexistent_run(db_session):
     """Regression test: this used to be a bare db.get(Run, run_id) with no None
     check — a run that was deleted (or a stale/wrong id from a leftover Celery
