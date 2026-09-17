@@ -2607,3 +2607,54 @@ def test_scrape_source_task_does_not_widen_fini_on_a_manual_run(db_session, test
         assert DummyFamilyScraper.received_fini == manual_fini.strftime("%Y-%m-%d")
     finally:
         DummyFamilyScraper.scheduled_min_lookback_days = None
+
+
+def test_build_monthly_report_uploads_pdf_and_marks_completed(db_session, test_engine, monkeypatch):
+    from datetime import date
+    from sqlalchemy.orm import sessionmaker
+    from worker.tasks import build_monthly_report
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    report = repository.create_monthly_report(db_session, period=date(2026, 8, 1), triggered_by="manual")
+
+    build_monthly_report(report.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_monthly_report(assertion_session, report.id)
+        assert refreshed.status == "completed"
+        assert refreshed.storage_key == f"reportes/2026-08_{report.id}.pdf"
+        assert refreshed.storage_bucket == TEST_S3_BUCKET
+        assert refreshed.finished_at is not None
+    finally:
+        assertion_session.close()
+
+
+def test_build_monthly_report_marks_failed_on_error(db_session, test_engine, monkeypatch):
+    from datetime import date
+    from sqlalchemy.orm import sessionmaker
+    from worker.tasks import build_monthly_report
+
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr(
+        "worker.tasks.render_monthly_report_pdf",
+        lambda data: (_ for _ in ()).throw(RuntimeError("fallo simulado de render")),
+    )
+
+    report = repository.create_monthly_report(db_session, period=date(2026, 8, 1), triggered_by="manual")
+
+    build_monthly_report(report.id)
+
+    assertion_session = task_session_factory()
+    try:
+        refreshed = repository.get_monthly_report(assertion_session, report.id)
+        assert refreshed.status == "failed"
+        assert "fallo simulado de render" in refreshed.error_message
+    finally:
+        assertion_session.close()

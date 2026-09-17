@@ -19,6 +19,8 @@ from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
 from core.naming import es_anexo_title, es_codigo_ley_decreto, es_familia_con_actuaciones, nombre_archivo_documento, nombre_archivo_version
+from core.reporting import build_monthly_report_data
+from core.reporting_pdf import render_monthly_report_pdf
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
@@ -1152,3 +1154,34 @@ def descargar_decretos_cali_task(destino_str: str) -> None:
         estado["avisos_count"] += 1
         cali.recortar_listas(estado)
         cali.escribir_estado(destino, estado)
+
+
+@celery_app.task(name="worker.build_monthly_report")
+def build_monthly_report(report_id: int) -> None:
+    db = SessionLocal()
+    try:
+        repository.set_monthly_report_status(db, report_id, "running", started_at=datetime.now(timezone.utc))
+
+        report = repository.get_monthly_report(db, report_id)
+        if report is None:
+            return
+
+        data = build_monthly_report_data(db, report.period)
+        pdf_bytes = render_monthly_report_pdf(data)
+
+        with tempfile.TemporaryDirectory(prefix=f"monthly_report_{report_id}_") as tmp_dir:
+            pdf_path = Path(tmp_dir) / "reporte.pdf"
+            pdf_path.write_bytes(pdf_bytes)
+            key = f"reportes/{report.period:%Y-%m}_{report_id}.pdf"
+            bucket, key = upload_file(pdf_path, key, content_type="application/pdf")
+
+        repository.set_monthly_report_status(
+            db, report_id, "completed", storage_bucket=bucket, storage_key=key,
+            finished_at=datetime.now(timezone.utc),
+        )
+    except Exception as exc:
+        repository.set_monthly_report_status(
+            db, report_id, "failed", error_message=str(exc), finished_at=datetime.now(timezone.utc)
+        )
+    finally:
+        db.close()
