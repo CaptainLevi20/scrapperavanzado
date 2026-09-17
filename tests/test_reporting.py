@@ -15,6 +15,11 @@ def test_period_label_is_in_spanish():
     assert period_label(date(2026, 1, 1)) == "Enero 2026"
 
 
+def test_date_bounds_handles_year_rollover():
+    assert reporting._date_bounds(date(2026, 12, 1)) == (date(2026, 12, 1), date(2027, 1, 1))
+    assert reporting._date_bounds(date(2026, 8, 1)) == (date(2026, 8, 1), date(2026, 9, 1))
+
+
 def _fuente(db_session, source_name, active=True):
     family_key = source_name.lower().replace(" ", "-")
     repository.create_source_family(db_session, key=family_key, display_name=source_name)
