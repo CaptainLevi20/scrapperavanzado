@@ -8,6 +8,8 @@ _DATA_VACIA = {
     "fuentes_sin_actividad": [],
     "errores": [],
     "comparacion": [],
+    "is_partial": False,
+    "as_of_label": None,
 }
 
 _DATA_CON_CONTENIDO = {
@@ -29,6 +31,8 @@ _DATA_CON_CONTENIDO = {
         {"source_name": "Corte Constitucional", "docs_new_actual": 5, "docs_new_anterior": 0, "variacion_pct": None},
         {"source_name": "CSJ", "docs_new_actual": 3, "docs_new_anterior": 6, "variacion_pct": -50.0},
     ],
+    "is_partial": True,
+    "as_of_label": "datos hasta el 17 de septiembre de 2026",
 }
 
 

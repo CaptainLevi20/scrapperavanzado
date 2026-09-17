@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 
+import core.reporting as reporting
 from core.db import repository
 from core.reporting import build_monthly_report_data, period_label, previous_period
 
@@ -108,3 +109,22 @@ def test_build_monthly_report_data_comparison_skips_sources_with_zero_in_both_mo
 
     assert data["comparacion"] == []
     assert data["fuentes_sin_actividad"] == ["Minhacienda"]
+
+
+def test_build_monthly_report_data_marks_the_current_month_as_partial(db_session, monkeypatch):
+    monkeypatch.setattr(reporting, "_now", lambda: datetime(2026, 9, 17, tzinfo=timezone.utc))
+
+    data = build_monthly_report_data(db_session, date(2026, 9, 1))
+
+    assert data["is_partial"] is True
+    assert data["as_of_label"] is not None
+    assert "17 de septiembre de 2026" in data["as_of_label"]
+
+
+def test_build_monthly_report_data_a_closed_month_is_not_partial(db_session, monkeypatch):
+    monkeypatch.setattr(reporting, "_now", lambda: datetime(2026, 9, 17, tzinfo=timezone.utc))
+
+    data = build_monthly_report_data(db_session, date(2026, 8, 1))
+
+    assert data["is_partial"] is False
+    assert data["as_of_label"] is None

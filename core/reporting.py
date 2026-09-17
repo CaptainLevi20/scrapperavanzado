@@ -25,6 +25,10 @@ def _bounds(period: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def previous_period(period: date) -> date:
     if period.month == 1:
         return date(period.year - 1, 12, 1)
@@ -77,6 +81,12 @@ def build_monthly_report_data(db: Session, period: date) -> dict:
         "storage_bytes": repository.sum_document_storage_for_period(db, period_start, period_end),
     }
 
+    now = _now()
+    is_partial = period_end > now
+    as_of_label = (
+        f"datos hasta el {now.day} de {_MESES_ES[now.month]} de {now.year}" if is_partial else None
+    )
+
     return {
         "period": period,
         "period_label": period_label(period),
@@ -85,4 +95,6 @@ def build_monthly_report_data(db: Session, period: date) -> dict:
         "fuentes_sin_actividad": repository.list_active_sources_without_activity_in_period(db, period_start, period_end),
         "errores": errores,
         "comparacion": comparacion,
+        "is_partial": is_partial,
+        "as_of_label": as_of_label,
     }

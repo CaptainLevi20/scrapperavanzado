@@ -62,8 +62,7 @@ export function formatMonth(value: string | null): string {
 }
 
 // "YYYY-MM" del mes calendario anterior al de `from` (por defecto, hoy), en
-// hora local — mismo criterio de "hoy local" que todayDateString. Es el tope
-// permitido para generar un reporte manual (el mes actual todavía no cerró).
+// hora local — mismo criterio de "hoy local" que todayDateString.
 export function getPreviousMonthString(from: Date = new Date()): string {
   const year = from.getFullYear();
   const month = from.getMonth(); // 0-indexed; month-1 en 1-indexed es el mes anterior
@@ -71,6 +70,16 @@ export function getPreviousMonthString(from: Date = new Date()): string {
   const previousYear = previous.getFullYear();
   const previousMonth = String(previous.getMonth() + 1).padStart(2, "0");
   return `${previousYear}-${previousMonth}`;
+}
+
+// "YYYY-MM" del mes calendario actual de `from` (por defecto, hoy), en hora
+// local — mismo criterio de "hoy local" que todayDateString. Es el tope
+// permitido para generar un reporte manual: el mes en curso genera un reporte
+// parcial (con datos hasta hoy), y solo los meses futuros quedan bloqueados.
+export function getCurrentMonthString(from: Date = new Date()): string {
+  const year = from.getFullYear();
+  const month = String(from.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
 }
 
 // Formatea el radicado del PROCESO (los primeros 21 dígitos, que son idénticos

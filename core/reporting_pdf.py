@@ -44,6 +44,11 @@ def render_monthly_report_pdf(data: dict) -> bytes:
     styles = getSampleStyleSheet()
     story = [Paragraph(f"Reporte mensual de extracción — {data['period_label']}", styles["Title"]), Spacer(1, 12)]
 
+    as_of_label = data.get("as_of_label")
+    if as_of_label:
+        story.append(Paragraph(escape(f"Reporte parcial — {as_of_label}."), styles["Italic"]))
+        story.append(Spacer(1, 12))
+
     # Resumen general
     story.append(Paragraph("Resumen general", styles["Heading2"]))
     resumen = data["resumen"]

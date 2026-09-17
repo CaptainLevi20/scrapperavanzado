@@ -18,8 +18,8 @@ def post_report(payload: MonthlyReportCreate, db: Session = Depends(get_db)):
     period = date(payload.period.year, payload.period.month, 1)
     today = date.today()
     current_period = date(today.year, today.month, 1)
-    if period >= current_period:
-        raise HTTPException(status_code=400, detail="No se puede generar el reporte de un mes que no ha terminado.")
+    if period > current_period:
+        raise HTTPException(status_code=400, detail="No se puede generar el reporte de un mes futuro.")
 
     report = repository.create_monthly_report(db, period=period, triggered_by="manual")
     build_monthly_report.delay(report.id)

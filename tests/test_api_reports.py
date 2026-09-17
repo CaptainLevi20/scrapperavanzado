@@ -18,13 +18,19 @@ def test_post_report_creates_row_and_dispatches_task(api_client, auth_header, mo
     assert calls == [body["id"]]
 
 
-def test_post_report_rejects_the_current_month(api_client, auth_header, monkeypatch):
-    monkeypatch.setattr("api.routers.reports.build_monthly_report.delay", lambda *a, **k: None)
+def test_post_report_allows_the_current_month_as_partial(api_client, auth_header, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "api.routers.reports.build_monthly_report.delay", lambda report_id: calls.append(report_id)
+    )
     monkeypatch.setattr("api.routers.reports.date", type("_FixedDate", (date,), {"today": staticmethod(lambda: date(2026, 9, 17))}))
 
     response = api_client.post("/reports", json={"period": "2026-09-01"}, headers=auth_header)
 
-    assert response.status_code == 400
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pending"
+    assert calls == [body["id"]]
 
 
 def test_post_report_rejects_a_future_month(api_client, auth_header, monkeypatch):

@@ -9,14 +9,14 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Button } from "../components/ui/button";
-import { formatDateTime, formatMonth, getPreviousMonthString } from "../lib/formatters";
+import { formatDateTime, formatMonth, getCurrentMonthString } from "../lib/formatters";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TD_MONO, TH, THEAD_ROW } from "../lib/tableStyles";
 
 const POLL_INTERVAL_MS = 4000;
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
 export function ReportsPage() {
-  const maxMonth = getPreviousMonthString();
+  const maxMonth = getCurrentMonthString();
   const [selectedMonth, setSelectedMonth] = useState(maxMonth);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -75,6 +75,9 @@ export function ReportsPage() {
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(event.target.value)}
           />
+          {selectedMonth === getCurrentMonthString() && (
+            <p className="text-xs text-muted-foreground">El mes actual genera un reporte parcial (hasta hoy).</p>
+          )}
         </div>
         <Button
           onClick={() => generateMutation.mutate(selectedMonth)}

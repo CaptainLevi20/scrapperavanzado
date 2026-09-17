@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { formatBytes, formatDate, formatDateTime, formatNumber, todayDateString } from "./formatters";
+import { formatBytes, formatDate, formatDateTime, formatNumber, getCurrentMonthString, todayDateString } from "./formatters";
 
 describe("formatBytes", () => {
   it("formats bytes under 1KB", () => expect(formatBytes(500)).toBe("500 B"));
@@ -33,6 +33,12 @@ describe("formatDate / formatDateTime", () => {
     // displayed 2026-07-15).
     expect(formatDate("2026-07-16")).toContain("16");
     expect(formatDate("2026-07-16")).not.toContain("15");
+  });
+});
+
+describe("getCurrentMonthString", () => {
+  it("returns the current month as YYYY-MM (JS month is 0-indexed)", () => {
+    expect(getCurrentMonthString(new Date(2026, 8, 17))).toBe("2026-09");
   });
 });
 
