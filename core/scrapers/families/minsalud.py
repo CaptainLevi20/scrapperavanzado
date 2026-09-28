@@ -162,3 +162,104 @@ def _fecha_doc(item: dict, anio: int) -> Tuple[datetime.date, bool]:
     if creado is not None and creado.year == anio:
         return creado, False
     return datetime.date(anio, 1, 1), True
+
+
+def _avisar(on_progress, mensaje: str) -> None:
+    if on_progress:
+        on_progress(f"[{_SOURCE}] {mensaje}")
+
+
+def _seccion_de(tipo: Optional[str]) -> Optional[Tuple[str, str, str]]:
+    """Réplica del filtro de las vistas del sitio: "Tipo de Norma" EMPIEZA por
+    Resolución / Circular / Concepto / Boletines (absorbe "Resolución " con
+    espacio, "Resolución CRES", "Circular CRES", "Boletines Jurídicos")."""
+    t = (tipo or "").strip()
+    for prefijo_tipo, seccion, tipo_doc, prefijo in _SECCIONES:
+        if t.startswith(prefijo_tipo):
+            return seccion, tipo_doc, prefijo
+    return None
+
+
+def _titulo(prefijo: str, item: dict, anio: int, fecha: datetime.date, es_respaldo: bool) -> Tuple[str, bool]:
+    """(título, aviso). El número sale del nombre del archivo o, si no trae,
+    del título del sitio; el año es siempre el del documento."""
+    archivo = _sin_extension(item.get("FileLeafRef"))
+    titulo_sitio = item.get("Title") or ""
+    if prefijo in ("R", "C"):
+        n = _numero_norma(archivo)
+        if n is None:
+            n = _numero_norma(titulo_sitio)
+        if n is not None:
+            return f"{prefijo}_MSPS_{n:04d}_{anio}", False
+    elif prefijo == "CTO":
+        rad = _radicado(archivo) or _radicado(titulo_sitio)
+        if rad:
+            return f"CTO_MSPS_{rad}_{anio}", False
+    elif prefijo == "BOL":
+        fecha_util = None if es_respaldo else fecha
+        mes = _mes_boletin(archivo, None) or _mes_boletin(titulo_sitio, fecha_util)
+        if mes:
+            return f"BOL_MSPS_{_MESES_ABR[mes - 1]}_{anio}", False
+    return f"{prefijo}_MSPS_SN{item.get('ID')}_{anio}", True
+
+
+def _una_linea(texto: Optional[str]) -> str:
+    return " ".join((texto or "").split())
+
+
+def _detalle(item: dict) -> Optional[str]:
+    titulo = _una_linea(item.get("Title"))
+    desc = _una_linea(item.get("Descripci_x00f3_n"))
+    partes = [titulo] + ([desc] if desc and desc != titulo else [])
+    detalle = " — ".join(p for p in partes if p)
+    tema = " / ".join(x for x in (_una_linea(item.get("Tem_x00e1_tica")), _una_linea(item.get("Subtema"))) if x)
+    if tema:
+        detalle = f"{detalle} ({tema})" if detalle else tema
+    dependencia = _una_linea(item.get("Responsable"))
+    if dependencia:
+        detalle = f"{detalle} — Dependencia: {dependencia}" if detalle else f"Dependencia: {dependencia}"
+    return detalle or None
+
+
+def _docs(items: List[dict], desde: str, hasta: str, on_progress) -> List[RawDocModel]:
+    # 1) título base y fecha de TODOS los documentos de las cuatro secciones
+    #    (los avisos se guardan y solo se emiten para los que quedan)
+    base = []
+    for item in items:
+        if item.get("FSObjType") != 0:
+            continue
+        sec = _seccion_de(item.get("Tipo_x0020_de_x0020_Norma"))
+        if sec is None:
+            continue
+        seccion, tipo_doc, prefijo = sec
+        anio = _anio_doc(item)
+        fecha, es_respaldo = _fecha_doc(item, anio)
+        titulo, aviso_num = _titulo(prefijo, item, anio, fecha, es_respaldo)
+        avisos = []
+        if es_respaldo:
+            avisos.append(f"Aviso: {titulo} sin fecha publicada, se usa {fecha.isoformat()}")
+        if aviso_num:
+            avisos.append(f"Aviso: no se reconoce el número de «{item.get('FileLeafRef')}», se nombra {titulo}")
+        base.append((item, seccion, tipo_doc, anio, fecha, titulo, avisos))
+
+    # 2) sufijos sobre toda la lista, y recién después piso + rango
+    titulos = con_sufijos([(titulo, int(item.get("ID") or 0)) for item, _, _, _, _, titulo, _ in base])
+    docs = []
+    for (item, seccion, tipo_doc, anio, fecha, _, avisos), titulo in zip(base, titulos):
+        iso = fecha.isoformat()
+        if anio < _ANIO_MIN or iso < desde or iso > hasta:
+            continue
+        for mensaje in avisos:
+            _avisar(on_progress, mensaje)
+        docs.append(RawDocModel(
+            source=_SOURCE,
+            link={"url": _BASE + quote(item.get("FileRef") or ""), "method": "GET"},
+            title=titulo,
+            tipo=tipo_doc,
+            f_public=iso,
+            f_providencia=iso,
+            seccion=seccion,
+            detalle=_detalle(item),
+            save_path=storage_path(_SOURCE, iso, tipo_doc, f"{_safe_title(titulo)}(extension)"),
+        ))
+    return docs
