@@ -10,12 +10,14 @@ from core.scrapers.families.procuraduria import (
     _RELATORIA,
     _con_sufijos,
     _consultar,
+    _docs_normativa,
     _fecha_iso,
     _fecha_sirel,
     _filas,
     _id_de_relid,
     _numero_concepto,
     _numero_normativa,
+    _params_normativa,
     _pie,
     _relid,
     _safe_title,
@@ -359,3 +361,110 @@ def test_consultar_conteo_que_no_cuadra_es_pagina_inesperada():
     responses.add(responses.GET, _RELATORIA, body=html)
     with pytest.raises(_PaginaInesperada):
         _consultar(_sesion(), {"anio": "2025"})
+
+
+# ---- sección Normativa ----
+def _fn(anio, tipo, num, fecha, relid, corta="Corta", larga="Larga", tem="Funciones de la Entidad"):
+    return (anio, tipo, num, tem, corta, larga, fecha, _HREF_REL.format(relid) if relid else None)
+
+
+def _b64(n):
+    import base64
+    return base64.b64encode(str(n).encode()).decode()
+
+
+def test_params_normativa():
+    p = _params_normativa(2025)
+    assert p["anio"] == "2025" and p["action"] == "consultar_normatividad"
+    assert p["option"].endswith("NormatividadPageFactory")
+
+
+def test_docs_normativa_campos_basicos():
+    filas = _filas(_html_normativa([_fn("2025", "Directiva", "21", "2025-12-19", _b64(244185),
+                                        corta="Ley de Cuotas", larga="Cumplimiento de la ley 581")]))
+    [d] = _docs_normativa(filas, 2025, "2015-01-01", "2025-12-31", None)
+    assert d.title == "DIR_PGN_0021_2025"
+    assert d.tipo == "Directiva"
+    assert d.seccion == "Normativa"
+    assert d.f_public == d.f_providencia == "2025-12-19"
+    assert d.link == {"url": _HREF_REL.format(_b64(244185)), "method": "GET"}
+    assert d.detalle == "Ley de Cuotas — Cumplimiento de la ley 581 (Funciones de la Entidad)"
+    assert d.source == "Procuraduría General de la Nación"
+    assert d.save_path == "Procuraduría General de la Nación/2025-12-19/Directiva/DIR_PGN_0021_2025(extension)"
+
+
+def test_docs_normativa_descarta_externos_y_sin_enlace():
+    html = _html_normativa([
+        ("2020", "Ley", "2016", "Normas Generales", "c", "l", "2020-02-27",
+         "http://www.secretariasenado.gov.co/senado/basedoc/ley_2016_2020.html"),
+        ("2018", "Circular", "7", "t", "c", "l", "2018-10-23", None),
+    ])
+    assert _docs_normativa(_filas(html), 2020, "2015-01-01", "2026-12-31", None) == []
+
+
+def test_docs_normativa_repetido_por_relid_entra_una_vez_prefiriendo_fila_con_fecha():
+    html = _html_normativa([
+        _fn("2022", "Resolución", "413", "", _b64(240116)),
+        _fn("2022", "Resolución", "413", "2022-12-07", _b64(240116)),
+    ])
+    [d] = _docs_normativa(_filas(html), 2022, "2015-01-01", "2022-12-31", None)
+    assert d.f_public == "2022-12-07"
+
+
+def test_docs_normativa_sin_fecha_usa_1_de_enero_del_anio_de_la_columna():
+    html = _html_normativa([_fn("2022", "Resolución", "9", "", _b64(5))])
+    avisos = []
+    [d] = _docs_normativa(_filas(html), 2022, "2015-01-01", "2022-12-31", avisos.append)
+    assert d.f_public == "2022-01-01"
+    assert any("Aviso" in a for a in avisos)
+
+
+def test_docs_normativa_anio_del_titulo_sale_de_la_fecha_no_de_la_columna():
+    html = _html_normativa([_fn("2024", "Protocolo", "1", "2022-12-22", _b64(7))])
+    [d] = _docs_normativa(_filas(html), 2024, "2015-01-01", "2024-12-31", None)
+    assert d.title == "PRO_PGN_0001_2022"
+
+
+def test_docs_normativa_choques_con_sufijo_por_id():
+    html = _html_normativa([
+        _fn("2023", "Circular", "1", "2023-01-23", _b64(300)),
+        _fn("2023", "Circular", "1", "2023-01-12", _b64(100)),
+        _fn("2023", "Circular Conjunta", "1", "2023-01-06", _b64(200)),
+    ])
+    docs = _docs_normativa(_filas(html), 2023, "2015-01-01", "2023-12-31", None)
+    por_fecha = {d.f_public: d.title for d in docs}
+    assert por_fecha == {
+        "2023-01-12": "C_PGN_0001_2023",
+        "2023-01-06": "C_PGN_0001_2023_2",
+        "2023-01-23": "C_PGN_0001_2023_3",
+    }
+    tipos = {d.f_public: d.tipo for d in docs}
+    assert tipos["2023-01-06"] == "Circular Conjunta"
+
+
+def test_docs_normativa_sufijo_estable_con_rango_corto():
+    html = _html_normativa([
+        _fn("2023", "Circular", "1", "2023-01-23", _b64(300)),
+        _fn("2023", "Circular", "1", "2023-01-12", _b64(100)),
+    ])
+    [d] = _docs_normativa(_filas(html), 2023, "2023-01-20", "2023-01-31", None)
+    assert d.title == "C_PGN_0001_2023_2"
+
+
+def test_docs_normativa_filtra_por_rango_y_piso():
+    html = _html_normativa([
+        _fn("2020", "Resolución", "122", "2018-09-24", _b64(1)),   # fuera del rango pedido
+        _fn("2020", "Resolución", "60", "2014-04-08", _b64(2)),    # antes del piso
+        _fn("2020", "Resolución", "5", "2020-03-01", _b64(3)),
+    ])
+    docs = _docs_normativa(_filas(html), 2020, "2020-01-01", "2020-12-31", None)
+    assert [d.title for d in docs] == ["R_PGN_0005_2020"]
+
+
+def test_docs_normativa_tipo_desconocido_avisa():
+    avisos = []
+    html = _html_normativa([_fn("2021", "Manual", "4", "2021-05-05", _b64(9))])
+    [d] = _docs_normativa(_filas(html), 2021, "2015-01-01", "2021-12-31", avisos.append)
+    assert d.title == "DOC_PGN_0004_2021"
+    assert any("Aviso" in a and "Manual" in a for a in avisos)
+    assert not any("Error" in a for a in avisos)

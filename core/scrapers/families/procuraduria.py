@@ -276,3 +276,84 @@ def _consultar(session: requests.Session, params: dict) -> List[Tuple[List[str],
     if len(filas) != total:
         raise _PaginaInesperada(f"se leyeron {len(filas)} filas de {total}")
     return filas
+
+
+# ---- sección Normativa: de filas a documentos ----
+def _avisar(on_progress, mensaje: str) -> None:
+    if on_progress:
+        on_progress(f"[{_SOURCE}] {mensaje}")
+
+
+def _params_normativa(anio: int) -> dict:
+    return {
+        "option": _OPT_NORMATIVA,
+        "action": "consultar_normatividad",
+        "anio": str(anio),
+        "tematica": "",
+        "numero": "",
+        "tipo": "",
+        "descripcion_corta": "",
+        "descripcion_larga": "",
+        "fecha_documento": "",
+    }
+
+
+def _armar(titulo: str, tipo: str, seccion: str, fecha: datetime.date, url: str, detalle: Optional[str]) -> RawDocModel:
+    iso = fecha.isoformat()
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": url, "method": "GET"},
+        title=titulo,
+        tipo=tipo,
+        f_public=iso,
+        f_providencia=iso,
+        seccion=seccion,
+        detalle=detalle or None,
+        save_path=storage_path(_SOURCE, iso, tipo, f"{_safe_title(titulo)}(extension)"),
+    )
+
+
+def _docs_normativa(filas, anio_consulta: int, desde: str, hasta: str, on_progress) -> List[RawDocModel]:
+    # 1) solo documentos propios (verDocumentoRel), deduplicados por relId,
+    #    prefiriendo la fila que sí trae fecha
+    por_relid: Dict[str, dict] = {}
+    for celdas, href in filas:
+        if len(celdas) < 7:
+            continue
+        relid = _relid(href)
+        if relid is None:  # sin enlace, o norma de otra entidad (Senado, Presidencia…)
+            continue
+        anio_col, tipo, numero, tematica, corta, larga, fecha_txt = celdas[:7]
+        fila = {
+            "anio_col": anio_col, "tipo": tipo, "numero": numero, "tematica": tematica,
+            "corta": corta, "larga": larga, "fecha": _fecha_iso(fecha_txt),
+        }
+        previa = por_relid.get(relid)
+        if previa is None or (previa["fecha"] is None and fila["fecha"] is not None):
+            por_relid[relid] = fila
+
+    # 2) fecha (o 1 de enero del año del listado) y título base
+    base = []
+    for relid, f in por_relid.items():
+        fecha = f["fecha"]
+        if fecha is None:
+            anio = int(f["anio_col"]) if f["anio_col"].isdigit() else anio_consulta
+            fecha = datetime.date(anio, 1, 1)
+            _avisar(on_progress, f"Aviso: {f['tipo']} {f['numero']} sin fecha en Normativa, se usa {fecha.isoformat()}")
+        titulo, desconocido = _titulo_normativa(f["tipo"], f["numero"], fecha.year, _id_de_relid(relid))
+        if desconocido:
+            _avisar(on_progress, f"Aviso: tipo desconocido «{f['tipo']}» en Normativa, se guarda como {titulo}")
+        base.append((relid, f, fecha, titulo))
+
+    # 3) sufijos sobre el año completo, y recién después el filtro por rango
+    titulos = _con_sufijos([(titulo, _id_de_relid(relid)) for relid, _, _, titulo in base])
+    docs = []
+    for (relid, f, fecha, _), titulo in zip(base, titulos):
+        iso = fecha.isoformat()
+        if iso < desde or iso > hasta:
+            continue
+        detalle = " — ".join(x for x in (f["corta"], f["larga"]) if x)
+        if f["tematica"]:
+            detalle = f"{detalle} ({f['tematica']})" if detalle else f["tematica"]
+        docs.append(_armar(titulo, f["tipo"], "Normativa", fecha, _url_normativa(relid), detalle))
+    return docs
