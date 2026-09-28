@@ -3,6 +3,7 @@ import datetime
 import pytest
 
 from core.scrapers.families.procuraduria import (
+    _con_sufijos,
     _fecha_iso,
     _fecha_sirel,
     _id_de_relid,
@@ -188,3 +189,26 @@ def test_titulo_concepto_sin_numero_usa_sn_docid():
 
 def test_titulo_concepto_propaga_aviso():
     assert _titulo_concepto("SIN 5", datetime.date(2025, 5, 2), "9") == ("CTO_PGN_0000005_2025", True)
+
+
+# ---- sufijos por choque ----
+def test_con_sufijos_sin_choques_no_cambia():
+    assert _con_sufijos([("A", 3), ("B", 1)]) == ["A", "B"]
+
+
+def test_con_sufijos_ordena_por_id_y_conserva_orden_de_entrada():
+    pares = [("C_PGN_0001_2023", 300), ("C_PGN_0001_2023", 100), ("X", 5), ("C_PGN_0001_2023", 200)]
+    assert _con_sufijos(pares) == ["C_PGN_0001_2023_3", "C_PGN_0001_2023", "X", "C_PGN_0001_2023_2"]
+
+
+def test_con_sufijos_empate_de_id_desempata_por_posicion():
+    assert _con_sufijos([("T", 0), ("T", 0)]) == ["T", "T_2"]
+
+
+def test_con_sufijos_estable_ante_subconjuntos_con_ids_mayores():
+    # el mismo documento (id 100) conserva su título aunque aparezcan otros
+    # con ids mayores (documentos nuevos del sitio)
+    antes = _con_sufijos([("T", 100)])
+    despues = _con_sufijos([("T", 100), ("T", 150)])
+    assert antes[0] == despues[0] == "T"
+    assert despues[1] == "T_2"
