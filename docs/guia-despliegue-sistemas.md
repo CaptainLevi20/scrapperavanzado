@@ -580,3 +580,60 @@ Es seguro repetirlo.
 - **Fuente nueva:** después de actualizar producción, correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
+
+### Procuraduría General de la Nación (`procuraduria`)
+
+- **Qué trae:** dos secciones de la Relatoría de la Procuraduría
+  (`apps.procuraduria.gov.co/relatoria`) — **Normativa** (resoluciones,
+  directivas, circulares, memorandos, instructivos…) y **Conceptos** (SIREL,
+  tipos "CONCEPTO" y "CONCEPTO (MISIONAL)"). La página de SharePoint
+  `normatividad.aspx` es solo un marco vacío; el contenido real es esa
+  aplicación.
+- **Qué no trae:** los enlaces de Normativa que apuntan a normas de otras
+  entidades (leyes en la página del Senado, decretos de Presidencia,
+  resoluciones de MinSalud…) — solo los documentos alojados por la
+  Procuraduría.
+- **Desde cuándo:** año 2015 en adelante.
+- **Cuánto entrega hoy:** unos 537 documentos de Normativa y unos 8.000–9.000
+  conceptos (≈600–800 por año). La primera corrida completa de conceptos es
+  larga; las siguientes solo traen lo nuevo.
+- **Cómo quedan nombrados:** `R_PGN_0338_2025` (resolución), `DIR_PGN_0021_2025`
+  (directiva, directiva conjunta y directiva unificada), `C_PGN_0012_2025`
+  (circular, circular conjunta y circular externa), `M_PGN_0002_2026`
+  (memorando), `CCIR_…` (carta circular), `INS_…` (instructivo), `A_…`
+  (acuerdo), `PRO_…` (protocolo), `MAN_…` (manual); el decreto usa
+  el código común de ministerios (`D0262000`). Conceptos:
+  `CTO_PGN_0000236_2026` (consecutivo a 7 dígitos + año); sin número:
+  `CTO_PGN_SN245408_2025` (número interno de SIREL). Cada dependencia numera
+  por su cuenta, así que cuando dos documentos distintos dan el mismo nombre
+  los siguientes llevan `_2`, `_3` (el más antiguo en el sistema de la
+  Procuraduría queda sin sufijo).
+- **Ojo:** ambos buscadores muestran un reCAPTCHA que hoy el servidor no
+  exige para las consultas que usa la fuente. Si algún día lo exige, la
+  corrida mostrará errores "Error consultando Normativa/Conceptos …" con 0
+  documentos: en ese caso **se pausa la fuente** (no se intenta saltar el
+  reCAPTCHA).
+- **Detalle técnico:** el sitio donde se consulta (`apps.procuraduria.gov.co`)
+  entrega su certificado de seguridad incompleto, así que —igual que en la
+  SSF, la SNR, Supersolidaria, la Corte Constitucional y la CNDJ— la fuente
+  se salta la validación del certificado para esas consultas; sin eso el
+  sitio no responde y la fuente entrega 0 documentos. Las descargas de los
+  documentos sí se hacen con la validación normal: los enlaces de Normativa
+  que el sitio publica en `apps.procuraduria.gov.co` dan error, así que la
+  fuente los descarga siempre desde `www.procuraduria.gov.co`, que valida su
+  certificado sin problema. Los conceptos llegan en Word (.doc/.docx).
+- **Ojo con los conceptos:** la Procuraduría publica cada concepto en su
+  sistema (SIREL) varios meses después de la fecha del concepto —
+  típicamente entre 2 y 7 meses, y a veces más de un año—. Por eso la
+  corrida automática diaria (que solo mira los últimos días) casi nunca va a
+  traer conceptos nuevos: en la práctica traerá sobre todo Normativa. Para
+  mantener los conceptos al día, hay que correr esta fuente a mano una vez
+  al mes, pidiendo el año en curso y el anterior completos (por ejemplo, del
+  1 de enero del año pasado a hoy); los documentos que ya se descargaron
+  antes no se vuelven a descargar.
+- **Duplicados raros:** si la Procuraduría vuelve a subir un concepto
+  corregido, puede aparecer dos veces con el mismo nombre. Es poco frecuente;
+  se detecta a simple vista en la lista de documentos y se borra a mano.
+- **Fuente nueva:** después de actualizar producción, correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
+  Es seguro repetirlo.

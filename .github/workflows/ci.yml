@@ -37,11 +37,14 @@ jobs:
           # minio/minio on Docker Hub now denies anonymous pulls ("pull access
           # denied ... repository does not exist or may require 'docker
           # login'", verified 2026-09-15 pulling it directly, unrelated to any
-          # GitHub Actions rate limit) — quay.io/minio/minio is MinIO's own
-          # still-public mirror of the same image.
-          docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+          # GitHub Actions rate limit). Its quay.io/minio/minio mirror followed
+          # (401 Unauthorized on anonymous pulls, verified 2026-09-28).
+          # cgr.dev/chainguard/minio is still public; it runs as a non-root
+          # user that can't write /data in a fresh container, hence --user 0:0
+          # (fine here: a throwaway CI container with no persisted data).
+          docker run -d --name minio --user 0:0 -p 9000:9000 -p 9001:9001 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:latest server /data --console-address ":9001"
+            cgr.dev/chainguard/minio:latest server /data --console-address ":9001"
           sleep 5
       - name: Run migrations
         env:
