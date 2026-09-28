@@ -3,6 +3,9 @@ import datetime
 import pytest
 
 from core.scrapers.families.minsalud import (
+    _anio_doc,
+    _fecha_doc,
+    _fecha_local,
     _mes_boletin,
     _norm,
     _numero_norma,
@@ -85,3 +88,77 @@ def test_mes_boletin(texto, fecha, esperado):
 @pytest.mark.parametrize("texto", ["Boletín Jurídico especial", "Boletín Jurídico No 15 de 2020"])
 def test_mes_boletin_none(texto):
     assert _mes_boletin(texto, None) is None
+
+
+# ---- helper con la forma real de un elemento de la API ----
+def _item(id=1, tipo="Resolución", archivo="Resolución No 1809 de 2026.pdf", titulo=None,
+          anio="2026", pub=None, desc=None, tematica="Salud", subtema=None,
+          responsable=None, creado="2026-09-22T15:27:31Z", carpeta=0):
+    return {
+        "ID": id,
+        "Title": titulo if titulo is not None else archivo.rsplit(".", 1)[0],
+        "FileLeafRef": archivo,
+        "FileRef": f"/Normatividad_Nuevo/{archivo}",
+        "FSObjType": carpeta,
+        "Tipo_x0020_de_x0020_Norma": tipo,
+        "A_x00f1_o": anio,
+        "Publicaci_x00f3_n": pub,
+        "Descripci_x00f3_n": desc,
+        "Tem_x00e1_tica": tematica,
+        "Subtema": subtema,
+        "Responsable": responsable,
+        "Created": creado,
+    }
+
+
+# ---- año ----
+def test_anio_doc_de_la_columna():
+    assert _anio_doc(_item(anio="2017")) == 2017
+    assert _anio_doc(_item(anio="2017 ")) == 2017
+
+
+def test_anio_doc_del_nombre_si_falta_la_columna():
+    assert _anio_doc(_item(anio=None, archivo="Circular No 5 de 2019.pdf")) == 2019
+
+
+def test_anio_doc_no_confunde_un_radicado_con_un_anio():
+    it = _item(anio=None, archivo="Concepto Jurídico 201711601019341.pdf", creado="2017-06-30T10:00:00Z")
+    assert _anio_doc(it) == 2017
+
+
+def test_anio_doc_de_created_como_ultimo_recurso():
+    assert _anio_doc(_item(anio="", archivo="Res.pdf", creado="2024-03-01T12:00:00Z")) == 2024
+
+
+# ---- fecha ----
+def test_fecha_local_convierte_utc_a_colombia():
+    assert _fecha_local("2026-09-24T05:00:00Z") == datetime.date(2026, 9, 24)
+    assert _fecha_local("2026-09-24T04:59:00Z") == datetime.date(2026, 9, 23)
+    assert _fecha_local(None) is None
+    assert _fecha_local("basura") is None
+
+
+def test_fecha_doc_prefiere_publicacion():
+    it = _item(pub="2026-09-24T05:00:00Z", desc="con fecha 25 de septiembre de 2026")
+    assert _fecha_doc(it, 2026) == (datetime.date(2026, 9, 24), False)
+
+
+def test_fecha_doc_prosa_de_la_descripcion_del_mismo_anio():
+    it = _item(desc="Publicada en el Diario Oficial No. 53.638 con fecha 25 de septiembre de 2026")
+    assert _fecha_doc(it, 2026) == (datetime.date(2026, 9, 25), False)
+
+
+def test_fecha_doc_prosa_del_titulo():
+    it = _item(archivo="Circular No. 45 de 2019.pdf", titulo="Circular No. 45 del 31 de diciembre del 2019",
+               anio="2019", creado="2020-01-10T10:00:00Z")
+    assert _fecha_doc(it, 2019) == (datetime.date(2019, 12, 31), False)
+
+
+def test_fecha_doc_ignora_prosa_de_otro_anio_y_usa_created():
+    it = _item(anio="2017", desc="Deroga la resolución del 5 de marzo de 2014", creado="2017-06-30T15:00:00Z")
+    assert _fecha_doc(it, 2017) == (datetime.date(2017, 6, 30), False)
+
+
+def test_fecha_doc_respaldo_1_de_enero_si_created_es_de_otro_anio():
+    it = _item(anio="2019", creado="2020-01-10T10:00:00Z")
+    assert _fecha_doc(it, 2019) == (datetime.date(2019, 1, 1), True)

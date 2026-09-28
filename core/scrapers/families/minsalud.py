@@ -113,3 +113,52 @@ def _mes_boletin(texto: Optional[str], fecha: Optional[datetime.date]) -> Option
     if m and 1 <= int(m.group(1)) <= 12:
         return int(m.group(1))
     return fecha.month if fecha is not None else None
+
+
+# El sitio guarda las fechas en UTC; "…T05:00:00Z" es la medianoche en Bogotá.
+_COLOMBIA = datetime.timezone(datetime.timedelta(hours=-5))
+_ANIO_EN_TEXTO = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+
+
+def _anio_plausible(a: int) -> bool:
+    return 1990 <= a <= datetime.date.today().year + 1
+
+
+def _fecha_local(iso: Optional[str]) -> Optional[datetime.date]:
+    try:
+        dt = datetime.datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(_COLOMBIA).date()
+
+
+def _anio_doc(item: dict) -> int:
+    """Año del documento: columna Año; si falta, el último año del nombre del
+    archivo; si tampoco, el año de subida (Created)."""
+    crudo = (item.get("A_x00f1_o") or "").strip()[:4]
+    if crudo.isdigit() and _anio_plausible(int(crudo)):
+        return int(crudo)
+    anios = [int(a) for a in _ANIO_EN_TEXTO.findall(item.get("FileLeafRef") or "") if _anio_plausible(int(a))]
+    if anios:
+        return anios[-1]
+    creado = _fecha_local(item.get("Created"))
+    return creado.year if creado else datetime.date.today().year
+
+
+def _fecha_doc(item: dict, anio: int) -> Tuple[datetime.date, bool]:
+    """(fecha, es_respaldo). Cascada: Publicación → fecha en prosa de la
+    descripción o del título, si es del año del documento → Created, si es del
+    año → 1 de enero del año (respaldo)."""
+    pub = _fecha_local(item.get("Publicaci_x00f3_n"))
+    if pub is not None:
+        return pub, False
+    for texto in (item.get("Descripci_x00f3_n"), item.get("Title")):
+        f = parse_fecha_providencia_es(texto or "")
+        if f is not None and f.year == anio:
+            return f, False
+    creado = _fecha_local(item.get("Created"))
+    if creado is not None and creado.year == anio:
+        return creado, False
+    return datetime.date(anio, 1, 1), True
