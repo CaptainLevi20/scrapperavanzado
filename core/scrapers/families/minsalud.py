@@ -99,9 +99,16 @@ def _mes_boletin(texto: Optional[str], fecha: Optional[datetime.date]) -> Option
     cuando está entre 1 y 12 (uno por mes); si tampoco, el mes de `fecha`
     (que el llamador pasa solo cuando NO es la fecha de respaldo 1 de enero)."""
     n = _norm(texto)
+    # Find all month-word matches and return the one that appears earliest in the text
+    earliest_match = None
+    earliest_mes = None
     for palabra, mes in _MESES_PALABRA.items():
-        if re.search(rf"\b{palabra}\b", n):
-            return mes
+        m = re.search(rf"\b{palabra}\b", n)
+        if m and (earliest_match is None or m.start() < earliest_match):
+            earliest_match = m.start()
+            earliest_mes = mes
+    if earliest_mes is not None:
+        return earliest_mes
     m = _NUM_BOLETIN.search(n)
     if m and 1 <= int(m.group(1)) <= 12:
         return int(m.group(1))

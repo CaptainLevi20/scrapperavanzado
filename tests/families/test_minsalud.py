@@ -76,6 +76,7 @@ def test_radicado_none(texto):
     ("Boletin Juridico No 4 del 2015", None, 4),
     ("Boletín Jurídico No. 06  de 2026", None, 6),
     ("Boletín Jurídico especial", datetime.date(2020, 7, 31), 7),
+    ("Boletín Jurídico Diciembre - Noviembre 2015", None, 12),
 ])
 def test_mes_boletin(texto, fecha, esperado):
     assert _mes_boletin(texto, fecha) == esperado
