@@ -162,7 +162,7 @@ def _normalizar_numero_concepto(numero: str) -> str:
     s = unicodedata.normalize("NFC", numero or "").upper()
     s = re.sub(r"\bCONCEPTO\b", " ", s)
     s = re.sub(r"\bN[Oº°]?\s*\.", " ", s)   # "N.", "NO.", "Nº."
-    s = re.sub(r"\bN[Oº°]\b", " ", s)       # "NO", "Nº"
+    s = re.sub(r"\bN[Oº°](?=\s|\d|$)", " ", s)  # "NO", "Nº", "N°" followed by space/digit/end
     s = re.sub(r"[^A-Z0-9/\- ]", " ", s)    # codificación rota, comillas, puntos
     s = re.sub(r"\s*([/-])\s*", r"\1", s)
     return " ".join(s.split()).strip("-/ ")

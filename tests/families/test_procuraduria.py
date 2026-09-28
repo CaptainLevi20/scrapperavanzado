@@ -154,6 +154,10 @@ def test_fecha_sirel_none():
     ("SIN 5", 2025, (5, 2025, True)),
     ("Concepto Ã¿Â¿Ã¿Â¿ 061", 2025, (61, 2025, False)),
     ("16-158", 2020, (16, 2020, True)),
+    # regla 4: N° (grados) debe quitarse como N. y Nº
+    ("CONCEPTO N° 061", 2025, (61, 2025, False)),
+    ("N° 12-2016", 2016, (12, 2016, False)),
+    ("No. 5-2025", 2025, (5, 2025, False)),
 ])
 def test_numero_concepto(crudo, anio_fecha, esperado):
     assert _numero_concepto(crudo, anio_fecha) == esperado
