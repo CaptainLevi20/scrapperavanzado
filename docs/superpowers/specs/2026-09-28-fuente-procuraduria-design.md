@@ -109,9 +109,15 @@ Familia técnica nueva: `procuraduria`, sigla `PGN`.
   Nación"**, descripción "Normativa (resoluciones, directivas, circulares,
   memorandos…) y conceptos publicados por la Procuraduría General de la
   Nación").
-- Transporte: `requests` con `User-Agent` de navegador, respetando
-  `core/rate_limit.py` como las demás familias. `verify` por defecto (TLS
-  válido).
+- Transporte: `requests` con `User-Agent` de navegador y peticiones en
+  serie (una a la vez, como las demás familias; ninguna usa
+  `core/rate_limit.py`). `verify` por defecto (TLS válido).
+- Consultas paginadas por seguridad: se piden páginas de `_PAGINA` filas
+  (`first_result` += `_PAGINA`) hasta completar el total del pie
+  "Resultados … de M" (hoy un año de conceptos cabe en una sola página).
+- Una búsqueda vacía legítima trae la tabla con solo el encabezado y el pie
+  `Resultados 0 - 0 de 0`; **sin pie = página inesperada** (bloqueo,
+  reCAPTCHA exigido, cambio del sitio) → error de la sección.
 - **Piso de año: 2015** en ambas secciones (el rango de la corrida se recorta
   a `max(fini, 2015-01-01)`).
 
@@ -230,9 +236,10 @@ numérico)
 
 ## Pruebas
 
-- `tests/test_procuraduria.py`, con HTML real guardado en
-  `tests/fixtures/procuraduria/` (un año de Normativa, una consulta de
-  conceptos recortada):
+- `tests/families/test_procuraduria.py`, con HTML armado en la misma prueba
+  copiando la estructura real de las tablas (convención del proyecto, como
+  `test_ssf.py` / `test_supersolidaria.py`) y `responses` para simular el
+  sitio:
   - lectura de ambas tablas y del pie "Resultados";
   - URL canónica desde todas las variantes de `href` (host `apps.`,
     `mode=1#…`, tabulación, URL concatenada) y descarte de externos;
