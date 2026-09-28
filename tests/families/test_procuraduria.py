@@ -360,7 +360,13 @@ def test_consultar_sin_pie_es_pagina_inesperada():
 @responses.activate
 def test_consultar_conteo_que_no_cuadra_es_pagina_inesperada():
     html = _html_normativa([("2025", "Circular", "1", "t", "c", "l", "2025-01-02", _HREF_REL.format("MQ=="))], total=5)
-    responses.add(responses.GET, _RELATORIA, body=html)
+    responses.add(responses.GET, _RELATORIA, body=html,
+                  match=[matchers.query_param_matcher({"first_result": "0"}, strict_match=False)])
+    # primero avanza por filas realmente leídas (1), así que pide una segunda
+    # página; el sitio ya no tiene más filas que ofrecer aunque el pie siga
+    # anunciando 5 — sigue habiendo un conteo que no cuadra.
+    responses.add(responses.GET, _RELATORIA, body=_html_normativa([], total=5),
+                  match=[matchers.query_param_matcher({"first_result": "1"}, strict_match=False)])
     with pytest.raises(_PaginaInesperada):
         _consultar(_sesion(), {"anio": "2025"})
 
@@ -472,6 +478,20 @@ def test_docs_normativa_tipo_desconocido_avisa():
     assert not any("Error" in a for a in avisos)
 
 
+def test_docs_normativa_aviso_solo_de_filas_dentro_del_rango():
+    # dos filas de tipo desconocido: una fuera del rango pedido (antes del
+    # piso 2015) y otra dentro. Solo la segunda debe pasar el filtro y avisar.
+    avisos = []
+    html = _html_normativa([
+        _fn("2010", "Manual", "4", "2010-05-05", _b64(1)),
+        _fn("2021", "Manual", "9", "2021-05-05", _b64(2)),
+    ])
+    docs = _docs_normativa(_filas(html), 2021, "2015-01-01", "2021-12-31", avisos.append)
+    assert [d.title for d in docs] == ["DOC_PGN_0009_2021"]
+    assert any("DOC_PGN_0009_2021" in a for a in avisos)
+    assert not any("DOC_PGN_0004_2010" in a for a in avisos)
+
+
 # ---- sección Conceptos ----
 _DEP = "PROCURADURIA DELEGADA DE INTERVENCION 11: SEPTIMA ANTE EL CONSEJO DE ESTADO"
 
@@ -546,6 +566,20 @@ def test_docs_conceptos_numero_raro_avisa_sin_error():
     assert d.title == "CTO_PGN_0000005_2025"
     assert any("Aviso" in a and "SIN 5" in a for a in avisos)
     assert not any("Error" in a for a in avisos)
+
+
+def test_docs_conceptos_aviso_solo_de_filas_dentro_del_rango():
+    # dos filas de número poco claro: una fuera del rango pedido (antes del
+    # piso 2015) y otra dentro. Solo la segunda debe pasar el filtro y avisar.
+    avisos = []
+    html = _html_sirel([
+        _fc("SIN 5", "1", "lunes, 10 marzo 2014"),
+        _fc("SIN 9", "2", "lunes, 10 marzo 2025"),
+    ])
+    docs = _docs_conceptos(_filas(html), 2025, "2015-01-01", "2025-12-31", avisos.append)
+    assert [d.title for d in docs] == ["CTO_PGN_0000009_2025"]
+    assert any("SIN 9" in a for a in avisos)
+    assert not any("SIN 5" in a for a in avisos)
 
 
 def test_docs_conceptos_ignora_filas_sin_docid():

@@ -282,7 +282,7 @@ def _consultar(session: requests.Session, params: dict) -> List[Tuple[List[str],
             )
         pagina = _filas(resp.text)
         filas.extend(pagina)
-        primero += _PAGINA
+        primero += len(pagina)
         if not pagina or len(filas) >= total or primero >= total:
             break
     if len(filas) != total:
@@ -344,26 +344,31 @@ def _docs_normativa(filas, anio_consulta: int, desde: str, hasta: str, on_progre
         if previa is None or (previa["fecha"] is None and fila["fecha"] is not None):
             por_relid[relid] = fila
 
-    # 2) fecha (o 1 de enero del año del listado) y título base
+    # 2) fecha (o 1 de enero del año del listado) y título base; los avisos se
+    #    guardan y solo se emiten para las filas que pasen el filtro de rango
+    #    (paso 3), para no avisar de documentos que la corrida no guarda.
     base = []
     for relid, f in por_relid.items():
+        avisos = []
         fecha = f["fecha"]
         if fecha is None:
             anio = int(f["anio_col"]) if f["anio_col"].isdigit() else anio_consulta
             fecha = datetime.date(anio, 1, 1)
-            _avisar(on_progress, f"Aviso: {f['tipo']} {f['numero']} sin fecha en Normativa, se usa {fecha.isoformat()}")
+            avisos.append(f"Aviso: {f['tipo']} {f['numero']} sin fecha en Normativa, se usa {fecha.isoformat()}")
         titulo, desconocido = _titulo_normativa(f["tipo"], f["numero"], fecha.year, _id_de_relid(relid))
         if desconocido:
-            _avisar(on_progress, f"Aviso: tipo desconocido «{f['tipo']}» en Normativa, se guarda como {titulo}")
-        base.append((relid, f, fecha, titulo))
+            avisos.append(f"Aviso: tipo desconocido «{f['tipo']}» en Normativa, se guarda como {titulo}")
+        base.append((relid, f, fecha, titulo, avisos))
 
     # 3) sufijos sobre el año completo, y recién después el filtro por rango
-    titulos = _con_sufijos([(titulo, _id_de_relid(relid)) for relid, _, _, titulo in base])
+    titulos = _con_sufijos([(titulo, _id_de_relid(relid)) for relid, _, _, titulo, _ in base])
     docs = []
-    for (relid, f, fecha, _), titulo in zip(base, titulos):
+    for (relid, f, fecha, _, avisos), titulo in zip(base, titulos):
         iso = fecha.isoformat()
         if iso < desde or iso > hasta:
             continue
+        for mensaje in avisos:
+            _avisar(on_progress, mensaje)
         detalle = " — ".join(x for x in (f["corta"], f["larga"]) if x)
         if f["tematica"]:
             detalle = f"{detalle} ({f['tematica']})" if detalle else f["tematica"]
@@ -409,23 +414,28 @@ def _docs_conceptos(filas, anio_consulta: int, desde: str, hasta: str, on_progre
         if par and par not in g["temas"]:
             g["temas"].append(par)
 
+    # los avisos se guardan y solo se emiten para las filas que pasen el
+    # filtro de rango, para no avisar de documentos que la corrida no guarda.
     base = []
     for doc_id, g in grupos.items():
+        avisos = []
         fecha = _fecha_sirel(g["fecha_txt"])
         if fecha is None:
             fecha = datetime.date(anio_consulta, 1, 1)
-            _avisar(on_progress, f"Aviso: concepto {g['numero'] or doc_id} con fecha ilegible «{g['fecha_txt']}», se usa {fecha.isoformat()}")
+            avisos.append(f"Aviso: concepto {g['numero'] or doc_id} con fecha ilegible «{g['fecha_txt']}», se usa {fecha.isoformat()}")
         titulo, aviso = _titulo_concepto(g["numero"], fecha, doc_id)
         if aviso:
-            _avisar(on_progress, f"Aviso: número de concepto poco claro «{g['numero']}», se nombra {titulo}")
-        base.append((doc_id, g, fecha, titulo))
+            avisos.append(f"Aviso: número de concepto poco claro «{g['numero']}», se nombra {titulo}")
+        base.append((doc_id, g, fecha, titulo, avisos))
 
-    titulos = _con_sufijos([(titulo, int(doc_id)) for doc_id, _, _, titulo in base])
+    titulos = _con_sufijos([(titulo, int(doc_id)) for doc_id, _, _, titulo, _ in base])
     docs = []
-    for (doc_id, g, fecha, _), titulo in zip(base, titulos):
+    for (doc_id, g, fecha, _, avisos), titulo in zip(base, titulos):
         iso = fecha.isoformat()
         if iso < desde or iso > hasta:
             continue
+        for mensaje in avisos:
+            _avisar(on_progress, mensaje)
         detalle = "; ".join(x for x in [g["dependencia"], *g["temas"]] if x)
         docs.append(_armar(titulo, "Concepto", "Conceptos", fecha, g["url"], detalle))
     return docs

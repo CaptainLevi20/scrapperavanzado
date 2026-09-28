@@ -155,8 +155,10 @@ Familia técnica nueva: `procuraduria`, sigla `PGN`.
    Nomenclatura).
 2. Agrupar filas por `docId`; conservar número, dependencia, fecha y el
    enlace (sin `#…`); juntar los pares tema/subtema.
-3. Fecha: `core/fecha_es` sobre `jueves, 30 julio 2026` (se descarta el día
-   de la semana).
+3. Fecha: con un patrón propio de este módulo que reusa solo la tabla de
+   meses de `core/fecha_es` (`_MESES`), sobre `jueves, 30 julio 2026` (se
+   descarta el día de la semana). No se usa `core/fecha_es` directamente
+   porque exige la palabra "de" antes del año y SIREL la escribe sin ella.
 4. Calcular títulos sobre el año completo y filtrar por `[fini, ffin]`.
 
 ### Campos de `RawDocModel`
@@ -235,8 +237,34 @@ numérico)
   ya guardados conservan su título.
 - Límite conocido: el agrupamiento es por año de la **consulta**; un título
   cuyo año (por el número) difiere del año de la fecha podría chocar con uno
-  de otro año sin detectarse. Se acepta; el guardado de archivos ya tiene su
-  propia protección contra pisarse (como en Supersolidaria).
+  de otro año sin detectarse. Se acepta; no hay ninguna protección genérica
+  contra esto en el guardado de archivos: dos documentos con el mismo título
+  final compartirían la misma clave de almacenamiento y la subida más
+  reciente reemplazaría el archivo de la anterior.
+
+### Riesgos aceptados
+
+- **D2 — identidad de Conceptos es el enlace completo.** El sitio no sirve
+  el archivo solo con `docId` (verificado en vivo: `…accion=verDocumentoWeb&docId=245102&mode=1`
+  devuelve una página HTML de 150 bytes; solo el enlace completo con
+  `elementId=…&docId=…` trae el `.docx`). Si la Procuraduría vuelve a subir
+  el mismo concepto bajo otra ruta de archivo, se crea una fila duplicada
+  con el mismo título y se reemplaza el archivo guardado. Aceptado por el
+  usuario el 2026-09-28 como un caso raro.
+- **D1 — los conceptos aparecen en SIREL meses después de su fecha.** Medido
+  en vivo sobre SIREL, tipo `CONCEPTO (MISIONAL)`: en 2025 (783 conceptos) la
+  mediana de rezago entre la fecha del concepto y su subida (visible en la
+  ruta del enlace, `RELATO_DATA_TYPE/AAAA/MM/DD/`) es de 113 días, 90% dentro
+  de 196 días, máximo 581 días; en 2016 (578 conceptos) mediana 64 días, 90%
+  dentro de 216 días, máximo 773 días. Por eso la corrida diaria programada
+  (con el rango corto habitual) traerá casi siempre solo Normativa; los
+  Conceptos se ponen al día con corridas manuales periódicas. Decidido por
+  el usuario el 2026-09-28.
+- **Deduplicación de Decreto contra ministerios es de un solo sentido.** Un
+  decreto de la PGN se descarta si algún ministerio ya lo tiene guardado,
+  pero no al revés, porque `list_ministerio_documents_by_title` solo mira las
+  familias de ministerios. Hoy hay ~1 decreto en el alcance de esta fuente;
+  aceptado.
 
 ### Errores
 
