@@ -580,3 +580,42 @@ Es seguro repetirlo.
 - **Fuente nueva:** después de actualizar producción, correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
+
+### Procuraduría General de la Nación (`procuraduria`)
+
+- **Qué trae:** dos secciones de la Relatoría de la Procuraduría
+  (`apps.procuraduria.gov.co/relatoria`) — **Normativa** (resoluciones,
+  directivas, circulares, memorandos, instructivos…) y **Conceptos** (SIREL,
+  tipos "CONCEPTO" y "CONCEPTO (MISIONAL)"). La página de SharePoint
+  `normatividad.aspx` es solo un marco vacío; el contenido real es esa
+  aplicación.
+- **Qué no trae:** los enlaces de Normativa que apuntan a normas de otras
+  entidades (leyes en la página del Senado, decretos de Presidencia,
+  resoluciones de MinSalud…) — solo los documentos alojados por la
+  Procuraduría.
+- **Desde cuándo:** año 2015 en adelante.
+- **Cuánto entrega hoy:** unos 537 documentos de Normativa y unos 8.000–9.000
+  conceptos (≈600–800 por año). La primera corrida completa de conceptos es
+  larga; las siguientes solo traen lo nuevo.
+- **Cómo quedan nombrados:** `R_PGN_0338_2025` (resolución), `DIR_PGN_0021_2025`
+  (directiva y directiva conjunta), `C_PGN_0012_2025` (circular y circular
+  conjunta), `M_PGN_0002_2026` (memorando), `CCIR_…` (carta circular),
+  `INS_…` (instructivo), `A_…` (acuerdo), `PRO_…` (protocolo); el decreto usa
+  el código común de ministerios (`D0262000`). Conceptos:
+  `CTO_PGN_0000236_2026` (consecutivo a 7 dígitos + año); sin número:
+  `CTO_PGN_SN245408_2025` (número interno de SIREL). Cada dependencia numera
+  por su cuenta, así que cuando dos documentos distintos dan el mismo nombre
+  los siguientes llevan `_2`, `_3` (el más antiguo en el sistema de la
+  Procuraduría queda sin sufijo).
+- **Ojo:** ambos buscadores muestran un reCAPTCHA que hoy el servidor no
+  exige para las consultas que usa la fuente. Si algún día lo exige, la
+  corrida mostrará errores "Error consultando Normativa/Conceptos …" con 0
+  documentos: en ese caso **se pausa la fuente** (no se intenta saltar el
+  reCAPTCHA).
+- **Detalle técnico:** certificado válido (sin saltarse la validación). Los
+  enlaces de Normativa que el sitio publica en `apps.procuraduria.gov.co`
+  dan error; la fuente los descarga siempre desde `www.procuraduria.gov.co`.
+  Los conceptos llegan en Word (.doc/.docx).
+- **Fuente nueva:** después de actualizar producción, correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
+  Es seguro repetirlo.
