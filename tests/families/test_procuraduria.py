@@ -11,6 +11,7 @@ from core.scrapers.families.procuraduria import (
     _con_sufijos,
     _consultar,
     _docs_normativa,
+    _docs_conceptos,
     _fecha_iso,
     _fecha_sirel,
     _filas,
@@ -18,6 +19,7 @@ from core.scrapers.families.procuraduria import (
     _numero_concepto,
     _numero_normativa,
     _params_normativa,
+    _params_conceptos,
     _pie,
     _relid,
     _safe_title,
@@ -468,3 +470,84 @@ def test_docs_normativa_tipo_desconocido_avisa():
     assert d.title == "DOC_PGN_0004_2021"
     assert any("Aviso" in a and "Manual" in a for a in avisos)
     assert not any("Error" in a for a in avisos)
+
+
+# ---- sección Conceptos ----
+_DEP = "PROCURADURIA DELEGADA DE INTERVENCION 11: SEPTIMA ANTE EL CONSEJO DE ESTADO"
+
+
+def _fc(num, doc_id, fecha, tema="VICTIMA", sub="Sub", tipo="CONCEPTO (MISIONAL)", dep=_DEP):
+    return (tipo, num, dep, tema, sub, _href_cto(doc_id), fecha)
+
+
+def test_params_conceptos():
+    p = _params_conceptos("CONCEPTO (MISIONAL)", "2025-01-01", "2025-12-31")
+    assert p["tipo_documento"] == "CONCEPTO (MISIONAL)"
+    assert p["fecha_inicial"] == "2025-01-01" and p["fecha_final"] == "2025-12-31"
+    assert p["action"] == "consultar_area"
+    assert p["option"].endswith("PirelResolucionesPageFactory")
+
+
+def test_docs_conceptos_agrupa_filas_por_tema():
+    html = _html_sirel([
+        _fc("236-2026", "245582", "miércoles, 9 septiembre 2026", tema="VICTIMA", sub="Verdad"),
+        _fc("236-2026", "245582", "miércoles, 9 septiembre 2026", tema="PRUEBAS", sub="Valoración"),
+        _fc("236-2026", "245582", "miércoles, 9 septiembre 2026", tema="PRUEBAS", sub="Valoración"),
+    ])
+    [d] = _docs_conceptos(_filas(html), 2026, "2015-01-01", "2026-12-31", None)
+    assert d.title == "CTO_PGN_0000236_2026"
+    assert d.tipo == "Concepto"
+    assert d.seccion == "Conceptos"
+    assert d.f_public == "2026-09-09"
+    assert d.link["url"] == _href_cto("245582").split("#")[0]
+    assert d.detalle == f"{_DEP}; VICTIMA: Verdad; PRUEBAS: Valoración"
+    assert d.save_path == "Procuraduría General de la Nación/2026-09-09/Concepto/CTO_PGN_0000236_2026(extension)"
+
+
+def test_docs_conceptos_sin_numero_usa_sn_docid():
+    html = _html_sirel([_fc("", "245408", "jueves, 30 julio 2026")])
+    [d] = _docs_conceptos(_filas(html), 2026, "2015-01-01", "2026-12-31", None)
+    assert d.title == "CTO_PGN_SN245408_2026"
+
+
+def test_docs_conceptos_choques_entre_dependencias_con_sufijo_por_docid():
+    html = _html_sirel([
+        _fc("186-2025", "243000", "lunes, 10 marzo 2025", dep="DELEGADA A"),
+        _fc("186-2025", "242000", "miércoles, 2 abril 2025", dep="DELEGADA B"),
+    ])
+    docs = _docs_conceptos(_filas(html), 2025, "2015-01-01", "2025-12-31", None)
+    assert {d.f_public: d.title for d in docs} == {
+        "2025-04-02": "CTO_PGN_0000186_2025",
+        "2025-03-10": "CTO_PGN_0000186_2025_2",
+    }
+
+
+def test_docs_conceptos_sufijo_estable_con_rango_corto():
+    html = _html_sirel([
+        _fc("186-2025", "243000", "lunes, 10 marzo 2025"),
+        _fc("186-2025", "242000", "miércoles, 2 abril 2025"),
+    ])
+    [d] = _docs_conceptos(_filas(html), 2025, "2025-03-01", "2025-03-31", None)
+    assert d.title == "CTO_PGN_0000186_2025_2"
+
+
+def test_docs_conceptos_fecha_ilegible_usa_1_de_enero_y_avisa():
+    avisos = []
+    html = _html_sirel([_fc("5-2025", "1", "sin fecha")])
+    [d] = _docs_conceptos(_filas(html), 2025, "2015-01-01", "2025-12-31", avisos.append)
+    assert d.f_public == "2025-01-01"
+    assert any("Aviso" in a for a in avisos)
+
+
+def test_docs_conceptos_numero_raro_avisa_sin_error():
+    avisos = []
+    html = _html_sirel([_fc("SIN 5", "2", "lunes, 10 marzo 2025")])
+    [d] = _docs_conceptos(_filas(html), 2025, "2015-01-01", "2025-12-31", avisos.append)
+    assert d.title == "CTO_PGN_0000005_2025"
+    assert any("Aviso" in a and "SIN 5" in a for a in avisos)
+    assert not any("Error" in a for a in avisos)
+
+
+def test_docs_conceptos_ignora_filas_sin_docid():
+    html = _html_sirel([("CONCEPTO", "1-2025", _DEP, "T", "S", "https://otro.sitio/x.pdf", "lunes, 10 marzo 2025")])
+    assert _docs_conceptos(_filas(html), 2025, "2015-01-01", "2025-12-31", None) == []

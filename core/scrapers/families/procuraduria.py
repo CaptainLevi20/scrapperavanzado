@@ -357,3 +357,63 @@ def _docs_normativa(filas, anio_consulta: int, desde: str, hasta: str, on_progre
             detalle = f"{detalle} ({f['tematica']})" if detalle else f["tematica"]
         docs.append(_armar(titulo, f["tipo"], "Normativa", fecha, _url_normativa(relid), detalle))
     return docs
+
+
+# ---- sección Conceptos: de filas a documentos ----
+_DOCID_RE = re.compile(r"[?&]docId=(\d+)")
+
+
+def _params_conceptos(tipo: str, desde: str, hasta: str) -> dict:
+    return {
+        "option": _OPT_SIREL,
+        "action": "consultar_area",
+        "tipo_documento": tipo,
+        "numero": "",
+        "dependencia": "",
+        "palabra_clave": "",
+        "fecha_inicial": desde,
+        "fecha_final": hasta,
+    }
+
+
+def _docs_conceptos(filas, anio_consulta: int, desde: str, hasta: str, on_progress) -> List[RawDocModel]:
+    # SIREL repite cada concepto una vez por tema/subtema: se agrupa por docId
+    grupos: Dict[str, dict] = {}
+    for celdas, href in filas:
+        if len(celdas) < 7 or not href:
+            continue
+        m = _DOCID_RE.search(href)
+        if not m:
+            continue
+        doc_id = m.group(1)
+        _tipo, numero, dependencia, tema, subtema, _doc, fecha_txt = celdas[:7]
+        g = grupos.get(doc_id)
+        if g is None:
+            g = grupos[doc_id] = {
+                "numero": numero, "dependencia": dependencia, "fecha_txt": fecha_txt,
+                "url": href.split("#", 1)[0].strip(), "temas": [],
+            }
+        par = f"{tema}: {subtema}" if tema and subtema else (tema or subtema)
+        if par and par not in g["temas"]:
+            g["temas"].append(par)
+
+    base = []
+    for doc_id, g in grupos.items():
+        fecha = _fecha_sirel(g["fecha_txt"])
+        if fecha is None:
+            fecha = datetime.date(anio_consulta, 1, 1)
+            _avisar(on_progress, f"Aviso: concepto {g['numero'] or doc_id} con fecha ilegible «{g['fecha_txt']}», se usa {fecha.isoformat()}")
+        titulo, aviso = _titulo_concepto(g["numero"], fecha, doc_id)
+        if aviso:
+            _avisar(on_progress, f"Aviso: número de concepto poco claro «{g['numero']}», se nombra {titulo}")
+        base.append((doc_id, g, fecha, titulo))
+
+    titulos = _con_sufijos([(titulo, int(doc_id)) for doc_id, _, _, titulo in base])
+    docs = []
+    for (doc_id, g, fecha, _), titulo in zip(base, titulos):
+        iso = fecha.isoformat()
+        if iso < desde or iso > hasta:
+            continue
+        detalle = "; ".join(x for x in [g["dependencia"], *g["temas"]] if x)
+        docs.append(_armar(titulo, "Concepto", "Conceptos", fecha, g["url"], detalle))
+    return docs
