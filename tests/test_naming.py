@@ -5,6 +5,7 @@ import pytest
 
 from core.naming import (
     codigo_ley_decreto,
+    con_sufijos,
     construir_nombre,
     es_anexo_title,
     es_codigo_ley_decreto,
@@ -176,3 +177,21 @@ def test_titulo_padre_de_anexo():
     assert titulo_padre_de_anexo("C_SF_0020_2026_A01") == "C_SF_0020_2026"
     assert titulo_padre_de_anexo("R_SF_1215_2020_A09") == "R_SF_1215_2020"
     assert titulo_padre_de_anexo("C_SF_0020_2026") is None
+
+
+# ---- con_sufijos (títulos repetidos dentro de una fuente) ----
+def test_con_sufijos_sin_choques_no_cambia():
+    assert con_sufijos([("A", 3), ("B", 1)]) == ["A", "B"]
+
+
+def test_con_sufijos_ordena_por_id_y_conserva_orden_de_entrada():
+    pares = [("C_X_0001_2023", 300), ("C_X_0001_2023", 100), ("Y", 5), ("C_X_0001_2023", 200)]
+    assert con_sufijos(pares) == ["C_X_0001_2023_3", "C_X_0001_2023", "Y", "C_X_0001_2023_2"]
+
+
+def test_con_sufijos_empate_de_id_desempata_por_posicion():
+    assert con_sufijos([("T", 0), ("T", 0)]) == ["T", "T_2"]
+
+
+def test_con_sufijos_lista_vacia():
+    assert con_sufijos([]) == []
