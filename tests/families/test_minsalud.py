@@ -307,3 +307,83 @@ def test_docs_avisos_solo_de_documentos_conservados():
     assert not any("SN7" in a for a in avisos)
     assert all("Error" not in a for a in avisos)
     assert all(a.startswith("[Ministerio de Salud y Protección Social] Aviso:") for a in avisos)
+
+
+# ---- API y scrap() ----
+import threading
+
+import requests
+import responses
+
+from core.scrapers.families.minsalud import _API, ScrapMinSalud, _listar
+from core.scrapers.registry import FAMILY_REGISTRY
+
+_PAGINA2 = "https://www.minsalud.gov.co/_api/pagina2"
+
+
+def _sesion():
+    return requests.Session()
+
+
+@responses.activate
+def test_listar_una_pagina_y_pide_campos_y_top():
+    responses.add(responses.GET, _API, json={"value": [_item(id=1)]})
+    assert [x["ID"] for x in _listar(_sesion())] == [1]
+    url = responses.calls[0].request.url
+    assert "%24top=5000" in url or "$top=5000" in url
+    assert "FileLeafRef" in url
+    assert responses.calls[0].request.headers["Accept"] == "application/json;odata=nometadata"
+
+
+@responses.activate
+def test_listar_sigue_odata_nextlink():
+    responses.add(responses.GET, _API, json={"value": [_item(id=1)], "odata.nextLink": _PAGINA2})
+    responses.add(responses.GET, _PAGINA2, json={"value": [_item(id=2)]})
+    assert [x["ID"] for x in _listar(_sesion())] == [1, 2]
+
+
+@responses.activate
+def test_listar_json_sin_value_es_error():
+    responses.add(responses.GET, _API, json={"error": "cambió"})
+    with pytest.raises(RuntimeError):
+        _listar(_sesion())
+
+
+def test_minsalud_registrada_y_banderas():
+    import core.scrapers.families  # noqa: F401
+    assert FAMILY_REGISTRY["minsalud"].__name__ == "ScrapMinSalud"
+    assert ScrapMinSalud.scheduled_min_lookback_days == 60
+    assert ScrapMinSalud.doc_id_uses_publication_date is False
+    assert ScrapMinSalud.checks_for_republication is True
+
+
+@responses.activate
+def test_scrap_devuelve_documentos_del_rango():
+    responses.add(responses.GET, _API, json={"value": [
+        _item(id=1, archivo="Resolución No 1809 de 2026.pdf", pub="2026-08-05T05:00:00Z"),
+        _item(id=2, tipo="Concepto", archivo="Concepto Jurídico 2026423003321522.pdf", pub="2026-09-21T05:00:00Z"),
+    ]})
+    docs = ScrapMinSalud().scrap(fini="2026-09-01", ffin="2026-09-30")
+    assert [d.title for d in docs] == ["CTO_MSPS_2026423003321522_2026"]
+
+
+@responses.activate
+def test_scrap_rango_antes_del_piso_no_consulta():
+    assert ScrapMinSalud().scrap(fini="2010-01-01", ffin="2014-12-31") == []
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_scrap_error_de_la_api_se_reporta():
+    responses.add(responses.GET, _API, status=500)
+    mensajes = []
+    assert ScrapMinSalud().scrap(fini="2026-01-01", ffin="2026-12-31", on_progress=mensajes.append) == []
+    assert any("Error" in m and "biblioteca de normativa" in m for m in mensajes)
+
+
+@responses.activate
+def test_scrap_respeta_stop_event():
+    ev = threading.Event()
+    ev.set()
+    assert ScrapMinSalud().scrap(fini="2026-01-01", ffin="2026-12-31", stop_event=ev) == []
+    assert len(responses.calls) == 0

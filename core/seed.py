@@ -104,6 +104,11 @@ _FAMILIES = {
         "Normativa (resoluciones, directivas, circulares, memorandos…) y "
         "conceptos publicados por la Procuraduría General de la Nación",
     ),
+    "minsalud": (
+        "Ministerio de Salud y Protección Social",
+        "Resoluciones, circulares, conceptos jurídicos y boletines jurídicos "
+        "publicados por el Ministerio de Salud y Protección Social",
+    ),
 }
 
 
@@ -236,6 +241,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="procuraduria", name="Procuraduría General de la Nación", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="minsalud", name="Ministerio de Salud y Protección Social", family_params={}
     )
 
 

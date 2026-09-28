@@ -263,3 +263,51 @@ def _docs(items: List[dict], desde: str, hasta: str, on_progress) -> List[RawDoc
             save_path=storage_path(_SOURCE, iso, tipo_doc, f"{_safe_title(titulo)}(extension)"),
         ))
     return docs
+
+
+def _listar(session: requests.Session) -> List[dict]:
+    """Lista completa de la biblioteca (una consulta, paginada por
+    odata.nextLink). Lanza si la respuesta no tiene la forma esperada."""
+    url: Optional[str] = _API
+    params: Optional[Dict[str, str]] = {"$top": "5000", "$select": _CAMPOS}
+    items: List[dict] = []
+    while url:
+        resp = session.get(
+            url, params=params, headers={"Accept": "application/json;odata=nometadata"}, timeout=_TIMEOUT
+        )
+        resp.raise_for_status()
+        datos = resp.json()
+        pagina = datos.get("value") if isinstance(datos, dict) else None
+        if not isinstance(pagina, list):
+            raise RuntimeError("la API no devolvió la lista 'value' (¿cambió el sitio?)")
+        items.extend(pagina)
+        url = datos.get("odata.nextLink")
+        params = None  # el nextLink ya trae sus propios parámetros
+    return items
+
+
+@register_family("minsalud")
+class ScrapMinSalud(BaseScrapper):
+    # La mitad de las resoluciones/circulares se sube ~2 días después de su
+    # fecha, pero el 90% hasta ~1 mes después: la corrida diaria mira 60 días.
+    scheduled_min_lookback_days = 60
+    # La identidad es la URL del archivo: la fecha puede reconstruirse distinto
+    # si el sitio completa la fecha de publicación más tarde.
+    doc_id_uses_publication_date = False
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=100000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        desde = max(fini, f"{_ANIO_MIN}-01-01")
+        if desde > ffin or (stop_event is not None and stop_event.is_set()):
+            return []
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        _avisar(on_progress, "Procesando biblioteca de normativa...")
+        try:
+            items = _listar(session)
+        except Exception as e:
+            _avisar(on_progress, f"Error consultando la biblioteca de normativa: {e}")
+            return []
+        return _docs(items, desde, ffin, on_progress)[:limit]
