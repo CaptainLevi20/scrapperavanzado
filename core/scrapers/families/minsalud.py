@@ -94,12 +94,10 @@ def _radicado(texto: Optional[str]) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _mes_boletin(texto: Optional[str], fecha: Optional[datetime.date]) -> Optional[int]:
-    """Mes del boletín: la palabra del mes; si no hay, el número del boletín
-    cuando está entre 1 y 12 (uno por mes); si tampoco, el mes de `fecha`
-    (que el llamador pasa solo cuando NO es la fecha de respaldo 1 de enero)."""
+def _mes_por_palabra(texto: Optional[str]) -> Optional[int]:
+    """La palabra del mes en `texto` (la que aparece más temprano, si hay
+    varias)."""
     n = _norm(texto)
-    # Find all month-word matches and return the one that appears earliest in the text
     earliest_match = None
     earliest_mes = None
     for palabra, mes in _MESES_PALABRA.items():
@@ -107,12 +105,24 @@ def _mes_boletin(texto: Optional[str], fecha: Optional[datetime.date]) -> Option
         if m and (earliest_match is None or m.start() < earliest_match):
             earliest_match = m.start()
             earliest_mes = mes
-    if earliest_mes is not None:
-        return earliest_mes
+    return earliest_mes
+
+
+def _mes_por_numero(texto: Optional[str]) -> Optional[int]:
+    """El número del boletín en `texto`, cuando cae entre 1 y 12 (uno por
+    mes)."""
+    n = _norm(texto)
     m = _NUM_BOLETIN.search(n)
     if m and 1 <= int(m.group(1)) <= 12:
         return int(m.group(1))
-    return fecha.month if fecha is not None else None
+    return None
+
+
+def _mes_boletin(texto: Optional[str], fecha: Optional[datetime.date]) -> Optional[int]:
+    """Mes del boletín: la palabra del mes; si no hay, el número del boletín
+    cuando está entre 1 y 12 (uno por mes); si tampoco, el mes de `fecha`
+    (que el llamador pasa solo cuando NO es la fecha de respaldo 1 de enero)."""
+    return _mes_por_palabra(texto) or _mes_por_numero(texto) or (fecha.month if fecha is not None else None)
 
 
 # El sitio guarda las fechas en UTC; "…T05:00:00Z" es la medianoche en Bogotá.
@@ -150,7 +160,10 @@ def _anio_doc(item: dict) -> int:
 def _fecha_doc(item: dict, anio: int) -> Tuple[datetime.date, bool]:
     """(fecha, es_respaldo). Cascada: Publicación → fecha en prosa de la
     descripción o del título, si es del año del documento → Created, si es del
-    año → 1 de enero del año (respaldo)."""
+    año → respaldo: si `Created` es del año siguiente (documento de fin de año
+    que el Ministerio sube en enero), 31 de diciembre del año del documento —
+    así la corrida diaria de 60 días todavía lo alcanza; en cualquier otro caso
+    (Created de otro año, o ausente), 1 de enero del año."""
     pub = _fecha_local(item.get("Publicaci_x00f3_n"))
     if pub is not None:
         return pub, False
@@ -161,6 +174,8 @@ def _fecha_doc(item: dict, anio: int) -> Tuple[datetime.date, bool]:
     creado = _fecha_local(item.get("Created"))
     if creado is not None and creado.year == anio:
         return creado, False
+    if creado is not None and creado.year == anio + 1:
+        return datetime.date(anio, 12, 31), True
     return datetime.date(anio, 1, 1), True
 
 
@@ -197,7 +212,13 @@ def _titulo(prefijo: str, item: dict, anio: int, fecha: datetime.date, es_respal
             return f"CTO_MSPS_{rad}_{anio}", False
     elif prefijo == "BOL":
         fecha_util = None if es_respaldo else fecha
-        mes = _mes_boletin(archivo, None) or _mes_boletin(titulo_sitio, fecha_util)
+        mes = (
+            _mes_por_palabra(archivo)
+            or _mes_por_palabra(titulo_sitio)
+            or _mes_por_numero(archivo)
+            or _mes_por_numero(titulo_sitio)
+            or (fecha_util.month if fecha_util is not None else None)
+        )
         if mes:
             return f"BOL_MSPS_{_MESES_ABR[mes - 1]}_{anio}", False
     return f"{prefijo}_MSPS_SN{item.get('ID')}_{anio}", True

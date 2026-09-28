@@ -129,7 +129,11 @@ Solo entran archivos (`FSObjType == 0`).
      (`core/fecha_es.parse_fecha_providencia_es`), **si es del año del
      documento**.
   3. `Created` (hora de Colombia), **si es del año del documento**.
-  4. `AAAA-01-01` del año del documento (+ aviso en el registro).
+  4. Respaldo (+ aviso en el registro): si `Created` es del año siguiente al
+     del documento (documento de fin de año que el Ministerio sube en enero),
+     `AAAA-12-31` del año del documento, para que la corrida diaria de 60 días
+     todavía lo alcance; en cualquier otro caso (`Created` de otro año, o
+     ausente), `AAAA-01-01`.
 - Piso y rango de la corrida se aplican sobre esa fecha.
 
 ### Nomenclatura

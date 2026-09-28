@@ -163,8 +163,16 @@ def test_fecha_doc_ignora_prosa_de_otro_anio_y_usa_created():
 
 
 def test_fecha_doc_respaldo_1_de_enero_si_created_es_de_otro_anio():
-    it = _item(anio="2019", creado="2020-01-10T10:00:00Z")
+    it = _item(anio="2019", creado="2021-03-10T10:00:00Z")
     assert _fecha_doc(it, 2019) == (datetime.date(2019, 1, 1), True)
+
+
+def test_fecha_doc_respaldo_31_de_diciembre_si_created_es_de_enero_del_anio_siguiente():
+    # documento de fin de año que el Ministerio sube en enero: la corrida
+    # diaria (60 días) nunca llega al 1 de enero del año anterior, así que el
+    # respaldo debe caer en diciembre del año del documento, no en enero.
+    it = _item(anio="2019", creado="2020-01-10T10:00:00Z")
+    assert _fecha_doc(it, 2019) == (datetime.date(2019, 12, 31), True)
 
 
 # ---- sección ----
@@ -215,6 +223,15 @@ def test_titulo_concepto_y_boletin():
 def test_titulo_boletin_no_usa_la_fecha_de_respaldo_para_el_mes():
     bol = _item(id=40, tipo="Boletines Jurídicos", archivo="Boletín Jurídico especial.pdf")
     assert _titulo("BOL", bol, 2016, datetime.date(2016, 1, 1), True) == ("BOL_MSPS_SN40_2016", True)
+
+
+def test_titulo_boletin_prefiere_palabra_del_mes_del_titulo_sobre_numero_del_archivo():
+    # el "3" del archivo es el número del boletín, no un mes; la palabra del
+    # mes en el título ("mayo") debe ganar antes de probar la regla del
+    # número.
+    it = _item(tipo="Boletines Jurídicos", archivo="Boletín Jurídico No 3.pdf",
+               titulo="Boletín Jurídico de mayo 2020")
+    assert _titulo("BOL", it, 2020, _F, False) == ("BOL_MSPS_MAY_2020", False)
 
 
 def test_titulo_sin_numero_usa_sn_id_y_avisa():
@@ -291,6 +308,17 @@ def test_docs_choques_con_sufijo_por_id_estables_ante_el_rango():
     assert todos == {"2026-08-05": "R_MSPS_1809_2026", "2026-09-21": "R_MSPS_1809_2026_2"}
     [solo] = _docs(items, "2026-09-01", "2026-09-30", None)
     assert solo.title == "R_MSPS_1809_2026_2"
+
+
+def test_docs_documento_de_diciembre_subido_en_enero_queda_en_rango_de_enero():
+    # con el respaldo en 1 de enero, este boletín de diciembre de 2025 (subido
+    # el 15 de enero de 2026) quedaría fuera de una corrida "2025-11-17 a
+    # 2026-01-15"; con el respaldo en 31 de diciembre queda dentro.
+    it = _item(id=50, tipo="Boletines Jurídicos", archivo="Boletín Jurídico No 12 Diciembre 2025.pdf",
+               anio="2025", creado="2026-01-15T10:00:00Z")
+    [d] = _docs([it], "2025-11-17", "2026-01-15", None)
+    assert d.f_public == "2025-12-31"
+    assert d.title == "BOL_MSPS_DIC_2025"
 
 
 def test_docs_avisos_solo_de_documentos_conservados():

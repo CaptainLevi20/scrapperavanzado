@@ -656,11 +656,14 @@ Es seguro repetirlo.
   distintas con el mismo número) los siguientes llevan `_2`, `_3`. Si un
   documento no trae número reconocible queda como `…_SN{número interno}_año`
   con un aviso en el registro (hoy 2 casos).
-- **Ojo con las fechas:** el sitio solo publica la fecha de los documentos
-  de 2023 en adelante. Para los anteriores la fuente usa la fecha escrita en
-  la descripción, o la fecha en que el Ministerio subió el archivo (casi
-  siempre del mismo año); si ninguna sirve, el 1 de enero del año. Por eso,
-  para años viejos, conviene correr la fuente por año completo.
+- **Ojo con las fechas:** resoluciones y circulares traen fecha publicada
+  desde 2023; conceptos y boletines casi nunca la traen. Para esos y para los
+  documentos anteriores a 2023, la fuente usa la fecha escrita en la
+  descripción, o si no, la fecha en que el Ministerio subió el archivo. Los
+  documentos de fin de año que el Ministerio sube en enero quedan con fecha
+  31 de diciembre de su propio año (para que la corrida diaria no se los
+  pierda); si ninguna fecha sirve, quedan con el 1 de enero. Por eso, para
+  años viejos, conviene correr la fuente por año completo.
 - **Corrida diaria:** esta fuente mira los últimos 60 días (no solo los
   últimos días), porque el Ministerio a veces sube los documentos semanas
   después de su fecha.
