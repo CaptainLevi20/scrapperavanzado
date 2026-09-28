@@ -1,14 +1,22 @@
 import datetime
 
 import pytest
+import requests
+import responses
+from responses import matchers
 
 from core.scrapers.families.procuraduria import (
+    _PaginaInesperada,
+    _RELATORIA,
     _con_sufijos,
+    _consultar,
     _fecha_iso,
     _fecha_sirel,
+    _filas,
     _id_de_relid,
     _numero_concepto,
     _numero_normativa,
+    _pie,
     _relid,
     _safe_title,
     _titulo_concepto,
@@ -212,3 +220,142 @@ def test_con_sufijos_estable_ante_subconjuntos_con_ids_mayores():
     despues = _con_sufijos([("T", 100), ("T", 150)])
     assert antes[0] == despues[0] == "T"
     assert despues[1] == "T_2"
+
+
+# ---- helpers de HTML con la forma real del sitio ----
+def _pie_html(n):
+    return (
+        '<div align="center"><table class="adminlist"><tr><td nowrap="true" width="48%" align="center">'
+        f"                       Resultados {1 if n else 0} - {n} de {n}</td></tr></table></div>"
+    )
+
+
+def _html_normativa(filas, total=None, con_pie=True):
+    """filas: (año, tipo, número, temática, corta, larga, fecha, href|None)"""
+    trs = []
+    for anio, tipo, num, tem, corta, larga, fecha, href in filas:
+        tds = "".join(f'<td align="left">\n{c}</td>' for c in (anio, tipo, num, tem, corta, larga, fecha))
+        enlace = (
+            f'<td>\n<a href="{href}" target="_blank">\n<img src="images/icons/down.png"/>\nVer Documento</a>\n</td>'
+            if href else "<td></td>"
+        )
+        trs.append(f"<tr>\n{tds}{enlace}</tr>")
+    n = len(filas) if total is None else total
+    encabezado = (
+        '<tr><th align="left">A&#241;o</th><th>Tipo Documento</th><th>N&#250;mero</th><th>Tem&#225;tica</th>'
+        "<th>Descripci&#243;n Corta</th><th>Descripci&#243;n Larga</th><th>Fecha Documento</th><th></th></tr>"
+    )
+    return (
+        '<html><body><form id="form_process"><table><tr><td>Año</td></tr></table></form>'
+        f'<table class="cms-table">{encabezado}{"".join(trs)}</table>'
+        f'{_pie_html(n) if con_pie else ""}</body></html>'
+    )
+
+
+def _html_sirel(filas, total=None, con_pie=True):
+    """filas: (tipo, número, dependencia, tema, subtema, href, fecha)"""
+    trs = []
+    for tipo, num, dep, tema, sub, href, fecha in filas:
+        trs.append(
+            "<tr>"
+            + "".join(f'<td align="left">\n{c}</td>' for c in (tipo, num, dep, tema, sub))
+            + f'<td>\n<a href="{href}" target="_blank">\n<img src="images/icons/down.png"/>\nDocumento</a>\n</td>'
+            + f'<td align="left">\n{fecha}</td></tr>'
+        )
+    n = len(filas) if total is None else total
+    encabezado = (
+        "<tr><th>Tipo Documento</th><th>N&#250;mero</th><th>Dependencia</th><th>Tema</th>"
+        "<th>Subtema</th><th>Doc.</th><th>Fecha</th></tr>"
+    )
+    return (
+        f'<html><body><form id="form_process"></form><table class="cms-table">{encabezado}{"".join(trs)}</table>'
+        f'{_pie_html(n) if con_pie else ""}</body></html>'
+    )
+
+
+_HREF_REL = "https://www.procuraduria.gov.co/sim/relatoria/.webdocumento?accion=verDocumentoRel&relId={}&mode=inline"
+
+
+def _href_cto(doc_id):
+    return (
+        "https://www.procuraduria.gov.co/sim/relatoria/.webdocumento?accion=verDocumentoWeb"
+        f"&elementId=PRODUCCION/RELATO_DATA_TYPE/2026/08/26/x{doc_id}.docx&docId={doc_id}"
+        "&mode=1#page=inline,,toolbar=no,location=no"
+    )
+
+
+# ---- lectura de tabla ----
+def test_pie_lee_total():
+    assert _pie(_html_normativa([], total=84)) == 84
+    assert _pie(_html_normativa([])) == 0
+
+
+def test_pie_none_sin_pie():
+    assert _pie("<html><body>Página Web No Disponible!</body></html>") is None
+
+
+def test_filas_salta_encabezado_y_devuelve_celdas_y_href():
+    html = _html_normativa([
+        ("2025", "Directiva", "21", "Funciones de la Entidad", "Ley de Cuotas", "Cumplimiento…", "2025-12-19",
+         _HREF_REL.format("MjQ0MTg1")),
+        ("2018", "Circular", "7", "Funciones de la Entidad", "Apoyo Consular", "A ciudadanos…", "2018-10-23", None),
+    ])
+    filas = _filas(html)
+    assert len(filas) == 2
+    assert filas[0][0][:3] == ["2025", "Directiva", "21"]
+    assert filas[0][1] == _HREF_REL.format("MjQ0MTg1")
+    assert filas[1][1] is None
+
+
+def test_filas_vacio_sin_tabla():
+    assert _filas("<html><body></body></html>") == []
+
+
+# ---- consulta paginada ----
+def _sesion():
+    s = requests.Session()
+    s.headers.update({"User-Agent": "x"})
+    return s
+
+
+@responses.activate
+def test_consultar_una_pagina():
+    html = _html_normativa([("2025", "Circular", "1", "t", "c", "l", "2025-01-02", _HREF_REL.format("MQ=="))])
+    responses.add(responses.GET, _RELATORIA, body=html)
+    filas = _consultar(_sesion(), {"anio": "2025"})
+    assert len(filas) == 1
+    q = responses.calls[0].request.url
+    assert "anio=2025" in q and "max_results=" in q and "first_result=0" in q
+
+
+@responses.activate
+def test_consultar_pagina_hasta_el_total(monkeypatch):
+    import core.scrapers.families.procuraduria as mod
+    monkeypatch.setattr(mod, "_PAGINA", 2)
+    f = lambda i: ("2025", "Circular", str(i), "t", "c", "l", "2025-01-02", _HREF_REL.format(f"id{i}"))
+    responses.add(responses.GET, _RELATORIA, body=_html_normativa([f(1), f(2)], total=3),
+                  match=[matchers.query_param_matcher({"first_result": "0"}, strict_match=False)])
+    responses.add(responses.GET, _RELATORIA, body=_html_normativa([f(3)], total=3),
+                  match=[matchers.query_param_matcher({"first_result": "2"}, strict_match=False)])
+    assert [c[2] for c, _ in _consultar(_sesion(), {"anio": "2025"})] == ["1", "2", "3"]
+
+
+@responses.activate
+def test_consultar_vacio_legitimo():
+    responses.add(responses.GET, _RELATORIA, body=_html_normativa([]))
+    assert _consultar(_sesion(), {"anio": "2027"}) == []
+
+
+@responses.activate
+def test_consultar_sin_pie_es_pagina_inesperada():
+    responses.add(responses.GET, _RELATORIA, body="<html><body>Página Web No Disponible!</body></html>")
+    with pytest.raises(_PaginaInesperada):
+        _consultar(_sesion(), {"anio": "2025"})
+
+
+@responses.activate
+def test_consultar_conteo_que_no_cuadra_es_pagina_inesperada():
+    html = _html_normativa([("2025", "Circular", "1", "t", "c", "l", "2025-01-02", _HREF_REL.format("MQ=="))], total=5)
+    responses.add(responses.GET, _RELATORIA, body=html)
+    with pytest.raises(_PaginaInesperada):
+        _consultar(_sesion(), {"anio": "2025"})

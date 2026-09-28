@@ -222,3 +222,57 @@ def _con_sufijos(pares: List[Tuple[str, int]]) -> List[str]:
         for k, i in enumerate(orden[1:], start=2):
             salida[i] = f"{titulo}_{k}"
     return salida
+
+
+# ---- lectura de tabla HTML y consulta paginada ----
+_PIE_RE = re.compile(r"Resultados\s+\d+\s*-\s*\d+\s+de\s+(\d+)")
+
+
+def _pie(html: str) -> Optional[int]:
+    m = _PIE_RE.search(html or "")
+    return int(m.group(1)) if m else None
+
+
+def _filas(html: str) -> List[Tuple[List[str], Optional[str]]]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    tabla = soup.find("table", class_="cms-table")
+    if tabla is None:
+        return []
+    out = []
+    for tr in tabla.find_all("tr"):
+        tds = tr.find_all("td")
+        if not tds:  # fila de encabezado (<th>)
+            continue
+        a = tr.find("a", href=True)
+        out.append(([td.get_text(" ", strip=True) for td in tds], a["href"].strip() if a else None))
+    return out
+
+
+class _PaginaInesperada(RuntimeError):
+    pass
+
+
+def _consultar(session: requests.Session, params: dict) -> List[Tuple[List[str], Optional[str]]]:
+    filas: List[Tuple[List[str], Optional[str]]] = []
+    primero = 0
+    while True:
+        resp = session.get(
+            _RELATORIA,
+            params={**params, "max_results": _PAGINA, "first_result": primero},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        total = _pie(resp.text)
+        if total is None:
+            raise _PaginaInesperada(
+                "la respuesta no trae el pie 'Resultados … de N' "
+                "(¿bloqueo, reCAPTCHA exigido o cambio del sitio?)"
+            )
+        pagina = _filas(resp.text)
+        filas.extend(pagina)
+        primero += _PAGINA
+        if not pagina or len(filas) >= total or primero >= total:
+            break
+    if len(filas) != total:
+        raise _PaginaInesperada(f"se leyeron {len(filas)} filas de {total}")
+    return filas
