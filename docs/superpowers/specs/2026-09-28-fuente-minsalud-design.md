@@ -120,7 +120,7 @@ Solo entran archivos (`FSObjType == 0`).
 ### Año y fecha
 
 - **Año del documento:** la columna `Año` (primeros 4 dígitos). Si está
-  vacía, el último año de 4 dígitos (1990–año actual) del nombre del
+  vacía, el último año de 4 dígitos (1990 hasta el año siguiente al actual, la misma tolerancia de Procuraduría) del nombre del
   archivo; si tampoco, el año de `Created`.
 - **Fecha** (`f_public` = `f_providencia`), en cascada:
   1. `Publicación` (se toma la fecha en hora de Colombia: el sitio guarda
