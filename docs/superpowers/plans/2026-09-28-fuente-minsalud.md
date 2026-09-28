@@ -156,7 +156,8 @@ from core.scrapers.families.minsalud import (
 
 
 def test_norm_quita_acentos_y_minusculas():
-    assert _norm("Resolución JURÍDICO Nº") == "resolucion juridico nº"
+    # NFKD convierte el ordinal "º" en "o": "Nº" queda "no", que el marcador de número ya reconoce
+    assert _norm("Resolución JURÍDICO Nº") == "resolucion juridico no"
 
 
 def test_sin_extension():
