@@ -612,10 +612,15 @@ Es seguro repetirlo.
   corrida mostrará errores "Error consultando Normativa/Conceptos …" con 0
   documentos: en ese caso **se pausa la fuente** (no se intenta saltar el
   reCAPTCHA).
-- **Detalle técnico:** certificado válido (sin saltarse la validación). Los
-  enlaces de Normativa que el sitio publica en `apps.procuraduria.gov.co`
-  dan error; la fuente los descarga siempre desde `www.procuraduria.gov.co`.
-  Los conceptos llegan en Word (.doc/.docx).
+- **Detalle técnico:** el sitio donde se consulta (`apps.procuraduria.gov.co`)
+  entrega su certificado de seguridad incompleto, así que —igual que en la
+  SSF, la SNR, Supersolidaria, la Corte Constitucional y la CNDJ— la fuente
+  se salta la validación del certificado para esas consultas; sin eso el
+  sitio no responde y la fuente entrega 0 documentos. Las descargas de los
+  documentos sí se hacen con la validación normal: los enlaces de Normativa
+  que el sitio publica en `apps.procuraduria.gov.co` dan error, así que la
+  fuente los descarga siempre desde `www.procuraduria.gov.co`, que valida su
+  certificado sin problema. Los conceptos llegan en Word (.doc/.docx).
 - **Fuente nueva:** después de actualizar producción, correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.

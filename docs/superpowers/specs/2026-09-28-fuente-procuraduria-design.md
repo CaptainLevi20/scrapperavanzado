@@ -20,7 +20,15 @@ Familia técnica nueva: `procuraduria`, sigla `PGN`.
   (`HeadlessChrome`) recibe una página de bloqueo ("Página Web No
   Disponible!") en `www.procuraduria.gov.co`. Con un agente de usuario de
   Chrome normal pasa. `requests` con un `User-Agent` de navegador funciona en
-  ambos hosts. **TLS válido, sin `verify=False`.**
+  ambos hosts.
+- **`apps.procuraduria.gov.co` (las consultas de Normativa y SIREL) entrega su
+  cadena TLS incompleta** (le falta el intermediario "GeoTrust EV RSA CA G2"),
+  verificado con `openssl`: `certifi`/`requests` no pueden validarla y fallan
+  con `CERTIFICATE_VERIFY_FAILED`. Igual que en la SSF, la SNR, Supersolidaria,
+  la Corte Constitucional y la CNDJ, la sesión de consultas usa `verify=False`.
+  `www.procuraduria.gov.co` (las descargas de los documentos) **sí** valida
+  bien y no lleva `verify=False` — el `link` de cada documento no trae la
+  clave `"verify"`.
 - Ambos buscadores (Normativa y SIREL) **muestran un reCAPTCHA** en el
   formulario, pero el servidor **no lo exige**: los enlaces de paginación que
   el propio sitio pone bajo la tabla son `GET` planos y devuelven resultados.
@@ -111,7 +119,11 @@ Familia técnica nueva: `procuraduria`, sigla `PGN`.
   Nación").
 - Transporte: `requests` con `User-Agent` de navegador y peticiones en
   serie (una a la vez, como las demás familias; ninguna usa
-  `core/rate_limit.py`). `verify` por defecto (TLS válido).
+  `core/rate_limit.py`). La sesión de consultas usa `verify=False` — la
+  cadena TLS de `apps.procuraduria.gov.co` llega incompleta (ver
+  "Estructura del sitio" arriba). Las descargas van a
+  `www.procuraduria.gov.co`, que sí valida bien, así que el `link` de cada
+  documento no lleva `verify=False`.
 - Consultas paginadas por seguridad: se piden páginas de `_PAGINA` filas
   (`first_result` += `_PAGINA`) hasta completar el total del pie
   "Resultados … de M" (hoy un año de conceptos cabe en una sola página).

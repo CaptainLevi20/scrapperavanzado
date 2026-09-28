@@ -21,7 +21,11 @@
 - Conceptos: `CTO_PGN_{consecutivo:07d}_{año}`; sin dígitos → `CTO_PGN_SN{docId}_{año de la fecha}`.
 - Choques de título: `_2`, `_3`… ordenados por id interno del sitio ascendente, calculados sobre el año completo consultado.
 - **Nunca** intentar resolver o saltar el reCAPTCHA; respuesta sin pie `Resultados … de N` → mensaje con la palabra `Error` (se convierte en error visible de la corrida) y la sección/año sigue con el siguiente.
-- TLS válido: **no** usar `verify=False`.
+- `apps.procuraduria.gov.co` (las consultas) entrega su cadena TLS incompleta
+  (le falta el intermediario "GeoTrust EV RSA CA G2"): la sesión de consultas
+  usa `verify=False`, igual que la SSF, la SNR, Supersolidaria, la Corte
+  Constitucional y la CNDJ. `www.procuraduria.gov.co` (las descargas) sí
+  valida bien; el `link` de cada documento **no** lleva `verify=False`.
 - `doc_id_uses_publication_date = False`; `checks_for_republication` queda en `True` (por defecto).
 - Mensajes de progreso con prefijo `[Procuraduría General de la Nación]`; avisos con `Aviso:`, errores con `Error` (el worker solo convierte en error los que contienen "Error").
 - Comentarios y mensajes en español, como el resto de familias.

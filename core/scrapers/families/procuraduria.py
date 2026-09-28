@@ -12,6 +12,13 @@ real es esta aplicación Java. Ambos buscadores MUESTRAN un reCAPTCHA que el
 servidor no exige para los GET de paginación que el propio sitio enlaza. Si
 algún día lo exige, la respuesta llega sin el pie "Resultados … de N" y la
 sección registra un Error — nunca se intenta resolver ni saltar el reCAPTCHA.
+
+apps.procuraduria.gov.co (las consultas) entrega su certificado TLS sin el
+intermediario "GeoTrust EV RSA CA G2" — certifi no puede validar la cadena, y
+`requests` falla con CERTIFICATE_VERIFY_FAILED. Igual que en la SSF, la SNR,
+Supersolidaria, la Corte Constitucional y la CNDJ, la sesión de consultas
+usa verify=False. www.procuraduria.gov.co (las descargas) SÍ valida bien y no
+lleva verify=False — el link de cada documento no trae la clave "verify".
 """
 import base64
 import datetime
@@ -21,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.fecha_es import _MESES
@@ -29,6 +37,10 @@ from core.naming import codigo_ley_decreto
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
+
+# Ver nota al inicio del módulo: la cadena TLS de apps.procuraduria.gov.co
+# está incompleta, así que la sesión de consultas se crea con verify=False.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _SOURCE = "Procuraduría General de la Nación"
 _ANIO_MIN = 2015
@@ -435,6 +447,10 @@ class ScrapProcuraduria(BaseScrapper):
             return docs
         anios = range(int(desde[:4]), int(ffin[:4]) + 1)
         session = requests.Session()
+        # Cadena TLS incompleta de apps.procuraduria.gov.co; ver nota al
+        # inicio del módulo. Solo afecta esta sesión de consultas — las
+        # descargas van a www.procuraduria.gov.co y validan normalmente.
+        session.verify = False
         session.headers.update({"User-Agent": _UA})
 
         def parar() -> bool:

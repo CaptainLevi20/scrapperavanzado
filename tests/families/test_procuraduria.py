@@ -654,3 +654,31 @@ def test_scrap_respeta_stop_event():
     ev.set()
     assert ScrapProcuraduria().scrap(fini="2025-01-01", ffin="2025-12-31", stop_event=ev) == []
     assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_scrap_salta_verificacion_tls_solo_en_la_sesion_de_consultas(monkeypatch):
+    # apps.procuraduria.gov.co (las consultas) entrega una cadena TLS
+    # incompleta -> la sesión de consultas debe crearse con verify=False.
+    # www.procuraduria.gov.co (las descargas) valida bien, así que los
+    # enlaces de los documentos NO deben llevar la clave "verify".
+    import core.scrapers.families.procuraduria as mod
+
+    instancias = []
+
+    class _SesionRegistrada(requests.Session):
+        def __init__(self):
+            super().__init__()
+            instancias.append(self)
+
+    monkeypatch.setattr(mod.requests, "Session", _SesionRegistrada)
+
+    _registrar_normativa(2025, _html_normativa([_fn("2025", "Resolución", "338", "2025-11-21", _b64(244004))]))
+    _registrar_conceptos("CONCEPTO", 2025, _html_sirel([]))
+    _registrar_conceptos("CONCEPTO (MISIONAL)", 2025, _html_sirel([_fc("97-2025", "243100", "martes, 18 noviembre 2025")]))
+
+    docs = ScrapProcuraduria().scrap(fini="2025-11-01", ffin="2025-11-30")
+
+    assert len(instancias) == 1
+    assert instancias[0].verify is False
+    assert docs and all("verify" not in d.link for d in docs)
