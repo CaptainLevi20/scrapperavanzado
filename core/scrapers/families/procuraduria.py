@@ -127,3 +127,79 @@ def _titulo_normativa(tipo: str, numero: str, anio: int, id_interno: int) -> Tup
     if prefijo is None:
         return f"{_PREFIJO_DESCONOCIDO}_PGN_{num}_{anio}", True
     return f"{prefijo}_PGN_{num}_{anio}", False
+
+
+def _fecha_iso(texto: str) -> Optional[datetime.date]:
+    try:
+        return datetime.date.fromisoformat((texto or "").strip())
+    except ValueError:
+        return None
+
+
+# SIREL escribe la fecha en prosa con el día de la semana y SIN "de":
+# "jueves, 30 julio 2026" (core.fecha_es exige "de" antes del año, por eso
+# este patrón propio reusa solo su tabla de meses).
+_FECHA_SIREL = re.compile(
+    r"(\d{1,2})\s+(" + "|".join(_MESES) + r")\s+(?:de\s+)?(\d{4})", re.IGNORECASE
+)
+
+
+def _fecha_sirel(texto: str) -> Optional[datetime.date]:
+    m = _FECHA_SIREL.search(texto or "")
+    if not m:
+        return None
+    try:
+        return datetime.date(int(m.group(3)), _MESES[m.group(2).lower()], int(m.group(1)))
+    except ValueError:
+        return None
+
+
+def _anio_plausible(a: int) -> bool:
+    return 1990 <= a <= datetime.date.today().year + 1
+
+
+def _normalizar_numero_concepto(numero: str) -> str:
+    s = unicodedata.normalize("NFC", numero or "").upper()
+    s = re.sub(r"\bCONCEPTO\b", " ", s)
+    s = re.sub(r"\bN[Oº°]?\s*\.", " ", s)   # "N.", "NO.", "Nº."
+    s = re.sub(r"\bN[Oº°]\b", " ", s)       # "NO", "Nº"
+    s = re.sub(r"[^A-Z0-9/\- ]", " ", s)    # codificación rota, comillas, puntos
+    s = re.sub(r"\s*([/-])\s*", r"\1", s)
+    return " ".join(s.split()).strip("-/ ")
+
+
+_NUM_ANIO_FINAL = re.compile(r"^(?:[A-Z]{1,2}-?)?(\d+)\s*(?:[/-]|DE\b)\s*(\d{4})$")
+_NUM_ANIO_INICIAL = re.compile(r"^(?:[A-Z]{1,2}-?)?(\d{4})[/-](\d+)$")
+_NUM_ANIO_CORTO = re.compile(r"^(\d{2})[/-](\d+)$")
+_NUM_SOLO = re.compile(r"^(?:[A-Z]{1,2}-?)?(\d+)$")
+
+
+def _numero_concepto(numero: str, anio_fecha: int) -> Optional[Tuple[int, int, bool]]:
+    """(consecutivo, año, aviso) según las reglas del diseño; None si el número
+    no trae ningún dígito. `aviso` = True cuando se cayó a la regla 5 (se tomó
+    el primer grupo de dígitos a ciegas)."""
+    s = _normalizar_numero_concepto(numero)
+    m = _NUM_ANIO_FINAL.match(s)
+    if m and _anio_plausible(int(m.group(2))):
+        return int(m.group(1)), int(m.group(2)), False
+    m = _NUM_ANIO_INICIAL.match(s)
+    if m and _anio_plausible(int(m.group(1))):
+        return int(m.group(2)), int(m.group(1)), False
+    m = _NUM_ANIO_CORTO.match(s)
+    if m and m.group(1) == f"{anio_fecha % 100:02d}":
+        return int(m.group(2)), anio_fecha, False
+    m = _NUM_SOLO.match(s)
+    if m:
+        return int(m.group(1)), anio_fecha, False
+    m = re.search(r"\d+", s)
+    if m:
+        return int(m.group(0)), anio_fecha, True
+    return None
+
+
+def _titulo_concepto(numero: str, fecha: datetime.date, doc_id: str) -> Tuple[str, bool]:
+    r = _numero_concepto(numero, fecha.year)
+    if r is None:
+        return f"CTO_PGN_SN{doc_id}_{fecha.year}", False
+    consecutivo, anio, aviso = r
+    return f"CTO_PGN_{consecutivo:07d}_{anio}", aviso

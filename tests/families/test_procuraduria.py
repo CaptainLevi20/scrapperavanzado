@@ -3,10 +3,14 @@ import datetime
 import pytest
 
 from core.scrapers.families.procuraduria import (
+    _fecha_iso,
+    _fecha_sirel,
     _id_de_relid,
+    _numero_concepto,
     _numero_normativa,
     _relid,
     _safe_title,
+    _titulo_concepto,
     _titulo_normativa,
     _url_normativa,
 )
@@ -93,3 +97,90 @@ def test_titulo_normativa_sin_numero_usa_sn_id():
 
 def test_safe_title_reemplaza_caracteres_invalidos():
     assert _safe_title('C_PGN_1/2"3_2016') == "C_PGN_1-2-3_2016"
+
+
+# ---- fechas ----
+def test_fecha_iso():
+    assert _fecha_iso("2025-12-19") == datetime.date(2025, 12, 19)
+    assert _fecha_iso(" 2025-12-19 ") == datetime.date(2025, 12, 19)
+
+
+def test_fecha_iso_none():
+    assert _fecha_iso("") is None
+    assert _fecha_iso("2025-02-30") is None
+    assert _fecha_iso("19/12/2025") is None
+
+
+def test_fecha_sirel_prosa_con_dia_de_semana():
+    assert _fecha_sirel("jueves, 30 julio 2026") == datetime.date(2026, 7, 30)
+    assert _fecha_sirel("miércoles, 9 septiembre 2026") == datetime.date(2026, 9, 9)
+    assert _fecha_sirel("sábado, 12 junio 2010") == datetime.date(2010, 6, 12)
+
+
+def test_fecha_sirel_none():
+    assert _fecha_sirel("") is None
+    assert _fecha_sirel("jueves, 31 febrero 2026") is None
+
+
+# ---- número de concepto ----
+@pytest.mark.parametrize("crudo,anio_fecha,esperado", [
+    # regla 1: consecutivo + separador + año de 4 dígitos al final
+    ("236-2026", 2026, (236, 2026, False)),
+    ("004 - 2025", 2025, (4, 2025, False)),
+    ("97-2025", 2025, (97, 2025, False)),
+    ("119 de 2016", 2016, (119, 2016, False)),
+    ("263/2025", 2025, (263, 2025, False)),
+    ("CONCEPTO 159 - 2026", 2026, (159, 2026, False)),
+    ("Concepto No. 12-2016", 2016, (12, 2016, False)),
+    ("concepto No 999 de 2016", 2016, (999, 2016, False)),
+    ("C -160-2026", 2026, (160, 2026, False)),
+    ("C- 175-2025", 2025, (175, 2025, False)),
+    ("236-2026.", 2026, (236, 2026, False)),
+    ("123DE 2025", 2025, (123, 2025, False)),
+    # regla 2: año de 4 dígitos al inicio
+    ("2025-525", 2025, (525, 2025, False)),
+    ("2019-430944", 2022, (430944, 2019, False)),
+    ("CONCEPTO E-2021-671179", 2026, (671179, 2021, False)),
+    # regla 3: año de 2 dígitos al inicio que coincide con la fecha
+    ("16-158", 2016, (158, 2016, False)),
+    ("CONCEPTO 16-34", 2016, (34, 2016, False)),
+    # regla 4: referencia C-/D- o número solo -> año de la fecha
+    ("C-6194", 2016, (6194, 2016, False)),
+    ("D-1234", 2016, (1234, 2016, False)),
+    ("393", 2025, (393, 2025, False)),
+    ("Concepto N. 00023", 2016, (23, 2016, False)),
+    ("CONCEPTO Nº 061", 2025, (61, 2025, False)),
+    # regla 5: cualquier otra cosa con dígitos -> primer grupo + aviso
+    ("SIN 5", 2025, (5, 2025, True)),
+    ("Concepto Ã¿Â¿Ã¿Â¿ 061", 2025, (61, 2025, False)),
+    ("16-158", 2020, (16, 2020, True)),
+])
+def test_numero_concepto(crudo, anio_fecha, esperado):
+    assert _numero_concepto(crudo, anio_fecha) == esperado
+
+
+@pytest.mark.parametrize("crudo", ["", "   ", "CONCEPTO", "Sin número"])
+def test_numero_concepto_none_sin_digitos(crudo):
+    assert _numero_concepto(crudo, 2025) is None
+
+
+def test_numero_concepto_no_toma_anio_fuera_de_rango_como_anio():
+    # "2025-1234": 1234 no es un año plausible -> regla 2 (año al inicio)
+    assert _numero_concepto("2025-1234", 2025) == (1234, 2025, False)
+
+
+# ---- título de concepto ----
+def test_titulo_concepto_rellena_a_7():
+    assert _titulo_concepto("236-2026", datetime.date(2026, 9, 9), "245582") == ("CTO_PGN_0000236_2026", False)
+
+
+def test_titulo_concepto_mas_de_7_digitos_se_deja():
+    assert _titulo_concepto("2019-12345678", datetime.date(2022, 3, 10), "1") == ("CTO_PGN_12345678_2019", False)
+
+
+def test_titulo_concepto_sin_numero_usa_sn_docid():
+    assert _titulo_concepto("", datetime.date(2025, 5, 2), "245408") == ("CTO_PGN_SN245408_2025", False)
+
+
+def test_titulo_concepto_propaga_aviso():
+    assert _titulo_concepto("SIN 5", datetime.date(2025, 5, 2), "9") == ("CTO_PGN_0000005_2025", True)
