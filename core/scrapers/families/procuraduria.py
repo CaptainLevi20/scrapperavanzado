@@ -72,13 +72,16 @@ _PREFIJOS = {
     "resolucion": "R",
     "directiva": "DIR",
     "directiva conjunta": "DIR",
+    "directiva unificada": "DIR",
     "circular": "C",
     "circular conjunta": "C",
+    "circular externa": "C",
     "memorando": "M",
     "carta circular": "CCIR",
     "instructivo": "INS",
     "acuerdo": "A",
     "protocolo": "PRO",
+    "manual": "MAN",
 }
 _PREFIJO_DESCONOCIDO = "DOC"
 

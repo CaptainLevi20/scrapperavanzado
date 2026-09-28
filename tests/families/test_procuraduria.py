@@ -93,6 +93,9 @@ def test_numero_normativa(crudo, esperado):
     ("Instructivo", "3", 2024, "INS_PGN_0003_2024"),
     ("Acuerdo", "1", 2019, "A_PGN_0001_2019"),
     ("Protocolo", "1", 2022, "PRO_PGN_0001_2022"),
+    ("Circular Externa", "100-009", 2020, "C_PGN_100-009_2020"),
+    ("Directiva Unificada", "1", 2019, "DIR_PGN_0001_2019"),
+    ("Manual", "4", 2020, "MAN_PGN_0004_2020"),
     ("Circular", "7A", 2012, "C_PGN_0007A_2012"),
     ("Decreto", "262", 2000, "D0262000"),
 ])
@@ -101,7 +104,7 @@ def test_titulo_normativa(tipo, numero, anio, esperado):
 
 
 def test_titulo_normativa_tipo_desconocido_usa_doc_y_avisa():
-    assert _titulo_normativa("Manual", "4", 2020, id_interno=1) == ("DOC_PGN_0004_2020", True)
+    assert _titulo_normativa("Constitución", "4", 2020, id_interno=1) == ("DOC_PGN_0004_2020", True)
 
 
 def test_titulo_normativa_sin_numero_usa_sn_id():
@@ -471,10 +474,10 @@ def test_docs_normativa_filtra_por_rango_y_piso():
 
 def test_docs_normativa_tipo_desconocido_avisa():
     avisos = []
-    html = _html_normativa([_fn("2021", "Manual", "4", "2021-05-05", _b64(9))])
+    html = _html_normativa([_fn("2021", "Constitución", "4", "2021-05-05", _b64(9))])
     [d] = _docs_normativa(_filas(html), 2021, "2015-01-01", "2021-12-31", avisos.append)
     assert d.title == "DOC_PGN_0004_2021"
-    assert any("Aviso" in a and "Manual" in a for a in avisos)
+    assert any("Aviso" in a and "Constitución" in a for a in avisos)
     assert not any("Error" in a for a in avisos)
 
 
@@ -483,8 +486,8 @@ def test_docs_normativa_aviso_solo_de_filas_dentro_del_rango():
     # piso 2015) y otra dentro. Solo la segunda debe pasar el filtro y avisar.
     avisos = []
     html = _html_normativa([
-        _fn("2010", "Manual", "4", "2010-05-05", _b64(1)),
-        _fn("2021", "Manual", "9", "2021-05-05", _b64(2)),
+        _fn("2010", "Constitución", "4", "2010-05-05", _b64(1)),
+        _fn("2021", "Constitución", "9", "2021-05-05", _b64(2)),
     ])
     docs = _docs_normativa(_filas(html), 2021, "2015-01-01", "2021-12-31", avisos.append)
     assert [d.title for d in docs] == ["DOC_PGN_0009_2021"]

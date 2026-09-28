@@ -598,9 +598,10 @@ Es seguro repetirlo.
   conceptos (≈600–800 por año). La primera corrida completa de conceptos es
   larga; las siguientes solo traen lo nuevo.
 - **Cómo quedan nombrados:** `R_PGN_0338_2025` (resolución), `DIR_PGN_0021_2025`
-  (directiva y directiva conjunta), `C_PGN_0012_2025` (circular y circular
-  conjunta), `M_PGN_0002_2026` (memorando), `CCIR_…` (carta circular),
-  `INS_…` (instructivo), `A_…` (acuerdo), `PRO_…` (protocolo); el decreto usa
+  (directiva, directiva conjunta y directiva unificada), `C_PGN_0012_2025`
+  (circular, circular conjunta y circular externa), `M_PGN_0002_2026`
+  (memorando), `CCIR_…` (carta circular), `INS_…` (instructivo), `A_…`
+  (acuerdo), `PRO_…` (protocolo), `MAN_…` (manual); el decreto usa
   el código común de ministerios (`D0262000`). Conceptos:
   `CTO_PGN_0000236_2026` (consecutivo a 7 dígitos + año); sin número:
   `CTO_PGN_SN245408_2025` (número interno de SIREL). Cada dependencia numera

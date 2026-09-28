@@ -187,13 +187,14 @@ Familia técnica nueva: `procuraduria`, sigla `PGN`.
 | Tipo del sitio | Prefijo |
 |---|---|
 | Resolución | `R` |
-| Directiva, Directiva Conjunta | `DIR` |
-| Circular, Circular Conjunta | `C` |
+| Directiva, Directiva Conjunta, Directiva Unificada | `DIR` |
+| Circular, Circular Conjunta, Circular Externa | `C` |
 | Memorando | `M` |
 | Carta circular (si aparece) | `CCIR` |
 | Instructivo | `INS` |
 | Acuerdo | `A` |
 | Protocolo | `PRO` |
+| Manual | `MAN` |
 | Decreto | código común `codigo_ley_decreto("D", …)` → `D0262000` (dedup entre fuentes de ministerios, igual que allí) |
 | Cualquier otro tipo | `DOC` + aviso en el log de la corrida |
 
