@@ -99,6 +99,11 @@ _FAMILIES = {
         "conjuntas, cartas circulares y conceptos jurídicos y contables) "
         "publicada por la Superintendencia de la Economía Solidaria",
     ),
+    "procuraduria": (
+        "Procuraduría General de la Nación",
+        "Normativa (resoluciones, directivas, circulares, memorandos…) y "
+        "conceptos publicados por la Procuraduría General de la Nación",
+    ),
 }
 
 
@@ -227,6 +232,10 @@ def seed_source_families_and_sources(db) -> None:
     repository.create_source_if_missing(
         db, family_key="supersolidaria",
         name="Superintendencia de la Economía Solidaria", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="procuraduria", name="Procuraduría General de la Nación", family_params={}
     )
 
 

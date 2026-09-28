@@ -417,3 +417,51 @@ def _docs_conceptos(filas, anio_consulta: int, desde: str, hasta: str, on_progre
         detalle = "; ".join(x for x in [g["dependencia"], *g["temas"]] if x)
         docs.append(_armar(titulo, "Concepto", "Conceptos", fecha, g["url"], detalle))
     return docs
+
+
+@register_family("procuraduria")
+class ScrapProcuraduria(BaseScrapper):
+    # relId / docId son estables y la fecha del sitio se ha visto corregida
+    # entre listados: la identidad es solo el enlace canónico.
+    doc_id_uses_publication_date = False
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=100000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        docs: List[RawDocModel] = []
+        desde = max(fini, f"{_ANIO_MIN}-01-01")
+        if desde > ffin:
+            return docs
+        anios = range(int(desde[:4]), int(ffin[:4]) + 1)
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+
+        def parar() -> bool:
+            return stop_event is not None and stop_event.is_set()
+
+        for anio in anios:
+            if parar():
+                return docs[:limit]
+            _avisar(on_progress, f"Procesando Normativa {anio}...")
+            try:
+                filas = _consultar(session, _params_normativa(anio))
+            except Exception as e:
+                _avisar(on_progress, f"Error consultando Normativa {anio}: {e}")
+                continue
+            docs.extend(_docs_normativa(filas, anio, desde, ffin, on_progress))
+
+        for anio in anios:
+            if parar():
+                return docs[:limit]
+            _avisar(on_progress, f"Procesando Conceptos {anio}...")
+            try:
+                filas = []
+                for tipo in _TIPOS_CONCEPTO:
+                    filas.extend(_consultar(session, _params_conceptos(tipo, f"{anio}-01-01", f"{anio}-12-31")))
+            except Exception as e:
+                _avisar(on_progress, f"Error consultando Conceptos {anio}: {e}")
+                continue
+            docs.extend(_docs_conceptos(filas, anio, desde, ffin, on_progress))
+
+        return docs[:limit]

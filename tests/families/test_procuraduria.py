@@ -551,3 +551,106 @@ def test_docs_conceptos_numero_raro_avisa_sin_error():
 def test_docs_conceptos_ignora_filas_sin_docid():
     html = _html_sirel([("CONCEPTO", "1-2025", _DEP, "T", "S", "https://otro.sitio/x.pdf", "lunes, 10 marzo 2025")])
     assert _docs_conceptos(_filas(html), 2025, "2015-01-01", "2025-12-31", None) == []
+
+
+# ---- scrap() completo ----
+import threading
+
+from core.scrapers.families.procuraduria import ScrapProcuraduria
+from core.scrapers.registry import FAMILY_REGISTRY
+
+
+def _registrar_normativa(anio, html):
+    responses.add(responses.GET, _RELATORIA, body=html, match=[
+        matchers.query_param_matcher({"action": "consultar_normatividad", "anio": str(anio)}, strict_match=False)
+    ])
+
+
+def _registrar_conceptos(tipo, anio, html):
+    responses.add(responses.GET, _RELATORIA, body=html, match=[
+        matchers.query_param_matcher(
+            {"action": "consultar_area", "tipo_documento": tipo,
+             "fecha_inicial": f"{anio}-01-01", "fecha_final": f"{anio}-12-31"},
+            strict_match=False,
+        )
+    ])
+
+
+def test_procuraduria_registrada():
+    import core.scrapers.families  # noqa: F401
+    assert FAMILY_REGISTRY["procuraduria"].__name__ == "ScrapProcuraduria"
+
+
+def test_identidad_no_usa_fecha_y_revisa_republicacion():
+    assert ScrapProcuraduria.doc_id_uses_publication_date is False
+    assert ScrapProcuraduria.checks_for_republication is True
+
+
+@responses.activate
+def test_scrap_un_anio_ambas_secciones():
+    _registrar_normativa(2025, _html_normativa([_fn("2025", "Resolución", "338", "2025-11-21", _b64(244004))]))
+    _registrar_conceptos("CONCEPTO", 2025, _html_sirel([]))
+    _registrar_conceptos("CONCEPTO (MISIONAL)", 2025, _html_sirel([_fc("97-2025", "243100", "martes, 18 noviembre 2025")]))
+    docs = ScrapProcuraduria().scrap(fini="2025-11-01", ffin="2025-11-30")
+    assert sorted(d.title for d in docs) == ["CTO_PGN_0000097_2025", "R_PGN_0338_2025"]
+    assert {d.seccion for d in docs} == {"Normativa", "Conceptos"}
+
+
+@responses.activate
+def test_scrap_varios_anios():
+    for anio in (2024, 2025):
+        _registrar_normativa(anio, _html_normativa([_fn(str(anio), "Circular", "1", f"{anio}-06-01", _b64(anio))]))
+        _registrar_conceptos("CONCEPTO", anio, _html_sirel([]))
+        _registrar_conceptos("CONCEPTO (MISIONAL)", anio, _html_sirel([]))
+    docs = ScrapProcuraduria().scrap(fini="2024-01-01", ffin="2025-12-31")
+    assert sorted(d.title for d in docs) == ["C_PGN_0001_2024", "C_PGN_0001_2025"]
+
+
+@responses.activate
+def test_scrap_recorta_al_piso_2015():
+    _registrar_normativa(2015, _html_normativa([_fn("2015", "Resolución", "1", "2015-03-03", _b64(1))]))
+    _registrar_conceptos("CONCEPTO", 2015, _html_sirel([]))
+    _registrar_conceptos("CONCEPTO (MISIONAL)", 2015, _html_sirel([]))
+    docs = ScrapProcuraduria().scrap(fini="2010-01-01", ffin="2015-12-31")
+    assert [d.title for d in docs] == ["R_PGN_0001_2015"]
+    # solo se consultó 2015 (1 Normativa + 2 Conceptos)
+    assert len(responses.calls) == 3
+
+
+@responses.activate
+def test_scrap_rango_antes_del_piso_no_consulta_nada():
+    assert ScrapProcuraduria().scrap(fini="2010-01-01", ffin="2014-12-31") == []
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_scrap_anio_bloqueado_registra_error_y_sigue():
+    _registrar_normativa(2024, "<html><body>Página Web No Disponible!</body></html>")
+    _registrar_normativa(2025, _html_normativa([_fn("2025", "Circular", "3", "2025-02-02", _b64(3))]))
+    for anio in (2024, 2025):
+        _registrar_conceptos("CONCEPTO", anio, _html_sirel([]))
+        _registrar_conceptos("CONCEPTO (MISIONAL)", anio, _html_sirel([_fc(f"1-{anio}", str(anio), f"lunes, 3 marzo {anio}")]))
+    mensajes = []
+    docs = ScrapProcuraduria().scrap(fini="2024-01-01", ffin="2025-12-31", on_progress=mensajes.append)
+    assert sorted(d.title for d in docs) == ["CTO_PGN_0000001_2024", "CTO_PGN_0000001_2025", "C_PGN_0003_2025"]
+    errores = [m for m in mensajes if "Error" in m]
+    assert len(errores) == 1 and "Normativa 2024" in errores[0]
+
+
+@responses.activate
+def test_scrap_conceptos_bloqueado_registra_error_y_no_pierde_normativa():
+    _registrar_normativa(2025, _html_normativa([_fn("2025", "Circular", "3", "2025-02-02", _b64(3))]))
+    _registrar_conceptos("CONCEPTO", 2025, "<html>reCAPTCHA</html>")
+    _registrar_conceptos("CONCEPTO (MISIONAL)", 2025, _html_sirel([_fc("1-2025", "9", "lunes, 3 marzo 2025")]))
+    mensajes = []
+    docs = ScrapProcuraduria().scrap(fini="2025-01-01", ffin="2025-12-31", on_progress=mensajes.append)
+    assert [d.title for d in docs] == ["C_PGN_0003_2025"]
+    assert any("Error" in m and "Conceptos 2025" in m for m in mensajes)
+
+
+@responses.activate
+def test_scrap_respeta_stop_event():
+    ev = threading.Event()
+    ev.set()
+    assert ScrapProcuraduria().scrap(fini="2025-01-01", ffin="2025-12-31", stop_event=ev) == []
+    assert len(responses.calls) == 0
