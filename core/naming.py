@@ -1,7 +1,7 @@
 import re
 from datetime import date
 from pathlib import PurePosixPath
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from core.utils import is_radicado_title, is_samai_case_title
 
@@ -125,3 +125,24 @@ def nombre_archivo_documento(document, family_key: Optional[str], tiene_actuacio
 
 def nombre_archivo_version(document, version, family_key: Optional[str], tiene_actuaciones: bool) -> str:
     return _con_extension(nombre_version(document, version, family_key, tiene_actuaciones), version.storage_key)
+
+
+def con_sufijos(pares: List[Tuple[str, int]]) -> List[str]:
+    """Distingue títulos repetidos dentro de una fuente (p. ej. dependencias
+    que numeran por su cuenta, o el mismo número en series distintas): dentro
+    de cada grupo de títulos iguales, el de menor id interno del sitio queda
+    limpio y los siguientes llevan _2, _3… en orden de id. Quien la llama
+    debe pasarle el conjunto COMPLETO de documentos que comparte numeración
+    (el año o la lista entera), no solo los del rango de la corrida, para que
+    el título de un documento no dependa de ese rango."""
+    por_titulo: Dict[str, List[int]] = {}
+    for i, (titulo, _) in enumerate(pares):
+        por_titulo.setdefault(titulo, []).append(i)
+    salida = [titulo for titulo, _ in pares]
+    for titulo, indices in por_titulo.items():
+        if len(indices) < 2:
+            continue
+        orden = sorted(indices, key=lambda i: (pares[i][1], i))
+        for k, i in enumerate(orden[1:], start=2):
+            salida[i] = f"{titulo}_{k}"
+    return salida

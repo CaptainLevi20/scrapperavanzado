@@ -637,3 +637,39 @@ Es seguro repetirlo.
 - **Fuente nueva:** después de actualizar producción, correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
+
+### Ministerio de Salud y Protección Social (`minsalud`)
+
+- **Qué trae:** las cuatro secciones de normativa del sitio del Ministerio —
+  **Resoluciones**, **Circulares**, **Conceptos jurídicos** y **Boletines
+  jurídicos** (uno por mes). Las cuatro páginas del sitio muestran una sola
+  biblioteca de documentos; la fuente la lee completa de una vez.
+- **Desde cuándo:** año 2015 en adelante.
+- **Cuánto entrega hoy:** unos 2.900 documentos — cerca de 1.480
+  resoluciones, 330 circulares, 950 conceptos y 140 boletines.
+- **Cómo quedan nombrados:** `R_MSPS_1809_2026` (resolución),
+  `C_MSPS_0031_2026` (circular: externa, interna, conjunta o de la Comisión
+  de Precios de Medicamentos), `CTO_MSPS_201711601019341_2017` (concepto: su
+  número de radicado + año), `BOL_MSPS_MAY_2016` (boletín: mes + año). Cuando
+  dos documentos distintos dan el mismo nombre (pasa en ~30 casos: el mismo
+  documento subido dos veces, versiones "con anexo técnico", o series
+  distintas con el mismo número) los siguientes llevan `_2`, `_3`. Si un
+  documento no trae número reconocible queda como `…_SN{número interno}_año`
+  con un aviso en el registro (hoy 2 casos).
+- **Ojo con las fechas:** resoluciones y circulares traen fecha publicada
+  desde 2023; conceptos y boletines casi nunca la traen. Para esos y para los
+  documentos anteriores a 2023, la fuente usa la fecha escrita en la
+  descripción, o si no, la fecha en que el Ministerio subió el archivo. Los
+  documentos de fin de año que el Ministerio sube en enero quedan con fecha
+  31 de diciembre de su propio año (para que la corrida diaria no se los
+  pierda); si ninguna fecha sirve, quedan con el 1 de enero. Por eso, para
+  años viejos, conviene correr la fuente por año completo.
+- **Corrida diaria:** esta fuente mira los últimos 60 días (no solo los
+  últimos días), porque el Ministerio a veces sube los documentos semanas
+  después de su fecha.
+- **Detalle técnico:** el sitio web del Ministerio es muy lento (las páginas
+  tardan minutos), pero la fuente no las usa: consulta directamente la lista
+  de documentos, que responde en segundos. Certificado válido.
+- **Fuente nueva:** después de actualizar producción, correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
+  Es seguro repetirlo.

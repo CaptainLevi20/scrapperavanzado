@@ -34,6 +34,7 @@ from bs4 import BeautifulSoup
 from core.fecha_es import _MESES
 from core.models import RawDocModel
 from core.naming import codigo_ley_decreto
+from core.naming import con_sufijos as _con_sufijos
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
@@ -218,25 +219,6 @@ def _titulo_concepto(numero: str, fecha: datetime.date, doc_id: str) -> Tuple[st
         return f"CTO_PGN_SN{doc_id}_{fecha.year}", False
     consecutivo, anio, aviso = r
     return f"CTO_PGN_{consecutivo:07d}_{anio}", aviso
-
-
-def _con_sufijos(pares: List[Tuple[str, int]]) -> List[str]:
-    """Distingue títulos repetidos (cada dependencia de la PGN numera por su
-    cuenta): dentro de cada grupo de títulos iguales, el de menor id interno
-    del sitio queda limpio y los siguientes llevan _2, _3… Se llama siempre
-    con el AÑO COMPLETO consultado, para que el título de un documento no
-    dependa del rango de fechas de la corrida."""
-    por_titulo: Dict[str, List[int]] = {}
-    for i, (titulo, _) in enumerate(pares):
-        por_titulo.setdefault(titulo, []).append(i)
-    salida = [titulo for titulo, _ in pares]
-    for titulo, indices in por_titulo.items():
-        if len(indices) < 2:
-            continue
-        orden = sorted(indices, key=lambda i: (pares[i][1], i))
-        for k, i in enumerate(orden[1:], start=2):
-            salida[i] = f"{titulo}_{k}"
-    return salida
 
 
 # ---- lectura de tabla HTML y consulta paginada ----
