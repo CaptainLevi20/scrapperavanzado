@@ -21,6 +21,19 @@ class SourceOut(BaseModel):
     active: bool
 
 
+class SourceHealthOut(BaseModel):
+    source_id: int
+    source_name: str
+    ultimo_documento: Optional[date] = None
+    dias_sin_documentos: Optional[int] = None
+    limite_silencio_dias: Optional[int] = None
+    ventana_dias: int
+    docs_recientes: int
+    promedio_ventana: Optional[float] = None
+    alerta: Optional[str] = None  # "silencio" | "caida"
+    detalle: Optional[str] = None
+
+
 class SourceCreate(BaseModel):
     family_key: str
     name: str

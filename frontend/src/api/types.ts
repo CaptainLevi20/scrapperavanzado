@@ -13,6 +13,23 @@ export interface Source {
   active: boolean;
 }
 
+// Ver core/salud_fuentes.py: "silencio" = mucho más tiempo de lo normal sin
+// documentos; "caida" = sigue llegando algo, pero mucho menos de lo normal.
+export type SourceHealthAlert = "silencio" | "caida";
+
+export interface SourceHealth {
+  source_id: number;
+  source_name: string;
+  ultimo_documento: string | null;
+  dias_sin_documentos: number | null;
+  limite_silencio_dias: number | null;
+  ventana_dias: number;
+  docs_recientes: number;
+  promedio_ventana: number | null;
+  alerta: SourceHealthAlert | null;
+  detalle: string | null;
+}
+
 export interface SourceUpdateInput {
   active?: boolean;
   family_params?: Record<string, unknown>;

@@ -97,6 +97,31 @@ def list_sources(
     return list(db.scalars(stmt).all())
 
 
+def document_counts_by_publication_date(db: Session, desde: date) -> list[tuple[int, date, int]]:
+    """(source_id, f_public, cantidad) de las fuentes activas desde `desde` —
+    la historia que core/salud_fuentes.py compara para detectar una fuente
+    que dejó de traer documentos."""
+    stmt = (
+        select(Document.source_id, Document.f_public, func.count())
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.active.is_(True), Document.f_public >= desde)
+        .group_by(Document.source_id, Document.f_public)
+    )
+    return [tuple(row) for row in db.execute(stmt).all()]
+
+
+def latest_publication_date_by_source(db: Session, hasta: date) -> dict[int, date]:
+    """Fecha de publicación más reciente (sin pasar de `hasta`) por fuente
+    activa, de toda la historia — para una fuente callada hace más de un año."""
+    stmt = (
+        select(Document.source_id, func.max(Document.f_public))
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.active.is_(True), Document.f_public <= hasta)
+        .group_by(Document.source_id)
+    )
+    return dict(db.execute(stmt).all())
+
+
 def get_source(db: Session, source_id: int) -> Optional[Source]:
     return db.get(Source, source_id)
 

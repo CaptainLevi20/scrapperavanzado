@@ -176,3 +176,45 @@ def test_get_sources_works_for_a_non_admin_user(api_client, auth_header, db_sess
 
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_source_health_requires_authentication(api_client):
+    assert api_client.get("/source-health").status_code == 401
+
+
+def test_source_health_marca_la_fuente_callada_y_no_la_que_esta_al_dia(api_client, auth_header, db_session):
+    from datetime import date, timedelta
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    al_dia = repository.create_source(db_session, family_key="constitucional", name="Al día", family_params={})
+    callada = repository.create_source(db_session, family_key="constitucional", name="Callada", family_params={})
+    inactiva = repository.create_source(db_session, family_key="constitucional", name="Inactiva", family_params={})
+    repository.update_source(db_session, inactiva.id, active=False)
+
+    hoy = date.today()
+    # Las tres publicaban cada 3 días durante 6 meses; "Callada" dejó de
+    # publicar hace 40 días, "Al día" sigue hasta ayer.
+    for source, hasta in ((al_dia, hoy - timedelta(days=1)), (callada, hoy - timedelta(days=40)), (inactiva, hoy - timedelta(days=40))):
+        for i in range(60):
+            repository.insert_document(
+                db_session,
+                doc_id=f"{source.id}-{i}",
+                source_id=source.id,
+                title=f"T-{source.id}-{i}",
+                f_public=hasta - timedelta(days=3 * i),
+                storage_bucket="iurisync-test",
+                storage_key=f"{source.id}-{i}.pdf",
+            )
+
+    response = api_client.get("/source-health", headers=auth_header)
+
+    assert response.status_code == 200
+    por_nombre = {s["source_name"]: s for s in response.json()}
+    assert set(por_nombre) == {"Al día", "Callada"}  # las inactivas no se vigilan
+    assert por_nombre["Al día"]["alerta"] is None
+    assert por_nombre["Al día"]["ultimo_documento"] == (hoy - timedelta(days=1)).isoformat()
+    assert por_nombre["Callada"]["alerta"] == "silencio"
+    assert por_nombre["Callada"]["dias_sin_documentos"] == 40
+    assert "40 días sin documentos nuevos" in por_nombre["Callada"]["detalle"]

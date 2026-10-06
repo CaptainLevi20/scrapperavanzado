@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Power, Radar } from "lucide-react";
-import { fetchAllSources, fetchSources, updateSource } from "../api/sources";
-import type { Source } from "../api/types";
+import { fetchAllSources, fetchSourceHealth, fetchSources, updateSource } from "../api/sources";
+import type { Source, SourceHealth } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
+import { SourceHealthStamp } from "../components/SourceHealthStamp";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Button } from "../components/ui/button";
 import { NativeSelect } from "../components/ui/native-select";
 import { useAuth } from "../auth/AuthContext";
+import { formatDate } from "../lib/formatters";
 import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "../lib/tableStyles";
 
 const PAGE_SIZE = 20;
 
-function SourceRow({ source }: { source: Source }) {
+function SourceRow({ source, health }: { source: Source; health: SourceHealth | undefined }) {
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
   const toggleMutation = useMutation({
@@ -29,6 +31,14 @@ function SourceRow({ source }: { source: Source }) {
           <span className="stamp-dot" />
           {source.active ? "Activa" : "Inactiva"}
         </span>
+      </td>
+      <td className={TD}>
+        {/* Solo las fuentes activas se vigilan: una inactiva no tiene fila de salud. */}
+        <div className="flex flex-col items-start gap-1">
+          <span className="font-mono-num">{formatDate(health?.ultimo_documento ?? null)}</span>
+          {health?.alerta && <SourceHealthStamp alerta={health.alerta} detalle={health.detalle} />}
+          {health?.alerta && <span className="text-xs text-muted-foreground">{health.detalle}</span>}
+        </div>
       </td>
       <td className={TD}>
         {isAdmin && (
@@ -65,6 +75,9 @@ export function SourcesPage() {
       }),
   });
   const visibleSources = sourcesQuery.data?.slice(0, PAGE_SIZE);
+
+  const sourceHealthQuery = useQuery({ queryKey: ["sources", "health"], queryFn: fetchSourceHealth });
+  const healthBySourceId = new Map((sourceHealthQuery.data ?? []).map((health) => [health.source_id, health]));
   const hasNextPage = (sourcesQuery.data?.length ?? 0) > PAGE_SIZE;
 
   return (
@@ -125,14 +138,17 @@ export function SourcesPage() {
               <tr className={THEAD_ROW}>
                 <th className={TH}>Nombre</th>
                 <th className={TH}>Estado</th>
+                <th className={TH}>Último documento</th>
                 <th className={TH}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {sourcesQuery.isLoading ? (
-                <TableRowsSkeleton rows={6} columns={3} widths={["w-48", "w-20", "w-24"]} />
+                <TableRowsSkeleton rows={6} columns={4} widths={["w-48", "w-20", "w-28", "w-24"]} />
               ) : (
-                visibleSources?.map((source) => <SourceRow key={source.id} source={source} />)
+                visibleSources?.map((source) => (
+                  <SourceRow key={source.id} source={source} health={healthBySourceId.get(source.id)} />
+                ))
               )}
             </tbody>
           </table>

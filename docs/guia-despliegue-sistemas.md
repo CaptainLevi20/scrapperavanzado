@@ -390,6 +390,34 @@ ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
 
 ## 10. Notas por fuente
 
+### Aviso "fuentes que pueden estar fallando"
+
+Una fuente puede dejar de traer documentos sin que ninguna corrida marque
+error: por ejemplo, si el sitio oficial deja de publicar en el lugar donde
+IURISYNC busca (le pasó a la Corte Suprema en 2026). Para no depender de que
+alguien lo note a mano, la herramienta compara cada fuente activa con su
+propia historia del último año y avisa en dos casos:
+
+- **Sin novedades:** lleva mucho más tiempo de lo normal sin ningún documento
+  nuevo. "Lo normal" se calcula por fuente: a una que publica a diario se le
+  avisa a los 14 días; a un boletín mensual, a los 60 aproximadamente.
+- **Trae muy poco:** sigue llegando algo, pero menos de la cuarta parte de lo
+  que suele traer en el mismo número de días. Solo aplica a fuentes que traen
+  al menos 20 documentos al mes; en las más pequeñas, un mes flojo no
+  significa nada.
+
+Las fuentes con alerta aparecen en un recuadro al inicio del **Dashboard** y,
+en la página **Fuentes**, con la marca "Revisar" junto a la fecha de su último
+documento. Las fuentes inactivas no se vigilan, y una fuente sin historia
+suficiente (menos de 6 días con documentos en el último año) no genera aviso.
+
+El aviso es una señal para revisar, no una falla confirmada: puede ser que el
+sitio de verdad no haya publicado (por ejemplo, durante la vacancia judicial
+de diciembre y enero las cortes casi no publican). Si una fuente aparece en
+alerta, conviene revisar primero si su sitio oficial tiene documentos más
+recientes que los que tiene IURISYNC. Si todas las fuentes aparecen en alerta
+a la vez, lo más probable es que las corridas diarias no se estén ejecutando.
+
 ### Superintendencia Nacional de Salud (`supersalud`)
 
 - **Qué trae:** tres secciones del portal jurídico de la Supersalud —
@@ -673,3 +701,25 @@ Es seguro repetirlo.
 - **Fuente nueva:** después de actualizar producción, correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
+
+### Corte Suprema de Justicia (`corte_suprema`)
+
+- **De dónde saca los documentos:** del buscador oficial de providencias de
+  la Corte (consultaprovidencias.cortesuprema.gov.co). Lee las cuatro salas
+  (Tutelas, Laboral, Civil y Penal), de la más nueva a la más vieja.
+- **Fallas pasajeras de la Corte:** el buscador de la Corte a veces responde
+  mal a una consulta suelta (se midió alrededor de 1 de cada 180). La fuente
+  vuelve a intentar hasta 3 veces, con 5 segundos de espera entre intentos,
+  antes de darse por vencida. Solo si los 3 intentos fallan queda un error
+  en la corrida, y esa sala queda incompleta en esa corrida. Si la Corte
+  rechaza la consulta de plano (un error que no es del servidor), no se
+  reintenta y el error aparece de inmediato.
+- **Si la fuente deja de traer documentos:** primero hay que revisar si la
+  Corte está cargando providencias nuevas en su buscador. En octubre de 2026
+  se confirmó que la Corte había dejado de cargarlas: lo último en Tutelas,
+  Laboral y Civil era del 30 de abril de 2026, y en Penal de finales de
+  julio. Desde entonces solo aparecían algunos documentos viejos editados,
+  el último el 15 de septiembre. No era una falla de IURISYNC ni del
+  certificado (válido hasta marzo de 2027). Cuando la Corte se ponga al día,
+  conviene lanzar una corrida manual desde el 30 de abril de 2026, porque la
+  corrida diaria solo mira los últimos 3 días.

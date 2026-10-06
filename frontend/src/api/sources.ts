@@ -1,5 +1,5 @@
 import { apiFetch, buildQuery } from "./client";
-import type { Source, SourceUpdateInput } from "./types";
+import type { Source, SourceHealth, SourceUpdateInput } from "./types";
 
 export interface ListSourcesParams {
   id?: number;
@@ -63,4 +63,10 @@ export async function fetchAllActiveSourcesWithDocuments(): Promise<Source[]> {
 
 export function updateSource(id: number, input: SourceUpdateInput): Promise<Source> {
   return apiFetch<Source>(`/sources/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+// Una fila por fuente activa: fecha del último documento y si parece estar
+// fallando (ver core/salud_fuentes.py).
+export function fetchSourceHealth(): Promise<SourceHealth[]> {
+  return apiFetch<SourceHealth[]>("/source-health");
 }

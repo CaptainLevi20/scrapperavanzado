@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,6 +9,11 @@ import { AuthProvider } from "../auth/AuthContext";
 import { SourcesPage } from "./SourcesPage";
 
 const BASE_URL = "http://localhost:8000";
+
+// Por defecto ninguna fuente en alerta; las pruebas del aviso lo sobrescriben.
+beforeEach(() => {
+  server.use(http.get(`${BASE_URL}/source-health`, () => HttpResponse.json([])));
+});
 
 function renderPage({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   clearStoredToken();
@@ -179,5 +184,55 @@ describe("SourcesPage — toggle active state", () => {
     await within(table).findByText("Corte Constitucional");
     expect(screen.queryByText("Desactivar")).not.toBeInTheDocument();
     expect(screen.queryByText("Activar")).not.toBeInTheDocument();
+  });
+
+  it("muestra la fecha del último documento y la marca de revisar en la fuente en alerta", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([
+          { id: 1, family_key: "corte_suprema", name: "Corte Constitucional", family_params: {}, active: true },
+          { id: 2, family_key: "samai", name: "Consejo de Estado", family_params: {}, active: true },
+        ])
+      ),
+      http.get(`${BASE_URL}/source-health`, () =>
+        HttpResponse.json([
+          {
+            source_id: 1,
+            source_name: "Corte Constitucional",
+            ultimo_documento: "2026-09-15",
+            dias_sin_documentos: 21,
+            limite_silencio_dias: 14,
+            ventana_dias: 30,
+            docs_recientes: 0,
+            promedio_ventana: 420,
+            alerta: "silencio",
+            detalle: "Lleva 21 días sin documentos nuevos; lo normal en esta fuente es no pasar de 14.",
+          },
+          { ...{
+            source_id: 1,
+            source_name: "Corte Constitucional",
+            ultimo_documento: "2026-09-15",
+            dias_sin_documentos: 21,
+            limite_silencio_dias: 14,
+            ventana_dias: 30,
+            docs_recientes: 0,
+            promedio_ventana: 420,
+            alerta: "silencio",
+            detalle: "Lleva 21 días sin documentos nuevos; lo normal en esta fuente es no pasar de 14.",
+          }, source_id: 2, ultimo_documento: "2026-10-05", alerta: null, detalle: null },
+        ])
+      )
+    );
+
+    renderPage();
+
+    const table = screen.getByRole("table");
+    const filaAlerta = (await within(table).findByText("Corte Constitucional")).closest("tr")!;
+    expect(await within(filaAlerta).findByText("Revisar: Sin novedades")).toBeInTheDocument();
+    expect(within(filaAlerta).getByText(/Lleva 21 días sin documentos nuevos/)).toBeInTheDocument();
+
+    const filaAlDia = within(table).getByText("Consejo de Estado").closest("tr")!;
+    expect(within(filaAlDia).queryByText(/Revisar/)).not.toBeInTheDocument();
+    expect(within(filaAlDia).getByText(/2026/)).toBeInTheDocument();
   });
 });

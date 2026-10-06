@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -14,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 _CORTE_SUPREMA_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
 _DOWNLOAD_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/"
+
+# El backend de la Corte falla de a ratos (en vivo: ~1 de cada 180 consultas
+# devolvió algo que no era JSON). Sin reintento, una sola falla cortaba la sala
+# completa por el resto de la corrida.
+_MAX_INTENTOS = 3
+_ESPERA_REINTENTO_SEG = 5
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
@@ -195,6 +202,44 @@ class ScrapCorteSuprema(BaseScrapper):
         if tipo_recuperado:
             doc.tipo = tipo_recuperado
 
+    def _consultar_pagina(self, tipo: str, start: int) -> list:
+        """Una página de resultados de la Corte, reintentando las fallas
+        pasajeras (5xx, error de conexión, respuesta que no es JSON o sin la
+        forma esperada). Un 4xx no se reintenta: es la Corte rechazando la
+        consulta, no un hipo del servidor."""
+        payload = {"query": _QUERY_TEMPLATE.format(tipo, start)}
+        headers = {"Content-Type": "application/json"}
+        ultimo_error: Optional[Exception] = None
+        for intento in range(_MAX_INTENTOS):
+            if intento:
+                time.sleep(_ESPERA_REINTENTO_SEG)
+            try:
+                response = requests.post(self.url, json=payload, headers=headers, timeout=60)
+            except requests.exceptions.RequestException as e:
+                ultimo_error = Exception(f"Error al conectar con {self.source}: {e}")
+                continue
+
+            if response.status_code != 200:
+                if response.status_code >= 500:
+                    ultimo_error = Exception(
+                        f"Error al obtener datos de {self.source}: servidor temporalmente no disponible ({response.status_code}). Intenta de nuevo más tarde."
+                    )
+                    continue
+                raise Exception(
+                    f"Error al obtener datos de {self.source}: {response.status_code} — el sitio pudo haber cambiado su estructura. Informar al equipo de desarrollo."
+                )
+
+            try:
+                search_results = response.json()["data"]["getSearchResult"]["searchResults"]
+            except (ValueError, KeyError, TypeError):
+                ultimo_error = Exception(
+                    f"Error al obtener datos de {self.source}: respuesta inesperada del servidor (no es el listado de providencias)."
+                )
+                continue
+            return search_results or []
+
+        raise Exception(f"{ultimo_error} (tras {_MAX_INTENTOS} intentos)")
+
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         docs = []
         # CSJ lists the same providencia twice within one search — once as
@@ -216,23 +261,7 @@ class ScrapCorteSuprema(BaseScrapper):
             agregados_este_tipo = 0
             while not stop:
                 try:
-                    payload = {"query": _QUERY_TEMPLATE.format(tipo, start)}
-                    headers = {"Content-Type": "application/json"}
-
-                    response = requests.post(self.url, json=payload, headers=headers, timeout=60)
-
-                    if response.status_code != 200:
-                        if response.status_code in (502, 503, 504):
-                            raise Exception(
-                                f"Error al obtener datos de {self.source}: servidor temporalmente no disponible ({response.status_code}). Intenta de nuevo más tarde."
-                            )
-                        raise Exception(
-                            f"Error al obtener datos de {self.source}: {response.status_code} — el sitio pudo haber cambiado su estructura. Informar al equipo de desarrollo."
-                        )
-
-                    data = response.json()
-
-                    search_results = data.get("data", {}).get("getSearchResult", {}).get("searchResults", [])
+                    search_results = self._consultar_pagina(tipo, start)
 
                     if not search_results:
                         stop = True
