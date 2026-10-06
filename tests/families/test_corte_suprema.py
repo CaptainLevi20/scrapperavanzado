@@ -2,6 +2,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+import requests
 import responses
 
 import core.scrapers.families.corte_suprema as csj_module
@@ -9,6 +11,13 @@ from core.scrapers.families.corte_suprema import ScrapCorteSuprema
 from core.scrapers.registry import FAMILY_REGISTRY
 
 _URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
+
+
+@pytest.fixture(autouse=True)
+def _sin_espera_entre_reintentos(monkeypatch):
+    # Los reintentos esperan unos segundos entre intento e intento contra el
+    # sitio real; en las pruebas no hay nada que esperar.
+    monkeypatch.setattr(csj_module, "_ESPERA_REINTENTO_SEG", 0)
 
 
 def _item(
@@ -646,3 +655,83 @@ def test_corte_suprema_does_not_check_for_republication():
     # CSJ's download is a POST to a shared endpoint (no direct file URL), so there's
     # nothing cheap to HEAD — republication checking is out of scope for this family.
     assert ScrapCorteSuprema().checks_for_republication is False
+
+
+def _callback_con_fallo_transitorio(respuesta_fallida):
+    """Primera consulta de cada tipo en start=0 falla una sola vez con
+    `respuesta_fallida` (status, body) — o lanzando la excepción si es una —
+    y luego responde normal."""
+    fallos_por_tipo = {}
+
+    def _callback(request):
+        body = json.loads(request.body)
+        query = body["query"]
+        start = int(re.search(r"start:\s*(\d+)", query).group(1))
+        tipo = re.search(r'typeOfQuery:\s*"(\w+)"', query).group(1)
+        if start == 0 and tipo not in fallos_por_tipo:
+            fallos_por_tipo[tipo] = True
+            if isinstance(respuesta_fallida, Exception):
+                raise respuesta_fallida
+            return (respuesta_fallida[0], {"Content-Type": "text/html"}, respuesta_fallida[1])
+        return _callback_factory()(request)
+
+    return _callback
+
+
+@pytest.mark.parametrize(
+    "respuesta_fallida",
+    [
+        (200, "<html>Servicio no disponible</html>"),  # 200 pero sin JSON (visto en vivo)
+        (503, "Service Unavailable"),
+        (500, "Internal Server Error"),
+        (200, json.dumps({"data": None, "errors": [{"message": "timeout"}]})),
+        requests.exceptions.ConnectionError("conexión reiniciada"),
+    ],
+    ids=["200-sin-json", "503", "500", "data-null", "error-de-conexion"],
+)
+@responses.activate
+def test_scrap_reintenta_una_falla_pasajera_de_la_corte_sin_perder_la_sala(respuesta_fallida):
+    """Regression test: una sola respuesta fallida de la Corte (en vivo se vio
+    ~1 de cada 180 consultas devolver algo que no era JSON) cortaba la sala
+    completa por el resto de la corrida. Ahora se reintenta antes de rendirse,
+    y si el reintento funciona no queda ningún error registrado."""
+    responses.add_callback(
+        responses.POST, _URL, callback=_callback_con_fallo_transitorio(respuesta_fallida),
+        content_type="application/json",
+    )
+
+    progress_messages = []
+    docs = ScrapCorteSuprema().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
+
+    assert len(docs) == 4  # ninguna sala se perdió
+    assert not [m for m in progress_messages if "Error" in m]
+
+
+@responses.activate
+def test_scrap_se_rinde_tras_agotar_los_reintentos_y_lo_reporta():
+    def _callback(request):
+        return (200, {"Content-Type": "text/html"}, "<html>caído</html>")
+
+    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
+
+    progress_messages = []
+    docs = ScrapCorteSuprema().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
+
+    assert docs == []
+    # 4 tipos × _MAX_INTENTOS consultas cada uno, y un error visible por tipo
+    assert len(responses.calls) == 4 * csj_module._MAX_INTENTOS
+    error_messages = [m for m in progress_messages if "Error" in m]
+    assert len(error_messages) == 4
+
+
+@responses.activate
+def test_scrap_no_reintenta_un_error_4xx():
+    # Un 4xx no es una falla pasajera: la Corte rechazó la consulta (p. ej.
+    # cambió su API). Reintentar no lo arregla, solo demora el aviso.
+    responses.add(responses.POST, _URL, status=400, body="Bad Request")
+
+    progress_messages = []
+    ScrapCorteSuprema().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
+
+    assert len(responses.calls) == 4  # una sola consulta por tipo
+    assert all("400" in m for m in progress_messages if "Error" in m)
