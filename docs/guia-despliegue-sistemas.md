@@ -723,3 +723,38 @@ Es seguro repetirlo.
   certificado (válido hasta marzo de 2027). Cuando la Corte se ponga al día,
   conviene lanzar una corrida manual desde el 30 de abril de 2026, porque la
   corrida diaria solo mira los últimos 3 días.
+
+### Tribunales Superiores (`rama_judicial`)
+
+- **Cómo quedan nombrados:** `T_{TRIBUNAL}_{radicado}`, por ejemplo
+  `T_HUIL_41001_31_05_002_2021_00031_01`. Todos los documentos del mismo
+  proceso llevan el mismo nombre, y la herramienta los agrupa como
+  actuaciones del mismo caso.
+- **De dónde sale el radicado:** primero del nombre del archivo, esté donde
+  esté y aunque venga con guiones o espacios (`19. 41001-31-05-002-…`,
+  `Auto 11001 31 10 013 …`). Si el nombre no lo trae completo, se lee de la
+  primera página del PDF ("Radicación: …"). Del PDF solo se toma cuando no hay
+  duda: si el nombre trae el número corto (`2022-00078-01`), el radicado del
+  PDF debe terminar igual; si no, el PDF debe traer un único radicado.
+- **Qué se queda con el nombre original:** las listas de Estados y Edictos
+  del día (son de varios procesos a la vez) y los documentos donde el
+  radicado es dudoso. En una muestra real de octubre de 2026, quedaba con
+  nombre correcto cerca del 86% de lo que antes quedaba sin formato.
+- **Corrección de lo ya guardado (una sola vez):** después de actualizar a la
+  versión que trae este cambio, correr primero en modo simulación (solo
+  cuenta, no cambia nada):
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_tribunales_titulos --simular
+  ```
+
+  y luego de verdad:
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_tribunales_titulos
+  ```
+
+  Lee el PDF de cada documento sin formato, así que puede tardar del orden de
+  una hora. Se puede repetir sin riesgo: lo ya corregido no se vuelve a tocar.
+  Al terminar muestra cuántos se corrigieron por el nombre, cuántos por el
+  PDF y cuántos quedaron igual.

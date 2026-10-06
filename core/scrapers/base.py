@@ -39,6 +39,14 @@ class BaseScrapper:
     # hiding it rather than just delaying it by a day or two.
     scheduled_min_lookback_days: int | None = None
 
+    # Whether worker/tasks.py rebuilds the storage key right away when
+    # resolve_unverified_document corrects the title (SAMAI/CSJ). A family
+    # whose corrected titles group several actuaciones of the same case
+    # (rama_judicial) sets False: the file keeps its descriptive key and
+    # core/storage_sync.py renames it, since only that detects two
+    # actuaciones landing on the same key.
+    rekey_storage_on_title_fix: bool = True
+
     def scrap(self, fini, ffin, q="", limit=100, stop_event=None, on_progress=None):
         raise NotImplementedError("Subclasses must implement this method.")
 

@@ -117,30 +117,89 @@ TRIBUNAL_CODES = {
 
 _RADICADO_PREFIX = re.compile(r"^(?:\d{2}-\d{2}-\d{4}\s+)?(\d{23})(?:[ _]|$)")
 
+# El radicado (23 dígitos: 5 municipio + 2 entidad + 2 especialidad + 3
+# despacho + 4 año + 5 consecutivo + 2 instancia) puede venir en cualquier
+# parte del nombre o del texto, pegado a palabras, o con un separador entre sus
+# partes ("41001-31-05-002-2021-00031-01", "11001 31 10 013 2023 00782 01").
+# Medido en producción (octubre 2026): ~24% de los documentos de Tribunales
+# Superiores que quedaban sin formato traían el radicado así.
+_SEP = r"[\s\-_.]?"
+_RADICADO_POR_PARTES = re.compile(
+    rf"(?<!\d)(\d{{5}}){_SEP}(\d{{2}}){_SEP}(\d{{2}}){_SEP}(\d{{3}}){_SEP}(\d{{4}}){_SEP}(\d{{5}}){_SEP}(\d{{2}})(?!\d)"
+)
+# Cualquier tira de dígitos con separadores sueltos que sume exactamente 23
+# dígitos — cubre agrupaciones distintas a la oficial, como
+# "73-319-31-03-001-2022-00078-01" o "76 001 31 10 006 2024 00406 00".
+_TIRA_DE_DIGITOS = re.compile(r"(?<!\d)\d(?:[\s\-_.]?\d)+(?!\d)")
+# El radicado "corto" que muchos despachos ponen en el nombre: año +
+# consecutivo + instancia ("2022-00078-01") — los últimos 11 dígitos del
+# radicado completo. Sirve para confirmar cuál radicado del PDF es el bueno.
+_RADICADO_CORTO = re.compile(r"(?<!\d)((?:19|20)\d{2})[\s\-_.]*(\d{5})[\s\-_.]*(\d{2})(?!\d)")
+# Listas de notificaciones del día (varios procesos en un mismo archivo): no
+# corresponden a un solo radicado, se dejan con el nombre que trae la fuente.
+_LISTA_DE_ESTADOS = re.compile(r"estados?|edictos?", re.IGNORECASE)
+
+
+def _radicados_en(texto: str) -> list[str]:
+    """Radicados completos (23 dígitos) distintos que aparecen en `texto`, en
+    orden de aparición. Solo cuenta los que empiezan con un código de
+    departamento real — descarta números largos que no son radicados."""
+    encontrados: list[str] = []
+    candidatos = ["".join(m.groups()) for m in _RADICADO_POR_PARTES.finditer(texto or "")]
+    candidatos += [re.sub(r"\D", "", m.group()) for m in _TIRA_DE_DIGITOS.finditer(texto or "")]
+    for radicado in candidatos:
+        if len(radicado) == 23 and radicado[:2] in TRIBUNAL_CODES and radicado not in encontrados:
+            encontrados.append(radicado)
+    return encontrados
+
+
+def _titulo_con_radicado(radicado: str, codigo: str) -> str:
+    n = radicado
+    return f"T_{codigo}_{n[0:5]}_{n[5:7]}_{n[7:9]}_{n[9:12]}_{n[12:16]}_{n[16:21]}_{n[21:23]}"
+
 
 def _normalize_title(name_no_ext: str, dept_code: str) -> str:
     """Reemplaza el nombre de archivo crudo por "T_{CODIGO}_{radicado segmentado}"
-    cuando el nombre trae el radicado completo (23 dígitos) y el tribunal tiene
-    un código conocido. El radicado puede venir al principio del nombre, o
-    precedido de una fecha "DD-MM-YYYY " (caso real: Acciones de Tutela en
-    Tribunal Superior de Antioquia). El separador después del radicado varía
-    según el despacho: "_" (ej. Bogotá), un espacio, o nada — el radicado
-    puede venir solo, sin ninguna acción después (casos reales de Tribunal
-    Superior de Antioquia). El resto del nombre original (juez, acción) se
-    descarta. Si no calza (nombre de persona, aviso genérico "ESTADO...",
-    tribunal sin código, o el prefijo no tiene exactamente 23 dígitos), se deja
-    tal cual."""
+    cuando el nombre trae un radicado completo (23 dígitos) y el tribunal tiene
+    un código conocido. El radicado puede venir en cualquier parte del nombre:
+    al principio (lo más común), después de una fecha "DD-MM-YYYY " o de un
+    número de orden, pegado a palabras ("Auto88001…"), o con guiones/espacios
+    entre sus partes. El resto del nombre original (juez, acción) se descarta.
+    Si no calza (nombre de persona, aviso genérico "ESTADO...", tribunal sin
+    código, número con dígitos de más o de menos) o trae DOS radicados
+    distintos (no se sabe cuál es el del documento), se deja tal cual — nunca
+    se adivina."""
     codigo = TRIBUNAL_CODES.get(dept_code)
     if codigo is None:
         return name_no_ext
 
-    match = _RADICADO_PREFIX.match(name_no_ext)
-    if not match:
+    radicados = _radicados_en(name_no_ext)
+    if len(radicados) != 1:
         return name_no_ext
+    return _titulo_con_radicado(radicados[0], codigo)
 
-    n = match.group(1)
-    radicado_segmentado = f"{n[0:5]}_{n[5:7]}_{n[7:9]}_{n[9:12]}_{n[12:16]}_{n[16:21]}_{n[21:23]}"
-    return f"T_{codigo}_{radicado_segmentado}"
+
+def _titulo_desde_pdf(nombre: str, texto_pdf: str, dept_code: str) -> Optional[str]:
+    """Título "T_{CODIGO}_…" a partir del radicado escrito en la primera página
+    del documento, para cuando el nombre de archivo no lo trae completo. Solo
+    si no hay ambigüedad:
+    - si el nombre trae el radicado corto ("2022-00078-01"), se usa el radicado
+      del PDF que termina igual (el PDF suele citar también el de la primera
+      instancia, …00); si ninguno o varios coinciden, nada.
+    - si no, el PDF debe traer un único radicado (el nombre suele traer solo la
+      radicación interna del tribunal, "77.726").
+    Devuelve None cuando no se puede decidir con seguridad."""
+    codigo = TRIBUNAL_CODES.get(dept_code)
+    if codigo is None or _LISTA_DE_ESTADOS.search(nombre):
+        return None
+    radicados = _radicados_en(texto_pdf)
+    corto = _RADICADO_CORTO.search(nombre)
+    if corto:
+        cola = "".join(corto.groups())
+        radicados = [r for r in radicados if r[12:] == cola]
+    if len(radicados) != 1:
+        return None
+    return _titulo_con_radicado(radicados[0], codigo)
 
 
 _JUEZ_PREFIX = re.compile(r"^\s*(Dr|Dra)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]*")
@@ -233,6 +292,9 @@ class ScrapRamaJudicial(BaseScrapper):
     # vez que se re-lista, escondiendo la republicación para siempre del
     # chequeo de tamaño/versionado en worker/tasks.py.
     doc_id_uses_publication_date = False
+    # El título corregido desde el PDF agrupa actuaciones del mismo radicado;
+    # el archivo lo renombra storage_sync (ver BaseScrapper).
+    rekey_storage_on_title_fix = False
 
     def __init__(self, dept_code: str = "", dept_name: str = "Rama Judicial", entidad_id: str = "22"):
         self.source = dept_name
@@ -241,19 +303,33 @@ class ScrapRamaJudicial(BaseScrapper):
         self._entidad_id = entidad_id
         self._instance_id = None
 
+    def _se_revisa_el_pdf(self, titulo: str) -> bool:
+        """Si vale la pena leer la primera página del documento descargado: los
+        que ya tienen título de radicado (para la fecha de providencia) y, en
+        Tribunales Superiores, los que no lo tienen y no son una lista de
+        Estados (para recuperar el radicado — ver _titulo_desde_pdf)."""
+        if is_radicado_title(titulo):
+            return True
+        return self._dept_code in TRIBUNAL_CODES and not _LISTA_DE_ESTADOS.search(titulo)
+
     def resolve_unverified_document(self, doc, local_path, content_type) -> None:
-        # Rama Judicial no expone la fecha de providencia en sus metadatos; se
-        # extrae de la primera página del PDF. Solo se intenta para documentos
-        # con título de radicado (providencias individuales); si no se puede
-        # leer o parsear, f_providencia queda None y el nombre canónico usa el
-        # respaldo (f_public). Nunca interrumpe la ingestión.
-        if not is_radicado_title(doc.title):
+        # Rama Judicial no expone el radicado completo ni la fecha de
+        # providencia en sus metadatos; ambos se leen de la primera página del
+        # PDF. Si no se puede leer o no hay un radicado sin ambigüedad, el
+        # título queda como venía y f_providencia en None (el nombre canónico
+        # usa el respaldo f_public). Nunca interrumpe la ingestión.
+        if not self._se_revisa_el_pdf(doc.title):
             return
         try:
             texto = _extraer_texto_primera_pagina(local_path)
         except Exception as e:
             logger.warning("No se pudo leer la primera página de %s: %s", getattr(local_path, "name", local_path), e)
             return
+        if not is_radicado_title(doc.title):
+            titulo = _titulo_desde_pdf(doc.title, texto, self._dept_code)
+            if titulo is None:
+                return
+            doc.title = titulo
         fecha = parse_fecha_providencia_es(texto)
         if fecha is not None:
             doc.f_providencia = fecha.strftime("%Y-%m-%d")
@@ -484,7 +560,7 @@ class ScrapRamaJudicial(BaseScrapper):
                             f_public=fecha_p,
                             detalle=_extract_detalle(name_no_ext),
                             save_path=save_path,
-                            title_unverified=is_radicado_title(titulo_normalizado),
+                            title_unverified=self._se_revisa_el_pdf(titulo_normalizado),
                         ))
 
             if num_pag >= max_pages:
