@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -62,6 +62,11 @@ const STATS = {
   year: 2026,
   available_years: [2026],
 };
+
+// Por defecto ninguna fuente en alerta; las pruebas del aviso lo sobrescriben.
+beforeEach(() => {
+  server.use(http.get(`${BASE_URL}/source-health`, () => HttpResponse.json([])));
+});
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -366,5 +371,64 @@ describe("DashboardPage", () => {
     renderPage();
 
     await waitFor(() => expect(statCardValue("Fuentes activas")).toHaveTextContent("101"));
+  });
+
+  it("muestra un aviso con las fuentes que pueden estar fallando", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json(SOURCES)),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0 })),
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json(STATS)),
+      http.get(`${BASE_URL}/source-health`, () =>
+        HttpResponse.json([
+          {
+            source_id: 1,
+            source_name: "Corte Constitucional",
+            ultimo_documento: "2026-09-15",
+            dias_sin_documentos: 21,
+            limite_silencio_dias: 14,
+            ventana_dias: 30,
+            docs_recientes: 0,
+            promedio_ventana: 420,
+            alerta: "silencio",
+            detalle: "Lleva 21 días sin documentos nuevos; lo normal en esta fuente es no pasar de 14.",
+          },
+          { ...{
+            source_id: 1,
+            source_name: "Corte Constitucional",
+            ultimo_documento: "2026-09-15",
+            dias_sin_documentos: 21,
+            limite_silencio_dias: 14,
+            ventana_dias: 30,
+            docs_recientes: 0,
+            promedio_ventana: 420,
+            alerta: "silencio",
+            detalle: "Lleva 21 días sin documentos nuevos; lo normal en esta fuente es no pasar de 14.",
+          }, source_id: 2, source_name: "Consejo de Estado", alerta: null, detalle: null },
+        ])
+      )
+    );
+
+    renderPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("1 fuente puede estar fallando")).toBeInTheDocument();
+    expect(within(alert).getByText(/Lleva 21 días sin documentos nuevos/)).toBeInTheDocument();
+    expect(within(alert).queryByText(/Consejo de Estado/)).not.toBeInTheDocument();
+    expect(within(alert).getByRole("link", { name: "Ver fuentes" })).toHaveAttribute("href", "/sources");
+  });
+
+  it("no muestra el aviso cuando ninguna fuente está en alerta", async () => {
+    server.use(
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json(SOURCES)),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0 })),
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json(STATS))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Documentos por tipo")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 });

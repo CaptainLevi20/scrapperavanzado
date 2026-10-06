@@ -1,11 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Activity, FileClock, FileText, Radar, type LucideIcon } from "lucide-react";
+import { Activity, FileClock, FileText, Radar, TriangleAlert, type LucideIcon } from "lucide-react";
 import { fetchDocuments, fetchDocumentStats } from "../api/documents";
 import { fetchRuns } from "../api/runs";
-import { fetchAllActiveSources } from "../api/sources";
-import type { Document, DocumentReviewStatus } from "../api/types";
+import { fetchAllActiveSources, fetchSourceHealth } from "../api/sources";
+import type { Document, DocumentReviewStatus, SourceHealth } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
 import { TableRowsSkeleton } from "../components/TableSkeleton";
@@ -108,11 +108,45 @@ function MonthlyBars({ counts }: { counts: number[] }) {
   );
 }
 
+// Fuentes que pueden estar fallando sin que ninguna corrida lo reporte como
+// error: llevan mucho más tiempo de lo normal sin documentos, o traen mucho
+// menos que de costumbre (ver core/salud_fuentes.py). Si ninguna está en
+// alerta, no se muestra nada.
+function SourceHealthAlerts({ alerts }: { alerts: SourceHealth[] }) {
+  if (alerts.length === 0) return null;
+  return (
+    <div role="alert" className="rounded-lg border-[1.5px] border-sello/40 bg-sello/10 px-5 py-4 text-sello-ink">
+      <div className="flex items-center justify-between gap-4">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <TriangleAlert className="size-4" aria-hidden="true" />
+          {alerts.length === 1 ? "1 fuente puede estar fallando" : `${alerts.length} fuentes pueden estar fallando`}
+        </p>
+        <Link to="/sources" className="shrink-0 text-sm font-semibold underline underline-offset-2 hover:text-sello-ink/80">
+          Ver fuentes
+        </Link>
+      </div>
+      <ul className="mt-2 space-y-1 text-sm">
+        {alerts.map((health) => (
+          <li key={health.source_id}>
+            <span className="font-medium">{health.source_name}:</span> {health.detalle}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const activeSourcesQuery = useQuery({
     queryKey: ["sources", "active-count"],
     queryFn: fetchAllActiveSources,
   });
+
+  const sourceHealthQuery = useQuery({
+    queryKey: ["sources", "health"],
+    queryFn: fetchSourceHealth,
+  });
+  const sourceHealthAlerts = (sourceHealthQuery.data ?? []).filter((health) => health.alerta !== null);
 
   const recentRunsQuery = useQuery({
     queryKey: ["runs", "recent"],
@@ -169,6 +203,8 @@ export function DashboardPage() {
         <p className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">Panel de control</p>
         <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Dashboard</h1>
       </div>
+
+      <SourceHealthAlerts alerts={sourceHealthAlerts} />
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard
