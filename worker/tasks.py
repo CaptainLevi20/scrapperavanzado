@@ -161,12 +161,12 @@ def _download_and_upload_one(
             titulo_antes = doc.title
             scraper.resolve_unverified_document(doc, result.local_path, result.content_type)
             # Solo se reconstruye la clave de almacenamiento si el enganche realmente
-            # corrigió el título (SAMAI/CSJ). Rama Judicial usa el enganche solo para
-            # extraer f_providencia y NO cambia el título; reejecutar rekey en ese caso
-            # reescribiría la clave descriptiva al radicado canónico —perdería el
-            # detalle del nombre y podría colisionar dos actuaciones del mismo radicado
-            # en una misma clave, sobrescribiendo el archivo.
-            if doc.title != titulo_antes:
+            # corrigió el título (SAMAI/CSJ). Rama Judicial también puede corregirlo
+            # (radicado leído del PDF), pero NO se reconstruye aquí: reescribiría la
+            # clave descriptiva al radicado canónico y podría colisionar dos
+            # actuaciones del mismo radicado en una misma clave, sobrescribiendo el
+            # archivo. Ese renombre lo hace storage_sync, que detecta los choques.
+            if doc.title != titulo_antes and scraper.rekey_storage_on_title_fix:
                 result.storage_key = rekey_filename(result.storage_key, doc.title)
         if skip_upload_if_size_matches is not None and result.file_size_bytes == skip_upload_if_size_matches:
             return None, None
