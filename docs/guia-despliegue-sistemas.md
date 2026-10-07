@@ -413,7 +413,8 @@ de 45 días, porque sube sus conceptos con meses de retraso.
 
 Las fuentes con alerta aparecen en un recuadro al inicio del **Dashboard** y,
 en la página **Fuentes**, con la marca "Revisar" junto a la fecha de su último
-documento. Las fuentes inactivas no se vigilan, y una fuente sin historia
+documento. Ambos los ven **solo los usuarios administradores**; los usuarios
+normales no ven ni el recuadro ni la columna. Las fuentes inactivas no se vigilan, y una fuente sin historia
 suficiente (menos de 6 días con documentos en el último año) no genera aviso.
 
 El aviso es una señal para revisar, no una falla confirmada: puede ser que el

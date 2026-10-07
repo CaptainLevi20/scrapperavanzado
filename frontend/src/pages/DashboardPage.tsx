@@ -7,6 +7,7 @@ import { fetchRuns } from "../api/runs";
 import { fetchAllActiveSources, fetchSourceHealth } from "../api/sources";
 import type { Document, DocumentReviewStatus, SourceHealth } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
+import { useAuth } from "../auth/AuthContext";
 import { EmptyState } from "../components/EmptyState";
 import { TableRowsSkeleton } from "../components/TableSkeleton";
 import { Skeleton } from "../components/ui/skeleton";
@@ -142,9 +143,13 @@ export function DashboardPage() {
     queryFn: fetchAllActiveSources,
   });
 
+  // El aviso de fuentes que pueden estar fallando es solo para administradores
+  // (el servidor también lo restringe).
+  const { isAdmin } = useAuth();
   const sourceHealthQuery = useQuery({
     queryKey: ["sources", "health"],
     queryFn: fetchSourceHealth,
+    enabled: isAdmin,
   });
   const sourceHealthAlerts = (sourceHealthQuery.data ?? []).filter((health) => health.alerta !== null);
 
@@ -204,7 +209,7 @@ export function DashboardPage() {
         <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Dashboard</h1>
       </div>
 
-      <SourceHealthAlerts alerts={sourceHealthAlerts} />
+      {isAdmin && <SourceHealthAlerts alerts={sourceHealthAlerts} />}
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard

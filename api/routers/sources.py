@@ -47,9 +47,10 @@ def get_sources(
 
 
 @router.get("/source-health", response_model=list[SourceHealthOut])
-def get_source_health(db: Session = Depends(get_db)):
+def get_source_health(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     """Por cada fuente activa: si dejó de traer documentos (silencio) o trae
-    mucho menos que de costumbre (caída) — ver core/salud_fuentes.py."""
+    mucho menos que de costumbre (caída) — ver core/salud_fuentes.py. Solo
+    para administradores: es un aviso de operación, no para usuarios normales."""
     hoy = date.today()
     conteos_por_fuente: dict[int, dict[date, int]] = {}
     for source_id, f_public, cantidad in repository.document_counts_by_publication_date(
