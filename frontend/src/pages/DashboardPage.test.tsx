@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
+import { clearStoredToken, setStoredToken } from "../api/client";
+import { AuthProvider } from "../auth/AuthContext";
 import { DashboardPage } from "./DashboardPage";
 import type { Document } from "../api/types";
 import { todayDateString } from "../lib/formatters";
@@ -66,15 +68,22 @@ const STATS = {
 // Por defecto ninguna fuente en alerta; las pruebas del aviso lo sobrescriben.
 beforeEach(() => {
   server.use(http.get(`${BASE_URL}/source-health`, () => HttpResponse.json([])));
+  // Sesión de administrador por defecto (el aviso de fuentes es solo para
+  // administradores); las pruebas de usuario normal lo sobrescriben.
+  clearStoredToken();
+  setStoredToken("test-token");
+  server.use(http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "tester", is_admin: true })));
 });
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <DashboardPage />
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
@@ -91,12 +100,14 @@ function renderPageWithDocumentsRoute() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/"]}>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/documents" element={<LocationStateProbe />} />
-        </Routes>
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/documents" element={<LocationStateProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
@@ -430,5 +441,26 @@ describe("DashboardPage", () => {
 
     expect(await screen.findByText("Documentos por tipo")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("no muestra el aviso de fuentes a un usuario normal, ni lo pide al servidor", async () => {
+    let pidioSalud = false;
+    server.use(
+      http.get(`${BASE_URL}/auth/me`, () => HttpResponse.json({ username: "lector", is_admin: false })),
+      http.get(`${BASE_URL}/sources`, () => HttpResponse.json(SOURCES)),
+      http.get(`${BASE_URL}/runs`, () => HttpResponse.json([])),
+      http.get(`${BASE_URL}/documents`, () => HttpResponse.json({ items: [], total: 0 })),
+      http.get(`${BASE_URL}/documents/stats`, () => HttpResponse.json(STATS)),
+      http.get(`${BASE_URL}/source-health`, () => {
+        pidioSalud = true;
+        return HttpResponse.json([{ source_id: 1, source_name: "Corte Constitucional", alerta: "silencio", detalle: "x" }]);
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Documentos por tipo")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(pidioSalud).toBe(false);
   });
 });

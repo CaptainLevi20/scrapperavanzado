@@ -182,7 +182,13 @@ def test_source_health_requires_authentication(api_client):
     assert api_client.get("/source-health").status_code == 401
 
 
-def test_source_health_marca_la_fuente_callada_y_no_la_que_esta_al_dia(api_client, auth_header, db_session):
+def test_source_health_es_solo_para_administradores(api_client, auth_header):
+    # El aviso de fuentes que pueden estar fallando es para quien administra
+    # el sistema, no para los usuarios normales (decisión del usuario, oct 2026).
+    assert api_client.get("/source-health", headers=auth_header).status_code == 403
+
+
+def test_source_health_marca_la_fuente_callada_y_no_la_que_esta_al_dia(api_client, admin_auth_header, db_session):
     from datetime import date, timedelta
 
     from core.db import repository
@@ -208,7 +214,7 @@ def test_source_health_marca_la_fuente_callada_y_no_la_que_esta_al_dia(api_clien
                 storage_key=f"{source.id}-{i}.pdf",
             )
 
-    response = api_client.get("/source-health", headers=auth_header)
+    response = api_client.get("/source-health", headers=admin_auth_header)
 
     assert response.status_code == 200
     por_nombre = {s["source_name"]: s for s in response.json()}
@@ -220,7 +226,7 @@ def test_source_health_marca_la_fuente_callada_y_no_la_que_esta_al_dia(api_clien
     assert "40 días sin documentos nuevos" in por_nombre["Callada"]["detalle"]
 
 
-def test_source_health_respeta_el_margen_propio_de_una_fuente_que_publica_con_retraso(api_client, auth_header, db_session):
+def test_source_health_respeta_el_margen_propio_de_una_fuente_que_publica_con_retraso(api_client, admin_auth_header, db_session):
     # La Procuraduría sube sus conceptos semanas o meses después de su fecha:
     # 30 días sin documentos es normal en ella (margen de 45), no en otras.
     from datetime import date, timedelta
@@ -240,7 +246,7 @@ def test_source_health_respeta_el_margen_propio_de_una_fuente_que_publica_con_re
                 f_public=hoy - timedelta(days=30 + i), storage_bucket="iurisync-test", storage_key=f"{source.id}-{i}.pdf",
             )
 
-    por_nombre = {s["source_name"]: s for s in api_client.get("/source-health", headers=auth_header).json()}
+    por_nombre = {s["source_name"]: s for s in api_client.get("/source-health", headers=admin_auth_header).json()}
 
     assert por_nombre["PGN"]["alerta"] is None
     assert por_nombre["PGN"]["limite_silencio_dias"] == 45

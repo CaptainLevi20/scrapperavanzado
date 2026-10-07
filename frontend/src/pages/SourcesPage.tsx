@@ -15,7 +15,15 @@ import { TABLE, TABLE_SCROLL, TABLE_SHELL, TBODY_ROW, TD, TH, THEAD_ROW } from "
 
 const PAGE_SIZE = 20;
 
-function SourceRow({ source, health }: { source: Source; health: SourceHealth | undefined }) {
+function SourceRow({
+  source,
+  health,
+  showHealth,
+}: {
+  source: Source;
+  health: SourceHealth | undefined;
+  showHealth: boolean;
+}) {
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
   const toggleMutation = useMutation({
@@ -32,14 +40,16 @@ function SourceRow({ source, health }: { source: Source; health: SourceHealth | 
           {source.active ? "Activa" : "Inactiva"}
         </span>
       </td>
-      <td className={TD}>
-        {/* Solo las fuentes activas se vigilan: una inactiva no tiene fila de salud. */}
-        <div className="flex flex-col items-start gap-1">
-          <span className="font-mono-num">{formatDate(health?.ultimo_documento ?? null)}</span>
-          {health?.alerta && <SourceHealthStamp alerta={health.alerta} detalle={health.detalle} />}
-          {health?.alerta && <span className="text-xs text-muted-foreground">{health.detalle}</span>}
-        </div>
-      </td>
+      {showHealth && (
+        <td className={TD}>
+          {/* Solo las fuentes activas se vigilan: una inactiva no tiene fila de salud. */}
+          <div className="flex flex-col items-start gap-1">
+            <span className="font-mono-num">{formatDate(health?.ultimo_documento ?? null)}</span>
+            {health?.alerta && <SourceHealthStamp alerta={health.alerta} detalle={health.detalle} />}
+            {health?.alerta && <span className="text-xs text-muted-foreground">{health.detalle}</span>}
+          </div>
+        </td>
+      )}
       <td className={TD}>
         {isAdmin && (
           <Button variant="outline" size="sm" onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending}>
@@ -76,7 +86,10 @@ export function SourcesPage() {
   });
   const visibleSources = sourcesQuery.data?.slice(0, PAGE_SIZE);
 
-  const sourceHealthQuery = useQuery({ queryKey: ["sources", "health"], queryFn: fetchSourceHealth });
+  // "Último documento" y la marca de revisar son solo para administradores
+  // (el servidor también restringe /source-health).
+  const { isAdmin } = useAuth();
+  const sourceHealthQuery = useQuery({ queryKey: ["sources", "health"], queryFn: fetchSourceHealth, enabled: isAdmin });
   const healthBySourceId = new Map((sourceHealthQuery.data ?? []).map((health) => [health.source_id, health]));
   const hasNextPage = (sourcesQuery.data?.length ?? 0) > PAGE_SIZE;
 
@@ -138,16 +151,25 @@ export function SourcesPage() {
               <tr className={THEAD_ROW}>
                 <th className={TH}>Nombre</th>
                 <th className={TH}>Estado</th>
-                <th className={TH}>Último documento</th>
+                {isAdmin && <th className={TH}>Último documento</th>}
                 <th className={TH}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {sourcesQuery.isLoading ? (
-                <TableRowsSkeleton rows={6} columns={4} widths={["w-48", "w-20", "w-28", "w-24"]} />
+                <TableRowsSkeleton
+                  rows={6}
+                  columns={isAdmin ? 4 : 3}
+                  widths={isAdmin ? ["w-48", "w-20", "w-28", "w-24"] : ["w-48", "w-20", "w-24"]}
+                />
               ) : (
                 visibleSources?.map((source) => (
-                  <SourceRow key={source.id} source={source} health={healthBySourceId.get(source.id)} />
+                  <SourceRow
+                    key={source.id}
+                    source={source}
+                    health={healthBySourceId.get(source.id)}
+                    showHealth={isAdmin}
+                  />
                 ))
               )}
             </tbody>

@@ -235,4 +235,25 @@ describe("SourcesPage — toggle active state", () => {
     expect(within(filaAlDia).queryByText(/Revisar/)).not.toBeInTheDocument();
     expect(within(filaAlDia).getByText(/2026/)).toBeInTheDocument();
   });
+
+  it("a un usuario normal no le muestra la columna de último documento ni las marcas de revisar", async () => {
+    let pidioSalud = false;
+    server.use(
+      http.get(`${BASE_URL}/sources`, () =>
+        HttpResponse.json([{ id: 1, family_key: "corte_suprema", name: "CSJ", family_params: {}, active: true }])
+      ),
+      http.get(`${BASE_URL}/source-health`, () => {
+        pidioSalud = true;
+        return HttpResponse.json([]);
+      })
+    );
+
+    renderPage({ isAdmin: false });
+
+    const table = screen.getByRole("table");
+    expect(await within(table).findByText("CSJ")).toBeInTheDocument();
+    expect(within(table).queryByText("Último documento")).not.toBeInTheDocument();
+    expect(within(table).queryByText(/Revisar/)).not.toBeInTheDocument();
+    expect(pidioSalud).toBe(false);
+  });
 });
