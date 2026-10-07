@@ -865,6 +865,64 @@ def test_scrape_source_task_never_head_checks_a_family_that_opts_out(db_session,
 
 
 @responses.activate
+def test_scrape_source_task_no_revisa_republicacion_si_el_documento_reaparece_con_la_misma_fecha(
+    db_session, test_engine, monkeypatch
+):
+    # SAMAI: la republicación real llega con fecha de listado NUEVA. Con la
+    # ventana diaria ampliada (35 días) el mismo listado se vuelve a ver cada
+    # día; como SAMAI no da el tamaño sin descargar, cada reaparición era una
+    # descarga completa. Con la misma fecha no se toca la red.
+    celery_app.conf.task_always_eager = True
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+
+    repository.insert_document(
+        db_session,
+        doc_id="56fdae9f954347fcfb9cbdd8d9c98acfbe36ce66",
+        source_id=source.id,
+        title="Documento 1",
+        storage_bucket="iurisync-test",
+        storage_key="old-key.pdf",
+        content_type="application/pdf",
+        file_size_bytes=9,
+        source_url="https://example.com/doc1",
+        f_public=date(2026, 1, 1),
+    )
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    # Ningún mock de HEAD ni GET: si el código llegara a la red, `responses` falla.
+    DummyFamilyScraper.republication_only_on_new_listing_date = True
+    try:
+        task_session_factory = sessionmaker(bind=test_engine, future=True)
+        monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+        monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+        scrape_source_task(run_source.id)
+
+        assertion_session = task_session_factory()
+        try:
+            [refreshed_source] = repository.list_run_sources(assertion_session, run.id)
+            assert refreshed_source.docs_new == 0
+            assert refreshed_source.docs_updated == 0
+            assert refreshed_source.docs_errors == 0
+        finally:
+            assertion_session.close()
+    finally:
+        DummyFamilyScraper.republication_only_on_new_listing_date = False
+
+
+@responses.activate
 def test_scrape_source_task_uploads_nothing_when_head_is_inconclusive_but_real_size_is_unchanged(db_session, test_engine, monkeypatch):
     celery_app.conf.task_always_eager = True
 

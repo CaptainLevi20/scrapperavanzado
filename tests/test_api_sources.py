@@ -218,3 +218,30 @@ def test_source_health_marca_la_fuente_callada_y_no_la_que_esta_al_dia(api_clien
     assert por_nombre["Callada"]["alerta"] == "silencio"
     assert por_nombre["Callada"]["dias_sin_documentos"] == 40
     assert "40 días sin documentos nuevos" in por_nombre["Callada"]["detalle"]
+
+
+def test_source_health_respeta_el_margen_propio_de_una_fuente_que_publica_con_retraso(api_client, auth_header, db_session):
+    # La Procuraduría sube sus conceptos semanas o meses después de su fecha:
+    # 30 días sin documentos es normal en ella (margen de 45), no en otras.
+    from datetime import date, timedelta
+
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="procuraduria", display_name="Procuraduría")
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    pgn = repository.create_source(db_session, family_key="procuraduria", name="PGN", family_params={})
+    otra = repository.create_source(db_session, family_key="constitucional", name="Otra", family_params={})
+
+    hoy = date.today()
+    for source in (pgn, otra):
+        for i in range(120):
+            repository.insert_document(
+                db_session, doc_id=f"{source.id}-{i}", source_id=source.id, title=f"X-{source.id}-{i}",
+                f_public=hoy - timedelta(days=30 + i), storage_bucket="iurisync-test", storage_key=f"{source.id}-{i}.pdf",
+            )
+
+    por_nombre = {s["source_name"]: s for s in api_client.get("/source-health", headers=auth_header).json()}
+
+    assert por_nombre["PGN"]["alerta"] is None
+    assert por_nombre["PGN"]["limite_silencio_dias"] == 45
+    assert por_nombre["Otra"]["alerta"] == "silencio"

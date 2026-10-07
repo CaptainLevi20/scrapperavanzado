@@ -404,6 +404,15 @@ def scrape_source_task(run_source_id: int):
                         continue
                     if not scraper.checks_for_republication:
                         continue
+                    # Familias cuya republicación real llega con fecha de listado
+                    # NUEVA (SAMAI): la misma fecha es solo el mismo listado visto
+                    # otra vez por la ventana diaria — no hay nada que revisar.
+                    if (
+                        scraper.republication_only_on_new_listing_date
+                        and existing.f_public is not None
+                        and existing.f_public == _parse_date(doc.f_public)
+                    ):
+                        continue
                     remote_size = check_remote_content_length(
                         doc.link.get("url"), verify=doc.link.get("verify", True)
                     )

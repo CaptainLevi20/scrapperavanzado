@@ -461,6 +461,17 @@ class ScrapTribunales(BaseScrapper):
     # _download_and_upload_one's skip_upload_if_size_matches still discards it
     # without creating a new version when the real downloaded size is unchanged.
     checks_for_republication = True
+    # ...pero la republicación real (estado no reclamado) llega con fecha de
+    # listado nueva: reapariciones con la misma fecha (la ventana diaria se
+    # superpone, y con 35 días se superpone mucho) no se vuelven a descargar.
+    republication_only_on_new_listing_date = True
+    # Los tribunales suben documentos días o semanas después de su fecha
+    # (producción, octubre 2026: el 10% más tardío llega con 10-31 días de
+    # retraso, máximo 36; el Chocó subió el 14-sep algo que no estaba el 17).
+    # Con la ventana diaria de 3 días esos documentos nunca se recogían.
+    # 35 días: decisión del usuario (costo medido: Cundinamarca pasa de ~100 s
+    # a ~7 min).
+    scheduled_min_lookback_days = 35
 
     def __init__(self, corp_code: str, corp_name: str):
         self._corp_code = corp_code
