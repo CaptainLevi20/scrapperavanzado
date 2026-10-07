@@ -708,6 +708,38 @@ Es seguro repetirlo.
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
 
+### Superintendencia de Industria y Comercio (`sic`)
+
+- **Qué trae:** la normativa propia de la SIC desde su buscador de normas
+  (sede electrónica): **Resoluciones** (generales y de carácter particular,
+  incluidos los nombramientos), **Circulares** (externas, internas y
+  conjuntas), los **Títulos de la Circular Única** (cada versión que se
+  republica entra como documento aparte) y la **Doctrina** antigua (conceptos
+  y relatorías, que la SIC dejó de alimentar hacia 2017–2021). Desde 2015.
+- **Cuánto entrega:** el año 2025 completo dio 627 documentos — 607
+  resoluciones, 17 versiones de títulos de la Circular Única y 3 circulares.
+- **Qué no trae:** proyectos de resolución o circular, normas de otras
+  entidades (sólo enlazan a otros sitios), sentencias, informes y actas que el
+  buscador clasifica como "doctrina".
+- **Cómo quedan nombrados:** `R_SIC_77121_2026`, `C_SIC_0004_2024` (toda
+  circular es `C`), `TCU_SIC_X_20260130` (título y fecha de la versión),
+  `CTO_SIC_15-159447`, `REL_SIC_27305_2019`. Anexos: `_A01`. Quedan con el
+  título original de la página y marca de "sin verificar" (en 2025, 15 de 627):
+  los documentos sin número en el título ("Reglamento Interno…", "Tablas de
+  Retención…", "Aclaración de la Resolución…") y los casos en que la SIC subió
+  la misma resolución dos veces en fichas distintas con archivos distintos (el
+  segundo no pisa al primero).
+- **Detalle técnico:** el buscador desordena los resultados entre páginas, así
+  que la fuente recorre las páginas y luego busca por fragmentos de número
+  hasta completar el total que el propio buscador anuncia; si no lo logra,
+  lo avisa en el informe ("faltan N"). Cada documento exige abrir su ficha
+  (el listado no trae fechas): la corrida diaria tarda 1 a 3 minutos; un año
+  completo, unos 15 minutos; la carga completa 2015→hoy, del orden de 2 a 3
+  horas. Certificado válido.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Corte Suprema de Justicia (`corte_suprema`)
 
 - **De dónde saca los documentos:** del buscador oficial de providencias de
