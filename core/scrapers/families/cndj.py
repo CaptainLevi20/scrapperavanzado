@@ -70,6 +70,13 @@ def _radicado_year(numero_unico: str):
 
 @register_family("cndj")
 class ScrapCNDJ(BaseScrapper):
+    # El buscador muestra los documentos días después de adjuntarlos
+    # (producción, octubre 2026: las corridas del 11 al 14 de septiembre no
+    # vieron nada y hoy el 11 trae 15): la corrida diaria mira 30 días atrás
+    # (decisión del usuario). Solo aumentan las consultas de detalle; la
+    # búsqueda por magistrado se hace igual.
+    scheduled_min_lookback_days = 30
+
     def __init__(self):
         self.source = "Comisión Nacional de Disciplina Judicial"
 
@@ -149,7 +156,12 @@ class ScrapCNDJ(BaseScrapper):
 
                 results_resp = session.get(_CNDJ_BASE_URL + "Resultados", timeout=180)
                 results_resp.raise_for_status()
-            except Exception:
+            except Exception as e:
+                # Antes se saltaba en silencio y la corrida quedaba "completada"
+                # con 0 documentos aunque el sitio sí tuviera (producción,
+                # octubre 2026). "Error" lo convierte en un RunError visible.
+                if on_progress:
+                    on_progress(f"[{self.source}] Error consultando magistrado {mag}: {e}")
                 continue
 
             # Actualizar token para la siguiente búsqueda

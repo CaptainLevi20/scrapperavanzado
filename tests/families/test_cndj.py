@@ -166,3 +166,37 @@ def test_cndj_is_registered_under_its_family_key():
     import core.scrapers.families  # noqa: F401
 
     assert FAMILY_REGISTRY["cndj"] is ScrapCNDJ
+
+
+@responses.activate
+def test_scrap_reporta_la_busqueda_de_un_magistrado_que_falla_en_vez_de_callarla():
+    # Producción, octubre 2026: corridas "completadas" con 0 documentos mientras
+    # el sitio sí tenía. Una búsqueda de magistrado que fallaba se saltaba en
+    # silencio; ahora queda como Error visible en la corrida (worker/tasks.py).
+    index_html = _INDEX_HTML.replace(
+        '<option value="Juan Perez">Juan Perez</option>',
+        '<option value="Juan Perez">Juan Perez</option><option value="Ana Ruiz">Ana Ruiz</option>',
+    )
+    responses.add(responses.GET, _BASE + "Index", body=index_html, status=200)
+    responses.add(responses.POST, _BASE + "Resultados?handler=RecibirBusqueda", status=503)
+    responses.add(responses.POST, _BASE + "Resultados?handler=RecibirBusqueda", json={"success": True}, status=200)
+    responses.add(responses.GET, _BASE + "Resultados", body=_RESULTS_HTML, status=200)
+    responses.add(
+        responses.POST, _BASE + "Resultados?handler=RecibirDataResumen",
+        json={"archivo": "ALGO_ADJUNTA20240120103000"}, status=200,
+    )
+
+    mensajes = []
+    docs = ScrapCNDJ().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=mensajes.append)
+
+    assert len(docs) == 1  # el otro magistrado sí se procesó
+    errores = [m for m in mensajes if "Error" in m]
+    assert len(errores) == 1
+    assert "Juan Perez" in errores[0]
+
+
+def test_la_corrida_diaria_mira_30_dias_atras():
+    # El buscador de la Comisión muestra los documentos días después de
+    # adjuntarlos (producción, octubre 2026: corridas del 11 al 14 de
+    # septiembre sin nada, y hoy el 11 trae 15). Decisión del usuario: 30 días.
+    assert ScrapCNDJ.scheduled_min_lookback_days == 30
