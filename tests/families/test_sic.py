@@ -1,5 +1,14 @@
+import random
+from urllib.parse import parse_qs, urlparse
+
+import requests
+import responses
+
 from core.scrapers.families.sic import (
     _BASE,
+    _LISTADO,
+    _PresupuestoAgotado,
+    _enumerar_tajada,
     _CLAS_CIR,
     _CLAS_DOC,
     _CLAS_RES,
@@ -219,3 +228,128 @@ def test_crudo_y_safe_title():
     assert _crudo("x" * 200) == "x" * 120
     assert _crudo("Título final. ") == "Título final"
     assert _safe_title('Resolución "X": a/b') == "Resolución -X-- a-b"
+
+
+# el sitio real declara charset=UTF-8; sin él requests decodifica en latin-1
+_HTML = {"Content-Type": "text/html; charset=UTF-8"}
+
+
+def _sitio_inestable(todos, semilla=1, modo="azar"):
+    """Callback de `responses` que imita el buscador real, con búsqueda
+    `combine` por 'contiene' sobre el título. `modo`:
+    - "azar": reordena al azar en cada petición (filas repetidas y perdidas)
+    - "pierde": toda página no final devuelve las 20 primeras (pérdida segura)
+    - "estable": paginación correcta"""
+    rnd = random.Random(semilla)
+
+    def cb(request):
+        qs = parse_qs(urlparse(request.url).query)
+        combine = qs.get("combine", [""])[0]
+        lista = [(h, t) for h, t in todos if combine in t] if combine else list(todos)
+        if not lista:
+            return (200, _HTML, _listado([], encabezado=""))
+        n = (len(lista) + 19) // 20
+        p = int(qs.get("page", ["0"])[0])
+        orden = list(lista)
+        if n > 1 and modo == "azar":
+            rnd.shuffle(orden)  # el "orden" cambia en cada petición
+        if p == n - 1:
+            pagina = orden[(n - 1) * 20:] if modo == "estable" else orden[: len(lista) - (n - 1) * 20]
+        elif modo == "estable":
+            pagina = orden[p * 20:(p + 1) * 20]
+        else:
+            pagina = orden[:20]
+        return (200, _HTML, _listado(pagina, encabezado=f"Mostrando la página {p + 1} de {n} páginas"))
+
+    return cb
+
+
+def _docs(n):
+    return [(f"/transparencia/normativa/r-{i}", f"Resolución {10000 + i * 37} de 2025 PROFESIONAL") for i in range(n)]
+
+
+@responses.activate
+def test_enumerar_tajada_una_pagina_no_busca_por_fragmentos():
+    todos = _docs(15)
+    responses.add_callback(responses.GET, _LISTADO, callback=_sitio_inestable(todos))
+    pres = [100]
+    got = _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, pres, None, None)
+    assert got == dict(todos)
+    assert len(responses.calls) == 1
+    qs = parse_qs(urlparse(responses.calls[0].request.url).query)
+    assert qs["field_clasificacion2_target_id"] == ["177"]
+    assert qs["field_fecha_publicacion_value"] == ["2025"]
+
+
+@responses.activate
+def test_enumerar_tajada_vacia():
+    responses.add_callback(responses.GET, _LISTADO, callback=_sitio_inestable([]))
+    assert _enumerar_tajada(requests.Session(), _CLAS_DOC, 2026, [100], None, None) == {}
+
+
+@responses.activate
+def test_enumerar_tajada_completa_pese_al_reordenamiento():
+    todos = _docs(130)  # 7 páginas
+    responses.add_callback(responses.GET, _LISTADO, callback=_sitio_inestable(todos))
+    progreso = []
+    got = _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, [4000], None, progreso.append)
+    assert got == dict(todos)
+    assert not any("faltan" in m for m in progreso)
+
+
+@responses.activate
+def test_enumerar_tajada_no_busca_fragmentos_si_las_paginas_ya_completan():
+    todos = _docs(45)  # 3 páginas
+    responses.add_callback(responses.GET, _LISTADO, callback=_sitio_inestable(todos, modo="estable"))
+    pres = [4000]
+    got = _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, pres, None, None)
+    assert got == dict(todos)
+    assert not any("combine=" in c.request.url for c in responses.calls)
+    assert len(responses.calls) == 3          # página 0, última, página 1
+    assert pres[0] == 4000 - 3
+
+
+@responses.activate
+def test_enumerar_tajada_avisa_cuando_faltan():
+    # títulos sin dígitos: la búsqueda por fragmentos no puede encontrarlos, y
+    # el sitio "pierde" la página del medio
+    todos = [(f"/transparencia/normativa/x-{i}", "Por la cual se suspenden términos") for i in range(60)]
+    responses.add_callback(responses.GET, _LISTADO, callback=_sitio_inestable(todos, modo="pierde"))
+    progreso = []
+    got = _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, [4000], None, progreso.append)
+    assert len(got) < 60
+    assert any(f"faltan {60 - len(got)}" in m for m in progreso)
+
+
+@responses.activate
+def test_enumerar_tajada_presupuesto_agotado():
+    responses.add_callback(responses.GET, _LISTADO, callback=_sitio_inestable(_docs(130)))
+    pres = [5]
+    try:
+        _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, pres, None, None)
+        assert False, "debía agotar el presupuesto"
+    except _PresupuestoAgotado:
+        pass
+    assert len(responses.calls) == 5
+
+
+@responses.activate
+def test_enumerar_tajada_ultima_pagina_caida_no_da_un_total_falso():
+    # 30 fichas = 2 páginas; la última (page=1) falla siempre. Sin total
+    # verificable no se puede dar por completa la tajada con las 20 de la
+    # página 0: se sigue con la búsqueda por fragmentos.
+    todos = _docs(30)
+    sitio = _sitio_inestable(todos, modo="estable")
+
+    def cb(request):
+        if "page=1" in request.url:
+            return (500, {}, "error")
+        return sitio(request)
+
+    responses.add_callback(responses.GET, _LISTADO, callback=cb)
+    progreso = []
+    got = _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, [4000], None, progreso.append)
+    assert any("Error" in m for m in progreso)
+    assert len([c for c in responses.calls if "page=1" in c.request.url]) == 2  # un reintento
+    assert got == dict(todos)
+    assert not any("faltan" in m for m in progreso)

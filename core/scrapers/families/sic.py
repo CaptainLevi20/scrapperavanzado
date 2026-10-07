@@ -6,7 +6,7 @@ docs/superpowers/specs/2026-10-07-fuente-sic-design.md.
 """
 import re
 import unicodedata
-from typing import List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -162,3 +162,89 @@ def _titulo(tipo: str, titulo_sitio: str, expedicion: str) -> Tuple[str, bool]:
         if m:
             return f"CTO_SIC_{m.group(1)}-{m.group(2)}", False
     return _crudo(titulo_sitio), True
+
+
+# Consultas de listado (páginas + fragmentos) permitidas en una corrida. Una
+# carga 2015→hoy completa gasta del orden de 1.000 por año grande.
+_MAX_BUSQUEDAS = 4000
+_MAX_LARGO_FRAGMENTO = 6
+_DIGITOS = "0123456789"
+
+
+class _PresupuestoAgotado(Exception):
+    pass
+
+
+def _enumerar_tajada(session, clasif: str, anio: int, presupuesto: List[int],
+                     stop_event, on_progress) -> Dict[str, str]:
+    """Todas las fichas de una clasificación publicadas en `anio`.
+
+    El buscador reordena al azar las filas con igual fecha de publicación en
+    cada petición, así que recorrer las páginas repite unas y pierde otras. Se
+    conoce el total exacto (la última página dice cuántas filas quedan), y se
+    completa con búsquedas `combine` por fragmentos de dígitos: un fragmento
+    que cabe en una página no sufre el reordenamiento. Se para apenas se
+    alcanza el total.
+    """
+    base = {"field_clasificacion2_target_id": clasif, "field_fecha_publicacion_value": str(anio)}
+    por_href: Dict[str, str] = {}
+
+    def parar() -> bool:
+        return stop_event is not None and stop_event.is_set()
+
+    def consultar(extra: dict) -> Tuple[int, List[Tuple[str, str]]]:
+        if presupuesto[0] <= 0:
+            raise _PresupuestoAgotado
+        presupuesto[0] -= 1
+        try:
+            resp = session.get(_LISTADO, params={**base, **extra}, timeout=90)
+            resp.raise_for_status()
+        except Exception as e:
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Error consultando el listado {clasif}/{anio} {extra}: {e}")
+            return -1, []
+        return _num_paginas(resp.text), _filas_listado(resp.text)
+
+    def agregar(filas):
+        for href, titulo in filas:
+            por_href.setdefault(href, titulo)
+
+    n, filas = consultar({"page": 0})
+    agregar(filas)
+    if n <= 1:
+        return por_href
+
+    m_ult, ultimas = consultar({"page": n - 1})
+    if m_ult < 0:
+        m_ult, ultimas = consultar({"page": n - 1})  # un reintento
+    agregar(ultimas)
+    # sin la última página no hay total verificable: se enumera sin parada temprana
+    total: Optional[int] = (n - 1) * _POR_PAGINA + len(ultimas) if m_ult >= 0 else None
+
+    def completo() -> bool:
+        return total is not None and len(por_href) >= total
+
+    for p in range(1, n - 1):
+        if parar() or completo():
+            break
+        agregar(consultar({"page": p})[1])
+
+    def fragmento(s: str):
+        if parar() or completo():
+            return
+        m, filas = consultar({"combine": s})
+        if m <= 1 or len(s) >= _MAX_LARGO_FRAGMENTO:
+            agregar(filas)
+            return
+        for d in _DIGITOS:
+            fragmento(s + d)
+
+    for d in _DIGITOS:
+        fragmento(d)
+
+    if total is not None and len(por_href) < total and not parar() and on_progress:
+        on_progress(
+            f"[{_SOURCE}] Aviso: listado {clasif}/{anio} con {total} fichas, "
+            f"faltan {total - len(por_href)} que no se pudieron enumerar"
+        )
+    return por_href
