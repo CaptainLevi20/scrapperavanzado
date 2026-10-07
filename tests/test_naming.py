@@ -195,3 +195,43 @@ def test_con_sufijos_empate_de_id_desempata_por_posicion():
 
 def test_con_sufijos_lista_vacia():
     assert con_sufijos([]) == []
+
+
+# --- SIC: el mismo acto publicado en varias fichas = actuaciones -----------
+
+@pytest.mark.parametrize("titulo", [
+    "R_SIC_10352_2026", "R_SIC_0610_2026", "C_SIC_0004_2024", "REL_SIC_27305_2019",
+    "TCU_SIC_X_20260130", "CTO_SIC_15-159447", "R_SIC_10352_2026_A01",
+])
+def test_sic_titulos_canonicos_tienen_actuaciones(titulo):
+    assert es_familia_con_actuaciones("sic", titulo)
+
+
+@pytest.mark.parametrize("titulo", [
+    "Reglamento Interno del Comité de Conciliación", "R_SIC_10352", "R_SS_0001_2026", "documento",
+])
+def test_sic_titulos_crudos_no_tienen_actuaciones(titulo):
+    assert not es_familia_con_actuaciones("sic", titulo)
+
+
+def _doc_sic(title, f_providencia, version_no=1):
+    return SimpleNamespace(title=title, f_providencia=f_providencia, f_public=f_providencia, version_no=version_no)
+
+
+def test_sic_acto_unico_no_lleva_sufijo_de_anio():
+    # a diferencia de Tribunales, el código ya trae el año
+    assert nombre_documento(_doc_sic("R_SIC_10352_2026", date(2026, 2, 16)), "sic", tiene_actuaciones=False) == "R_SIC_10352_2026"
+
+
+def test_sic_acto_repetido_lleva_fecha_de_expedicion():
+    assert nombre_documento(_doc_sic("R_SIC_10352_2026", date(2026, 2, 18)), "sic", tiene_actuaciones=True) == "R_SIC_10352_2026_20260218"
+
+
+def test_sic_version_de_acto_unico():
+    doc = _doc_sic("R_SIC_10352_2026", date(2026, 2, 16), version_no=2)
+    assert nombre_documento(doc, "sic", tiene_actuaciones=False) == "R_SIC_10352_2026-v2"
+
+
+def test_tribunales_siguen_llevando_el_anio_con_actuacion_unica():
+    doc = _doc_sic("T_CUND_25269_33_33_001_2025_00051_01", date(2026, 3, 15))
+    assert nombre_documento(doc, "rama_judicial", tiene_actuaciones=False) == "T_CUND_25269_33_33_001_2025_00051_01_2026"

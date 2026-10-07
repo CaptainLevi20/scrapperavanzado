@@ -2353,3 +2353,30 @@ def test_count_documents_for_period_counts_by_publication_date(db_session):
     total = repository.count_documents_for_period(db_session, date(2026, 8, 1), date(2026, 9, 1))
 
     assert total == 2
+
+
+def test_list_documents_collapse_groups_sic_duplicate_acts_but_not_raw_titles(db_session):
+    """SIC: la misma resolución publicada en dos fichas son actuaciones del
+    mismo código (colapsan a la más reciente); dos fichas con el mismo título
+    crudo del sitio NO se agrupan (el patrón también corre como regex de
+    PostgreSQL)."""
+    from datetime import date
+    repository.create_source_family(db_session, key="sic", display_name="SIC")
+    source = repository.create_source(db_session, family_key="sic", name="Superintendencia de Industria y Comercio", family_params={})
+    for doc_id, title, key, dia in [
+        ("r-1", "R_SIC_10352_2026", "a.pdf", 16),
+        ("r-2", "R_SIC_10352_2026", "b.pdf", 18),
+        ("t-1", "TCU_SIC_X_20260101", "c.pdf", 1),
+        ("t-2", "TCU_SIC_X_20260101", "d.pdf", 2),
+        ("x-1", "Reglamento Interno", "e.pdf", 3),
+        ("x-2", "Reglamento Interno", "f.pdf", 4),
+    ]:
+        repository.insert_document(
+            db_session, doc_id=doc_id, source_id=source.id, title=title,
+            storage_bucket="iurisync-test", storage_key=key, f_public=date(2026, 2, dia),
+        )
+
+    items, total = repository.list_documents(db_session, family_key="sic", collapse_case_families=True)
+
+    assert total == 4
+    assert sorted(d.doc_id for d in items) == ["r-2", "t-2", "x-1", "x-2"]

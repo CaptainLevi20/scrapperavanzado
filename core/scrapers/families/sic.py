@@ -4,6 +4,7 @@ Normativa propia de la SIC desde el "Sistema de búsquedas de normas, propio de
 la entidad" de su sede electrónica (Drupal). Ver
 docs/superpowers/specs/2026-10-07-fuente-sic-design.md.
 """
+import hashlib
 import re
 import unicodedata
 from typing import Dict, List, NamedTuple, Optional, Tuple
@@ -127,7 +128,9 @@ def _de_otra_entidad(t: str) -> bool:
 
 def _clasificar(clasif: str, titulo: str) -> Optional[str]:
     t = _norm(titulo)
-    if t.startswith("proyecto"):
+    # proyectos (no son norma) y estudios de verificación del cargo que
+    # acompañan a los nombramientos (no son actos)
+    if t.startswith("proyecto") or t.startswith("estudio"):
         return None
     if clasif == _CLAS_RES:
         return None if _de_otra_entidad(t) else _TIPO_RES
@@ -299,7 +302,7 @@ class ScrapSIC(BaseScrapper):
         session.headers.update({"User-Agent": _UA})
         docs: List[RawDocModel] = []
         vistos: set = set()       # URLs de PDF ya emitidas
-        claves: dict = {}         # (tipo, safe_title) -> URL del PDF que la ocupa
+        claves: dict = {}         # (tipo, título crudo) -> URL del PDF que lo ocupa
         presupuesto = [_MAX_BUSQUEDAS]
         agotado = False
         filas_totales = 0
@@ -364,15 +367,24 @@ class ScrapSIC(BaseScrapper):
                     vistos.add(url_pdf)
                     sufijo = f"_A{i:02d}" if i else ""
                     title, unv = base_title + sufijo, unverified
-                    if claves.get((tipo, _safe_title(title)), url_pdf) != url_pdf:
-                        # otra ficha ya ocupó esta clave (p. ej. circular externa
-                        # y conjunta con igual número y año): baja al título del sitio
-                        title, unv = _crudo(titulo) + sufijo, True
+                    if not unv:
+                        # El mismo código en otra ficha es el mismo acto
+                        # publicado otra vez: actuaciones del mismo título
+                        # (core/naming.py). Se sube con un sufijo único porque
+                        # una subida con el mismo nombre reemplazaría el archivo
+                        # de la otra; al terminar la corrida core/storage_sync
+                        # lo renombra al nombre canónico.
+                        h = hashlib.sha1(url_pdf.encode()).hexdigest()[:7]
+                        nombre_archivo = f"{_safe_title(title)}_h{h}"
+                    else:
+                        # título crudo del sitio: nada que agrupar, sólo evitar
+                        # que dos fichas distintas compartan archivo
                         n = 2
                         while claves.get((tipo, _safe_title(title)), url_pdf) != url_pdf:
                             title = f"{_crudo(titulo)}_{n}{sufijo}"
                             n += 1
-                    claves[(tipo, _safe_title(title))] = url_pdf
+                        claves[(tipo, _safe_title(title))] = url_pdf
+                        nombre_archivo = _safe_title(title)
                     docs.append(RawDocModel(
                         source=_SOURCE,
                         link={"url": url_pdf, "method": "GET"},
@@ -381,7 +393,7 @@ class ScrapSIC(BaseScrapper):
                         f_public=publicacion,
                         f_providencia=expedicion,
                         detalle=titulo or None,
-                        save_path=storage_path(_SOURCE, publicacion, tipo, f"{_safe_title(title)}(extension)"),
+                        save_path=storage_path(_SOURCE, publicacion, tipo, f"{nombre_archivo}(extension)"),
                         title_unverified=unv,
                     ))
                     if len(docs) >= limit:

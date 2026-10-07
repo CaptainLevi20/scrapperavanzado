@@ -661,3 +661,46 @@ def test_reconcile_document_falls_back_to_normal_rename_when_minio_check_errors(
     assert copiados == [("iurisync-test", "carpeta/viejo.pdf", "carpeta/T-123-24.pdf")]
     db_session.refresh(doc)
     assert doc.storage_key == "carpeta/T-123-24.pdf"
+
+
+def _sic_source(db_session):
+    repository.create_source_family(db_session, key="sic", display_name="SIC")
+    return repository.create_source(
+        db_session, family_key="sic", name="Superintendencia de Industria y Comercio", family_params={}
+    )
+
+
+def _sic_doc(db_session, source, doc_id, key, dia):
+    return repository.insert_document(
+        db_session, doc_id=doc_id, source_id=source.id, title="R_SIC_10352_2026",
+        storage_bucket="iurisync-test", storage_key=key,
+        f_public=date(2026, 2, dia), f_providencia=date(2026, 2, dia),
+    )
+
+
+def test_reconcile_title_group_sic_acto_unico_queda_con_el_codigo_sin_sufijo(db_session, monkeypatch):
+    # el scraper sube con un sufijo único (_h<hash>); el reacomodo lo deja canónico
+    source = _sic_source(db_session)
+    doc = _sic_doc(db_session, source, "a", "SIC/2026-02-16/Resolución/R_SIC_10352_2026_habc1234.pdf", 16)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
+
+    storage_sync.reconcile_title_group(db_session, "sic", "R_SIC_10352_2026")
+
+    db_session.refresh(doc)
+    assert doc.storage_key == "SIC/2026-02-16/Resolución/R_SIC_10352_2026.pdf"
+
+
+def test_reconcile_title_group_sic_acto_repetido_lleva_la_fecha_de_expedicion(db_session, monkeypatch):
+    source = _sic_source(db_session)
+    a = _sic_doc(db_session, source, "a", "SIC/2026-02-16/Resolución/R_SIC_10352_2026.pdf", 16)
+    b = _sic_doc(db_session, source, "b", "SIC/2026-02-18/Resolución/R_SIC_10352_2026_hdef5678.pdf", 18)
+    monkeypatch.setattr(storage_sync, "copy_object", lambda *a: None)
+    monkeypatch.setattr(storage_sync, "delete_object", lambda *a: None)
+
+    storage_sync.reconcile_title_group(db_session, "sic", "R_SIC_10352_2026")
+
+    db_session.refresh(a)
+    db_session.refresh(b)
+    assert a.storage_key == "SIC/2026-02-16/Resolución/R_SIC_10352_2026_20260216.pdf"
+    assert b.storage_key == "SIC/2026-02-18/Resolución/R_SIC_10352_2026_20260218.pdf"

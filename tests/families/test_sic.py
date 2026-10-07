@@ -1,3 +1,4 @@
+import hashlib
 import random
 import threading
 from datetime import date
@@ -153,6 +154,11 @@ def test_ficha_sin_fechas():
 def test_clasificar_resoluciones_incluye_nombramientos():
     assert _clasificar(_CLAS_RES, 'Resolución No. 77121 del 29 de septiembre de 2026 "Por la cual se deroga"') == _TIPO_RES
     assert _clasificar(_CLAS_RES, "Resolución No. 29705 de 2026 PROFESIONAL U. 2044-07 G.T. REGULACIÓN - OFICINA ASESORA JURÍDICA") == _TIPO_RES
+
+
+def test_clasificar_descarta_estudios_de_cargo():
+    # acompañan a los nombramientos; no son actos (decisión del usuario 2026-10-07)
+    assert _clasificar(_CLAS_RES, "Estudio Profesional Especializado 2028-17 Dirección Administrativa") is None
 
 
 def test_clasificar_descarta_proyectos():
@@ -407,7 +413,11 @@ def test_scrap_resolucion_basica():
     assert d.f_public == "2026-09-30"
     assert d.f_providencia == "2026-09-29"
     assert d.link == {"url": f"{_BASE}/sites/default/files/normativa/R77121.pdf", "method": "GET"}
-    assert d.save_path == "Superintendencia de Industria y Comercio/2026-09-30/Resolución/R_SIC_77121_2026(extension)"
+    # se sube con un sufijo único (el mismo acto puede llegar en otra ficha, y
+    # una subida con el mismo nombre reemplazaría el archivo); al terminar la
+    # corrida core/storage_sync lo renombra al nombre canónico
+    h = hashlib.sha1(d.link["url"].encode()).hexdigest()[:7]
+    assert d.save_path == f"Superintendencia de Industria y Comercio/2026-09-30/Resolución/R_SIC_77121_2026_h{h}(extension)"
     assert d.title_unverified is False
     assert d.detalle.startswith("Resolución No. 77121")
 
@@ -464,10 +474,45 @@ def test_scrap_anexos_y_colision():
     por_url = {d.link["url"].rsplit("/", 1)[-1]: d for d in docs}
     assert por_url["ce.pdf"].title == "C_SIC_0010_2026"
     assert por_url["ce-anexo.pdf"].title == "C_SIC_0010_2026_A01"
-    # misma clave que la externa -> baja al título del sitio, sin verificar
-    assert por_url["cj.pdf"].title == "Circular Conjunta 010 de 2026"
-    assert por_url["cj.pdf"].title_unverified is True
+    # mismo código que la externa -> actuación del mismo acto, verificada
+    assert por_url["cj.pdf"].title == "C_SIC_0010_2026"
+    assert por_url["cj.pdf"].title_unverified is False
+    assert len({d.save_path for d in docs}) == 3  # ninguna subida pisa a otra
     assert all(d.tipo == "Circular" for d in docs)
+
+
+@responses.activate
+def test_scrap_mismo_acto_en_dos_fichas_son_actuaciones():
+    # caso real 2026: la Resolución 10352 publicada dos veces (…CARGO.pdf y …CARGO_0.pdf)
+    _registrar_sitio(
+        {_CLAS_RES: [
+            ("/a", "Resolución 10352 de 2026 AUXILIAR AD. 4044-11 DONDE SE UBIQUE EL CARGO"),
+            ("/b", "Resolución 10352 de 2026 AUXILIAR AD. 4044-11 DONDE SE UBIQUE EL CARGO"),
+        ]},
+        {
+            "/a": _ficha_con("2026-02-16", "2026-02-16", "/f/CARGO.pdf"),
+            "/b": _ficha_con("2026-02-18", "2026-02-18", "/f/CARGO_0.pdf"),
+        },
+    )
+    docs = ScrapSIC().scrap("2026-01-01", "2026-12-31")
+    assert [d.title for d in docs] == ["R_SIC_10352_2026", "R_SIC_10352_2026"]
+    assert not any(d.title_unverified for d in docs)
+    assert docs[0].save_path != docs[1].save_path
+
+
+@responses.activate
+def test_scrap_titulos_crudos_repetidos_siguen_sin_pisarse():
+    _registrar_sitio(
+        {_CLAS_RES: [("/a", "Reglamento Interno"), ("/b", "Reglamento Interno")]},
+        {
+            "/a": _ficha_con("2026-02-16", "2026-02-16", "/f/a.pdf"),
+            "/b": _ficha_con("2026-02-16", "2026-02-16", "/f/b.pdf"),
+        },
+    )
+    docs = ScrapSIC().scrap("2026-01-01", "2026-12-31")
+    assert [d.title for d in docs] == ["Reglamento Interno", "Reglamento Interno_2"]
+    assert all(d.title_unverified for d in docs)
+    assert docs[1].save_path.endswith("/Reglamento Interno_2(extension)")
 
 
 @responses.activate

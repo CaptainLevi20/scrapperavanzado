@@ -725,12 +725,18 @@ Es seguro repetirlo.
   circular es `C`), `TCU_SIC_X_20260130` (título y fecha de la versión),
   `CTO_SIC_15-159447`, `REL_SIC_27305_2019`. Anexos: `_A01`. El número sólo se
   toma si el título empieza por el acto ("Resolución…", "Circular…"): una
-  "Aclaración de la Resolución 56937" no es esa resolución. Quedan con el
-  título original de la página y marca de "sin verificar" (en 2025, unos 17 de
-  627): los documentos sin número propio en el título ("Reglamento Interno…",
-  "Tablas de Retención…", aclaraciones y prórrogas) y los casos en que la SIC subió
-  la misma resolución dos veces en fichas distintas con archivos distintos (el
-  segundo no pisa al primero).
+  "Aclaración de la Resolución 56937" no es esa resolución y queda con el
+  título original de la página y marca de "sin verificar", igual que los
+  documentos sin número propio ("Reglamento Interno…", "Tablas de Retención…").
+  Se descartan los "Estudio …" de verificación del cargo que acompañan a los
+  nombramientos.
+- **El mismo acto publicado dos veces:** la SIC a veces sube la misma
+  resolución en dos fichas con archivos distintos. Se conservan ambas como
+  **actuaciones** del mismo código (como en Tribunales y SAMAI): en el listado
+  aparecen agrupadas, y sus archivos llevan la fecha de expedición
+  (`R_SIC_10352_2026_20260216.pdf` y `R_SIC_10352_2026_20260218.pdf`). Un acto
+  con una sola ficha no lleva fecha. Si las dos copias tienen la misma fecha,
+  los archivos conservan su nombre de subida para que ninguno pise al otro.
 - **Detalle técnico:** el buscador desordena los resultados entre páginas, así
   que la fuente recorre las páginas y luego busca por fragmentos de número
   hasta completar el total que el propio buscador anuncia; si no lo logra,
