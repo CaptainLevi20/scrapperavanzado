@@ -406,6 +406,11 @@ propia historia del último año y avisa en dos casos:
   al menos 20 documentos al mes; en las más pequeñas, un mes flojo no
   significa nada.
 
+Para no dar falsas alarmas, el aviso de silencio tampoco salta mientras la
+pausa actual no supere la pausa más larga que la fuente ya tuvo en el último
+año (fuentes pequeñas e irregulares). La Procuraduría tiene un margen propio
+de 45 días, porque sube sus conceptos con meses de retraso.
+
 Las fuentes con alerta aparecen en un recuadro al inicio del **Dashboard** y,
 en la página **Fuentes**, con la marca "Revisar" junto a la fecha de su último
 documento. Las fuentes inactivas no se vigilan, y una fuente sin historia
@@ -758,3 +763,27 @@ Es seguro repetirlo.
   una hora. Se puede repetir sin riesgo: lo ya corregido no se vuelve a tocar.
   Al terminar muestra cuántos se corrigieron por el nombre, cuántos por el
   PDF y cuántos quedaron igual.
+
+### Fuentes que publican con retraso (ventana de la corrida diaria)
+
+La corrida automática diaria normalmente mira solo los últimos 3 días. Algunas
+fuentes suben sus documentos días o semanas después de la fecha que llevan, y
+con esa ventana nunca se recogerían. Por eso su corrida diaria mira más atrás
+(revisado con datos de producción en octubre de 2026):
+
+| Fuente | Mira hacia atrás | Por qué |
+|---|---|---|
+| Consejo de Estado y Tribunales Administrativos (SAMAI) | 35 días | El 10% más tardío llega con 10-31 días de retraso |
+| Ministerio del Interior | 45 días | Sube sus normas 3-4 semanas después de su fecha |
+| Superintendencia de Sociedades | 120 días | Cada boletín lleva la fecha del mes que cubre y sale 1-3 meses después |
+| Corte Constitucional | 21 días | Tarda 10+ días en indexar |
+| Ministerio de Salud | 60 días | Sube documentos semanas después |
+
+En SAMAI, un documento que reaparece con la misma fecha no se vuelve a
+descargar (solo una fecha nueva indica una republicación), así que la ventana
+larga cuesta consultas, no descargas: la corrida diaria de SAMAI tarda unas 4
+a 5 veces más que con 3 días (el tribunal más grande, Cundinamarca, unos 7
+minutos).
+
+La Procuraduría es la excepción: sus conceptos llegan con meses de retraso y se
+recogen con la **corrida manual mensual** (año actual y anterior).
