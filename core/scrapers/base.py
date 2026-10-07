@@ -39,6 +39,20 @@ class BaseScrapper:
     # hiding it rather than just delaying it by a day or two.
     scheduled_min_lookback_days: int | None = None
 
+    # Para familias cuyo sitio, al republicar un documento, lo vuelve a listar
+    # con fecha NUEVA (SAMAI): un documento ya guardado que reaparece con la
+    # MISMA fecha es solo el mismo listado visto otra vez (la ventana diaria se
+    # superpone) y no se revisa como posible republicación. Importa cuando
+    # revisar cuesta una descarga completa y la ventana diaria es larga.
+    republication_only_on_new_listing_date: bool = False
+
+    # Días que el aviso "fuentes que pueden estar fallando" (core/salud_fuentes.py)
+    # debe tolerar sin documentos nuevos antes de avisar, para una fuente cuyo
+    # sitio publica con retraso conocido pero cuya corrida diaria se dejó corta
+    # a propósito (si la corrida ya mira más atrás, scheduled_min_lookback_days
+    # cumple el mismo papel). None = sin margen propio.
+    alerta_margen_dias: int | None = None
+
     # Whether worker/tasks.py rebuilds the storage key right away when
     # resolve_unverified_document corrects the title (SAMAI/CSJ). A family
     # whose corrected titles group several actuaciones of the same case

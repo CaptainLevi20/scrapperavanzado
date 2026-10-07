@@ -140,3 +140,41 @@ def test_fuente_con_retraso_conocido_no_alerta_silencio_antes_de_ese_retraso():
     salud = evaluar_fuente(conteos, HOY, retraso_dias=21)
     assert salud.alerta is None
     assert salud.limite_silencio_dias == 21
+
+
+def test_fuente_irregular_no_alerta_mientras_no_supere_su_pausa_mas_larga():
+    # Caso real (Tribunal Superior del Putumayo, octubre 2026): publica cada
+    # pocos días, pero ya tuvo una pausa de 25 días. 20 días de silencio no es
+    # una falla; 30 sí lo sería.
+    conteos = {}
+    dia = HOY - timedelta(days=360)
+    while dia < HOY - timedelta(days=100):
+        conteos[dia] = 2
+        dia += timedelta(days=4)
+    # la pausa de 25 días
+    dia += timedelta(days=25)
+    while dia <= HOY - timedelta(days=20):
+        conteos[dia] = 2
+        dia += timedelta(days=4)
+    ultimo = max(conteos)
+
+    salud = evaluar_fuente(conteos, ultimo + timedelta(days=20))
+    assert salud.alerta is None
+    assert salud.limite_silencio_dias >= 25
+
+    assert evaluar_fuente(conteos, ultimo + timedelta(days=30)).alerta == "silencio"
+
+
+def test_csj_en_produccion_sigue_marcada_aunque_su_historia_sea_corta():
+    # Datos reales de producción, octubre 2026: la CSJ solo tiene historia desde
+    # julio (167 documentos ese mes), ninguno en agosto y 3 en septiembre (el
+    # último el 15). Ni el silencio (su pausa más larga ya es de ~32 días) ni
+    # una caída medida con 90 días de base la detectaban: tiene que seguir
+    # saliendo en el Panel.
+    hoy = date(2026, 10, 7)
+    conteos = _diario(date(2026, 7, 1), date(2026, 7, 31), por_dia=7)
+    conteos.update({date(2026, 9, 1): 1, date(2026, 9, 15): 2})
+
+    salud = evaluar_fuente(conteos, hoy)
+
+    assert salud.alerta == "caida"

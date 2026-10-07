@@ -431,6 +431,11 @@ class ScrapProcuraduria(BaseScrapper):
     # relId / docId son estables y la fecha del sitio se ha visto corregida
     # entre listados: la identidad es solo el enlace canónico.
     doc_id_uses_publication_date = False
+    # SIREL sube los conceptos semanas o meses después de su fecha (mediana
+    # ~113 días en 2025) y la corrida diaria se dejó corta a propósito (lo
+    # tardío lo recoge la corrida manual mensual): 3-4 semanas sin documentos
+    # nuevos es normal aquí. Decisión del usuario, octubre 2026.
+    alerta_margen_dias = 45
 
     def __init__(self):
         self.source = _SOURCE

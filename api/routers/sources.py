@@ -64,7 +64,11 @@ def get_source_health(db: Session = Depends(get_db)):
         # más atrás) se comparan en una ventana igual de larga, para que el
         # último mes no se vea flojo solo porque aún no se ha subido todo, y
         # su silencio no salta antes de ese mismo retraso.
-        retraso = getattr(FAMILY_REGISTRY.get(source.family_key), "scheduled_min_lookback_days", None) or 0
+        familia = FAMILY_REGISTRY.get(source.family_key)
+        retraso = max(
+            getattr(familia, "scheduled_min_lookback_days", None) or 0,
+            getattr(familia, "alerta_margen_dias", None) or 0,
+        )
         salud = evaluar_fuente(
             conteos_por_fuente.get(source.id, {}),
             hoy,

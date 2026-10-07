@@ -26,15 +26,21 @@ MIN_FECHAS_CON_DOCUMENTOS = 6
 # no son una falla.
 PISO_SILENCIO_DIAS = 14
 # El silencio "normal" es el percentil 90 de las pausas entre publicaciones;
-# se avisa al pasar del doble.
+# se avisa al pasar del doble — y nunca antes de superar la pausa más larga
+# que la fuente ya tuvo en el último año (fuentes pequeñas e irregulares, como
+# el Tribunal Superior del Putumayo, que ya han pasado 3-4 semanas sin publicar
+# sin que nada fallara; decisión del usuario, octubre 2026). Una falla real con
+# goteo de documentos la sigue detectando la alerta de caída.
 FACTOR_SILENCIO = 2
 # Caída: solo en fuentes con volumen suficiente (con pocos documentos al mes,
 # un mes flojo es ruido) y cuando llega menos de un cuarto de lo normal.
 MIN_PROMEDIO_PARA_CAIDA = 20
 FRACCION_CAIDA = 0.25
 # Para medir el promedio hace falta al menos este tramo de historia antes de
-# la ventana reciente.
-MIN_DIAS_BASE_CAIDA = 90
+# la ventana reciente. 60 y no más: en producción varias fuentes solo tienen
+# historia desde mediados de 2026 (la CSJ, desde julio) y con 90 la caída de
+# la CSJ no se detectaba.
+MIN_DIAS_BASE_CAIDA = 60
 
 
 @dataclass
@@ -84,7 +90,7 @@ def evaluar_fuente(
     limite = None
     if len(fechas) >= MIN_FECHAS_CON_DOCUMENTOS:
         pausas = [(b - a).days for a, b in zip(fechas, fechas[1:])]
-        limite = max(PISO_SILENCIO_DIAS, retraso_dias, FACTOR_SILENCIO * _percentil_90(pausas))
+        limite = max(PISO_SILENCIO_DIAS, retraso_dias, FACTOR_SILENCIO * _percentil_90(pausas), max(pausas))
 
     inicio_ventana = hoy - timedelta(days=ventana_dias)
     recientes = sum(n for f, n in validos.items() if f > inicio_ventana)
