@@ -1,5 +1,18 @@
 from core.scrapers.families.sic import (
     _BASE,
+    _CLAS_CIR,
+    _CLAS_DOC,
+    _CLAS_RES,
+    _CLAS_TCU,
+    _TIPO_CIR,
+    _TIPO_CTO,
+    _TIPO_REL,
+    _TIPO_RES,
+    _TIPO_TCU,
+    _clasificar,
+    _crudo,
+    _safe_title,
+    _titulo,
     _ficha,
     _filas_listado,
     _num_paginas,
@@ -122,3 +135,87 @@ def test_ficha_solo_enlace_externo_no_tiene_pdfs():
 def test_ficha_sin_fechas():
     f = _ficha("<html><main><p>nada</p></main></html>")
     assert (f.expedicion, f.publicacion, f.pdfs) == (None, None, [])
+
+
+def test_clasificar_resoluciones_incluye_nombramientos():
+    assert _clasificar(_CLAS_RES, 'Resolución No. 77121 del 29 de septiembre de 2026 "Por la cual se deroga"') == _TIPO_RES
+    assert _clasificar(_CLAS_RES, "Resolución No. 29705 de 2026 PROFESIONAL U. 2044-07 G.T. REGULACIÓN - OFICINA ASESORA JURÍDICA") == _TIPO_RES
+
+
+def test_clasificar_descarta_proyectos():
+    assert _clasificar(_CLAS_RES, "Proyecto de Resolución “Por la cual se adicionan incisos”") is None
+    assert _clasificar(_CLAS_CIR, "Proyecto de Circular Externa la cual tiene como asunto") is None
+
+
+def test_clasificar_descarta_otra_entidad_por_la_cabeza_del_titulo():
+    assert _clasificar(_CLAS_RES, "Resolución 7356 de 2024 de la Comisión de Regulación de Comunicaciones, “Por la cual”") is None
+    assert _clasificar(_CLAS_RES, "Resolución 0612 de 2024 del Ministerio de Comercio Industria y Turismo, “Por la cual”") is None
+    assert _clasificar(_CLAS_RES, 'Resolución 862 de 2023 de la Dirección de Regulación del Ministerio de Comercio, "Por la cual"') is None
+    assert _clasificar(_CLAS_CIR, "Circular Externa 1 de 2023 - De la Agencia Nacional de Defensa Jurídica del Estado, “Lineamientos”") is None
+
+
+def test_clasificar_no_descarta_sic_que_cita_un_ministerio_en_su_epigrafe():
+    assert _clasificar(_CLAS_RES, 'Resolución No. 1111 del 24 de enero de 2025 "Por medio de la cual se fija la tasa del Ministerio de Comercio"') == _TIPO_RES
+    assert _clasificar(_CLAS_RES, 'Resolución No 122 de 2025 de la Superintendencia de Industria y Comercio, "Por la cual"') == _TIPO_RES
+    assert _clasificar(_CLAS_RES, "Resolución 1059 por la cual se reglamenta lo del Ministerio") == _TIPO_RES
+
+
+def test_clasificar_titulos_circular_unica():
+    assert _clasificar(_CLAS_TCU, "Título X - Actualizado el 30 de enero de 2026.") == _TIPO_TCU
+    assert _clasificar(_CLAS_TCU, 'Resolución No. 62932 de 2025 "Por la cual se adiciona"') == _TIPO_RES
+
+
+def test_clasificar_doctrina():
+    assert _clasificar(_CLAS_DOC, "Concepto 15-159447 del 25 de agosto de 2015") == _TIPO_CTO
+    assert _clasificar(_CLAS_DOC, "RELATORÍA RESOLUCIÓN 27305 - 10-07-2019 - CONCONCRETO") == _TIPO_REL
+    assert _clasificar(_CLAS_DOC, "Resolución No. 3839 del 4 de febrero de 2015") == _TIPO_RES
+    for otro in (
+        "Sentencia Expediente Radicación 2007 00102 02 del 16 de febrero de 2017 Consejo Estado",
+        "Radicado No. 2016-01884-01 del 12 de octubre de 2016 Consejo Superior de la Judicatura",
+        "Informe de gestión 2016", "Acta 3 de 2016", "Estudio de mercado", "Auto 123",
+    ):
+        assert _clasificar(_CLAS_DOC, otro) is None, otro
+
+
+def test_titulo_resolucion():
+    assert _titulo(_TIPO_RES, 'Resolución No. 77121 del 29 de septiembre de 2026 "Por la cual"', "2026-09-29") == ("R_SIC_77121_2026", False)
+    assert _titulo(_TIPO_RES, "RESOLUCIÓN 000610 DE 13 DE ABRIL DE 2026", "2026-04-13") == ("R_SIC_0610_2026", False)
+    assert _titulo(_TIPO_RES, "Resolución Número 122 de 2025", "2025-01-10") == ("R_SIC_0122_2025", False)
+    assert _titulo(_TIPO_RES, "Resolución N° 4.231 de 2024", "2024-02-22") == ("R_SIC_4231_2024", False)
+
+
+def test_titulo_circular_todas_con_c():
+    assert _titulo(_TIPO_CIR, "Circular Externa No 4 de 2024 de la Superintendencia", "2024-05-02") == ("C_SIC_0004_2024", False)
+    assert _titulo(_TIPO_CIR, "Circular Interna No. 006 del 17 de marzo de 2025", "2025-03-17") == ("C_SIC_0006_2025", False)
+    assert _titulo(_TIPO_CIR, "Circular Conjunta 010 de 2026", "2026-02-08") == ("C_SIC_0010_2026", False)
+    assert _titulo(_TIPO_CIR, "Circular 011 de 2020", "2020-07-01") == ("C_SIC_0011_2020", False)
+    assert _titulo(_TIPO_CIR, "Circular Externa 001 del 2026", "2026-01-15") == ("C_SIC_0001_2026", False)
+
+
+def test_titulo_circular_sin_numero_queda_sin_verificar():
+    assert _titulo(_TIPO_CIR, "Circular Única de Calidad Turística", "2026-02-06") == ("Circular Única de Calidad Turística", True)
+
+
+def test_titulo_circular_unica_romano_y_fecha_de_version():
+    assert _titulo(_TIPO_TCU, "Título X - Actualizado el 30 de enero de 2026.", "2026-01-30") == ("TCU_SIC_X_20260130", False)
+    assert _titulo(_TIPO_TCU, "TÍTULO II", "2021-03-23") == ("TCU_SIC_II_20210323", False)
+    assert _titulo(_TIPO_TCU, "Titulo I.", "2022-09-29") == ("TCU_SIC_I_20220929", False)
+    assert _titulo(_TIPO_TCU, "Título X Propiedad Industrial", "2022-01-17") == ("TCU_SIC_X_20220117", False)
+
+
+def test_titulo_concepto_radicado():
+    assert _titulo(_TIPO_CTO, "Concepto 15-159447 del 25 de agosto de 2015", "2015-08-25") == ("CTO_SIC_15-159447", False)
+    assert _titulo(_TIPO_CTO, "Concepto 17 49443 del 28 de marzo de 2017", "2017-03-28") == ("CTO_SIC_17-49443", False)
+    assert _titulo(_TIPO_CTO, "Concepto sobre publicidad", "2016-01-01") == ("Concepto sobre publicidad", True)
+
+
+def test_titulo_relatoria():
+    assert _titulo(_TIPO_REL, "RELATORÍA RESOLUCIÓN 27305 - 10-07-2019 - CONCONCRETO", "2019-07-10") == ("REL_SIC_27305_2019", False)
+    assert _titulo(_TIPO_REL, "RELATORÍA RESOLUCIÓN 56158 DEL 31-08-2021 - RESUELVE RECURSO - ASE", "2021-08-31") == ("REL_SIC_56158_2021", False)
+
+
+def test_crudo_y_safe_title():
+    assert _crudo("  ") == "documento"
+    assert _crudo("x" * 200) == "x" * 120
+    assert _crudo("Título final. ") == "Título final"
+    assert _safe_title('Resolución "X": a/b') == "Resolución -X-- a-b"
