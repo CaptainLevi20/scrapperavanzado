@@ -95,7 +95,8 @@ _MAX_TITULO = 120
 _CABEZA_RE = re.compile(r'["“”«»,]| por ')
 _OTRA_ENTIDAD_RE = re.compile(r"\b(?:de la|del)\s+(?:comision|ministerio|departamento|agencia|presidencia)\b")
 
-_NUM_RES_RE = re.compile(r"resolucion(?:es)?\s*(?:no\.?|n[°º]\.?|numero)?\s*(\d[\d.]*)")
+# "re?s?olucion": el sitio trae erratas reales ("Reolución 56937 de 2025")
+_NUM_RES_RE = re.compile(r"re?s?olucion(?:es)?\s*(?:no\.?|n[°º]\.?|numero)?\s*(\d[\d.]*)")
 _NUM_CIR_RE = re.compile(r"circular(?:\s+(?:externa|interna|conjunta))?\s*(?:no\.?|n[°º]\.?|numero)?\s*(\d+)")
 _ROMANO_RE = re.compile(r"titulo\s+([ivxlc]+)\b")
 _RADICADO_RE = re.compile(r"concepto\s+(?:no\.?\s*)?(\d{2})\s*[- ]\s*(\d+)")

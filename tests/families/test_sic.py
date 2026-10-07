@@ -197,6 +197,12 @@ def test_titulo_resolucion():
     assert _titulo(_TIPO_RES, "Resolución N° 4.231 de 2024", "2024-02-22") == ("R_SIC_4231_2024", False)
 
 
+def test_titulo_resolucion_tolera_erratas_reales_del_sitio():
+    # caso real 2025: "Reolución 56937 de 2025 Profesional U. 2044-07 …"
+    assert _titulo(_TIPO_RES, "Reolución 56937 de 2025 Profesional U. 2044-07", "2025-07-01") == ("R_SIC_56937_2025", False)
+    assert _titulo(_TIPO_RES, "Rsolución 100 de 2025", "2025-07-01") == ("R_SIC_0100_2025", False)
+
+
 def test_titulo_circular_todas_con_c():
     assert _titulo(_TIPO_CIR, "Circular Externa No 4 de 2024 de la Superintendencia", "2024-05-02") == ("C_SIC_0004_2024", False)
     assert _titulo(_TIPO_CIR, "Circular Interna No. 006 del 17 de marzo de 2025", "2025-03-17") == ("C_SIC_0006_2025", False)
