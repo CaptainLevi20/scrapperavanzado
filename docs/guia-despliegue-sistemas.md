@@ -723,17 +723,20 @@ Es seguro repetirlo.
   buscador clasifica como "doctrina".
 - **Cómo quedan nombrados:** `R_SIC_77121_2026`, `C_SIC_0004_2024` (toda
   circular es `C`), `TCU_SIC_X_20260130` (título y fecha de la versión),
-  `CTO_SIC_15-159447`, `REL_SIC_27305_2019`. Anexos: `_A01`. Quedan con el
-  título original de la página y marca de "sin verificar" (en 2025, 15 de 627):
-  los documentos sin número en el título ("Reglamento Interno…", "Tablas de
-  Retención…", "Aclaración de la Resolución…") y los casos en que la SIC subió
+  `CTO_SIC_15-159447`, `REL_SIC_27305_2019`. Anexos: `_A01`. El número sólo se
+  toma si el título empieza por el acto ("Resolución…", "Circular…"): una
+  "Aclaración de la Resolución 56937" no es esa resolución. Quedan con el
+  título original de la página y marca de "sin verificar" (en 2025, unos 17 de
+  627): los documentos sin número propio en el título ("Reglamento Interno…",
+  "Tablas de Retención…", aclaraciones y prórrogas) y los casos en que la SIC subió
   la misma resolución dos veces en fichas distintas con archivos distintos (el
   segundo no pisa al primero).
 - **Detalle técnico:** el buscador desordena los resultados entre páginas, así
   que la fuente recorre las páginas y luego busca por fragmentos de número
   hasta completar el total que el propio buscador anuncia; si no lo logra,
   lo avisa en el informe ("faltan N"). Cada documento exige abrir su ficha
-  (el listado no trae fechas): la corrida diaria tarda 1 a 3 minutos; un año
+  (el listado no trae fechas): la corrida diaria tarda unos minutos (más en
+  los primeros días de enero, cuando revisa también el año anterior); un año
   completo, unos 15 minutos; la carga completa 2015→hoy, del orden de 2 a 3
   horas. Certificado válido.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
@@ -812,6 +815,7 @@ con esa ventana nunca se recogerían. Por eso su corrida diaria mira más atrás
 | Superintendencia de Sociedades | 120 días | Cada boletín lleva la fecha del mes que cubre y sale 1-3 meses después |
 | Corte Constitucional | 21 días | Tarda 10+ días en indexar |
 | Ministerio de Salud | 60 días | Sube documentos semanas después |
+| Superintendencia de Industria y Comercio | 30 días | La "fecha de publicación" la digita su personal y puede quedar antes del día en que sube la ficha |
 
 En SAMAI, un documento que reaparece con la misma fecha no se vuelve a
 descargar (solo una fecha nueva indica una republicación), así que la ventana

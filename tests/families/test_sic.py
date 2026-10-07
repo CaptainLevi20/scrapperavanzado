@@ -328,7 +328,7 @@ def test_enumerar_tajada_avisa_cuando_faltan():
     progreso = []
     got = _enumerar_tajada(requests.Session(), _CLAS_RES, 2025, [4000], None, progreso.append)
     assert len(got) < 60
-    assert any(f"faltan {60 - len(got)}" in m for m in progreso)
+    assert any(f"faltan {60 - len(got)}" in m and m.startswith("[Superintendencia de Industria y Comercio] Error") for m in progreso)
 
 
 @responses.activate
@@ -508,7 +508,8 @@ def test_scrap_clasificaciones_vacias_solo_avisan_si_todas_lo_estan():
     _registrar_sitio({}, {})
     progreso = []
     ScrapSIC().scrap("2026-09-01", "2026-09-30", on_progress=progreso.append)
-    assert any("cambió" in m for m in progreso)
+    # "Error" para que el worker lo muestre en el informe de la corrida
+    assert any("cambió" in m and "Error" in m for m in progreso)
 
 
 @responses.activate
@@ -523,3 +524,23 @@ def test_scrap_respeta_limit_y_stop_event():
     ev = threading.Event()
     ev.set()
     assert ScrapSIC().scrap("2026-09-01", "2026-09-30", stop_event=ev) == []
+
+
+def test_titulo_solo_lee_el_numero_si_el_titulo_empieza_por_el_acto():
+    # una aclaración o una resolución que modifica otra NO es esa otra resolución
+    assert _titulo(_TIPO_RES, "Aclaración de la Resolución 56937 de 2025", "2025-09-18") == ("Aclaración de la Resolución 56937 de 2025", True)
+    assert _titulo(_TIPO_RES, "Fe de erratas de la Resolución No. 1234 de 2025", "2025-03-01")[1] is True
+    assert _titulo(_TIPO_CIR, "Lineamientos sobre la Circular 10 de 2020", "2025-03-01")[1] is True
+    # el número es el del propio acto, no el de la resolución que modifica
+    assert _titulo(_TIPO_RES, "Resolución 4500 de 2025 por la cual se modifica la Resolución 1234 de 2020", "2025-03-01") == ("R_SIC_4500_2025", False)
+    assert _titulo(_TIPO_RES, "Resolución por la cual se modifica la Resolución 1234 de 2020", "2025-03-01")[1] is True
+    # títulos reales 2025 que sí son la resolución, con un prefijo descriptivo
+    assert _titulo(_TIPO_RES, "Nombramiento - Resolución 100348 de 2025", "2025-12-01") == ("R_SIC_100348_2025", False)
+    # títulos reales 2025 que NO son la resolución citada
+    assert _titulo(_TIPO_RES, "La SIC aclaró la Resolución No. 88766 de 30 de octubre de 2025", "2025-11-05")[1] is True
+
+
+def test_corrida_diaria_mira_30_dias_atras():
+    # la "Fecha publicación" la digita el personal de la SIC: un documento
+    # subido días después de esa fecha no debe quedar fuera de la ventana diaria
+    assert ScrapSIC.scheduled_min_lookback_days == 30

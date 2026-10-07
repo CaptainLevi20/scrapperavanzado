@@ -96,7 +96,10 @@ _CABEZA_RE = re.compile(r'["“”«»,]| por ')
 _OTRA_ENTIDAD_RE = re.compile(r"\b(?:de la|del)\s+(?:comision|ministerio|departamento|agencia|presidencia)\b")
 
 # "re?s?olucion": el sitio trae erratas reales ("Reolución 56937 de 2025")
-_NUM_RES_RE = re.compile(r"re?s?olucion(?:es)?\s*(?:no\.?|n[°º]\.?|numero)?\s*(\d[\d.]*)")
+# Se leen con .match(): el número sólo cuenta si el título EMPIEZA por el acto.
+# "Aclaración de la Resolución 56937" o "… modifica la Resolución 1234" no son
+# esa resolución, y tomarles el número les daría un nombre verificado falso.
+_NUM_RES_RE = re.compile(r"(?:nombramiento\s*-\s*)?(?:relatoria\s+(?:de\s+(?:la\s+)?)?)?re?s?olucion(?:es)?\s*(?:no\.?|n[°º]\.?|numero)?\s*(\d[\d.]*)")
 _NUM_CIR_RE = re.compile(r"circular(?:\s+(?:externa|interna|conjunta))?\s*(?:no\.?|n[°º]\.?|numero)?\s*(\d+)")
 _ROMANO_RE = re.compile(r"titulo\s+([ivxlc]+)\b")
 _RADICADO_RE = re.compile(r"concepto\s+(?:no\.?\s*)?(\d{2})\s*[- ]\s*(\d+)")
@@ -152,13 +155,13 @@ def _titulo(tipo: str, titulo_sitio: str, expedicion: str) -> Tuple[str, bool]:
     t = _norm(titulo_sitio)
     anio = expedicion[:4]
     if tipo in (_TIPO_RES, _TIPO_REL):
-        m = _NUM_RES_RE.search(t)
+        m = _NUM_RES_RE.match(t)
         n = _entero(m.group(1)) if m else None
         if n is not None:
             pref = "R" if tipo == _TIPO_RES else "REL"
             return f"{pref}_SIC_{n:04d}_{anio}", False
     elif tipo == _TIPO_CIR:
-        m = _NUM_CIR_RE.search(t)
+        m = _NUM_CIR_RE.match(t)
         if m:
             return f"C_SIC_{int(m.group(1)):04d}_{anio}", False
     elif tipo == _TIPO_TCU:
@@ -166,7 +169,7 @@ def _titulo(tipo: str, titulo_sitio: str, expedicion: str) -> Tuple[str, bool]:
         if m:
             return f"TCU_SIC_{m.group(1).upper()}_{expedicion.replace('-', '')}", False
     elif tipo == _TIPO_CTO:
-        m = _RADICADO_RE.search(t)
+        m = _RADICADO_RE.match(t)
         if m:
             return f"CTO_SIC_{m.group(1)}-{m.group(2)}", False
     return _crudo(titulo_sitio), True
@@ -252,7 +255,7 @@ def _enumerar_tajada(session, clasif: str, anio: int, presupuesto: List[int],
 
     if total is not None and len(por_href) < total and not parar() and on_progress:
         on_progress(
-            f"[{_SOURCE}] Aviso: listado {clasif}/{anio} con {total} fichas, "
+            f"[{_SOURCE}] Error: listado {clasif}/{anio} con {total} fichas, "
             f"faltan {total - len(por_href)} que no se pudieron enumerar"
         )
     return por_href
@@ -282,6 +285,11 @@ def _anios(fini: str, ffin: str, hoy: date) -> List[int]:
 @register_family("sic")
 class ScrapSIC(BaseScrapper):
     filters_by_publication_date = True
+    # La "Fecha publicación" la digita el personal de la SIC y puede quedar
+    # días antes del momento en que la ficha aparece en el buscador. Mirar 30
+    # días atrás casi no cuesta: cada corrida ya recorre y abre todas las
+    # fichas del año; lo ya descargado no se vuelve a bajar.
+    scheduled_min_lookback_days = 30
 
     def __init__(self):
         self.source = _SOURCE
@@ -387,7 +395,7 @@ class ScrapSIC(BaseScrapper):
 
         if filas_totales == 0 and not parar() and on_progress:
             on_progress(
-                f"[{_SOURCE}] Aviso: el buscador no devolvió ninguna ficha en el rango "
+                f"[{_SOURCE}] Error: el buscador no devolvió ninguna ficha en el rango "
                 "(¿cambió el marcado de la página?)"
             )
         return docs[:limit]
