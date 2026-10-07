@@ -1,4 +1,6 @@
 import random
+import threading
+from datetime import date
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -7,7 +9,9 @@ import responses
 from core.scrapers.families.sic import (
     _BASE,
     _LISTADO,
+    ScrapSIC,
     _PresupuestoAgotado,
+    _anios,
     _enumerar_tajada,
     _CLAS_CIR,
     _CLAS_DOC,
@@ -353,3 +357,163 @@ def test_enumerar_tajada_ultima_pagina_caida_no_da_un_total_falso():
     assert len([c for c in responses.calls if "page=1" in c.request.url]) == 2  # un reintento
     assert got == dict(todos)
     assert not any("faltan" in m for m in progreso)
+
+
+def test_anios_rango_y_piso():
+    hoy = date(2026, 10, 7)
+    assert _anios("2026-10-01", "2026-10-07", hoy) == [2026]
+    assert _anios("2025-12-01", "2025-12-31", hoy) == [2025, 2026]  # se publica en enero siguiente
+    assert _anios("2010-01-01", "2016-06-30", hoy) == [2015, 2016, 2017]
+    assert _anios("2000-01-01", "2010-12-31", hoy) == []
+
+
+def _registrar_sitio(listados, fichas):
+    """listados: {clasif: [(href, titulo)]} (una página, cualquier año);
+    fichas: {href: html | código de error}."""
+    def cb_listado(request):
+        qs = parse_qs(urlparse(request.url).query)
+        filas = listados.get(qs["field_clasificacion2_target_id"][0], [])
+        return (200, _HTML, _listado(filas, encabezado=""))
+
+    responses.add_callback(responses.GET, _LISTADO, callback=cb_listado)
+    for href, html in fichas.items():
+        if isinstance(html, int):
+            responses.add(responses.GET, f"{_BASE}{href}", status=html)
+        else:
+            responses.add(responses.GET, f"{_BASE}{href}", body=html, headers=_HTML)
+
+
+def _ficha_con(exp, pub, *pdfs):
+    return _html_ficha(*pdfs).replace("2026-09-29", exp).replace("2026-09-30", pub)
+
+
+@responses.activate
+def test_scrap_resolucion_basica():
+    _registrar_sitio(
+        {_CLAS_RES: [("/r1", 'Resolución No. 77121 del 29 de septiembre de 2026 "Por la cual"')]},
+        {"/r1": _ficha_con("2026-09-29", "2026-09-30", "/sites/default/files/normativa/R77121.pdf")},
+    )
+    docs = ScrapSIC().scrap("2026-09-01", "2026-09-30")
+    assert len(docs) == 1
+    d = docs[0]
+    assert d.title == "R_SIC_77121_2026"
+    assert d.tipo == "Resolución"
+    assert d.f_public == "2026-09-30"
+    assert d.f_providencia == "2026-09-29"
+    assert d.link == {"url": f"{_BASE}/sites/default/files/normativa/R77121.pdf", "method": "GET"}
+    assert d.save_path == "Superintendencia de Industria y Comercio/2026-09-30/Resolución/R_SIC_77121_2026(extension)"
+    assert d.title_unverified is False
+    assert d.detalle.startswith("Resolución No. 77121")
+
+
+@responses.activate
+def test_scrap_filtra_por_publicacion_piso_y_pdf():
+    _registrar_sitio(
+        {_CLAS_RES: [
+            ("/fuera", "Resolución 1 de 2026"),        # publicada fuera de rango
+            ("/vieja", "Resolución 2 de 2014"),        # expedida antes de 2015
+            ("/sinpdf", "Resolución 3 de 2026"),       # sólo enlace externo
+            ("/ok", "Resolución 4 de 2026"),
+        ]},
+        {
+            "/fuera": _ficha_con("2026-08-01", "2026-08-02", "/f/1.pdf"),
+            "/vieja": _ficha_con("2014-12-30", "2026-09-10", "/f/2.pdf"),
+            "/sinpdf": _ficha_con("2026-09-10", "2026-09-10"),
+            "/ok": _ficha_con("2026-09-10", "2026-09-10", "/f/4.pdf"),
+        },
+    )
+    progreso = []
+    docs = ScrapSIC().scrap("2026-09-01", "2026-09-30", on_progress=progreso.append)
+    assert [d.title for d in docs] == ["R_SIC_0004_2026"]
+    assert any("sin PDF" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_descartados_no_abren_ficha():
+    _registrar_sitio(
+        {_CLAS_RES: [("/p", "Proyecto de Resolución “X”")],
+         _CLAS_DOC: [("/s", "Sentencia Expediente 2007 00102 Consejo de Estado")]},
+        {},
+    )
+    progreso = []
+    docs = ScrapSIC().scrap("2026-09-01", "2026-09-30", on_progress=progreso.append)
+    assert docs == []
+    assert not any(c.request.url in (f"{_BASE}/p", f"{_BASE}/s") for c in responses.calls)
+    assert any("1 fichas descartadas" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_anexos_y_colision():
+    _registrar_sitio(
+        {_CLAS_CIR: [
+            ("/ce", "Circular Externa 010 de 2026"),
+            ("/cj", "Circular Conjunta 010 de 2026"),
+        ]},
+        {
+            "/ce": _ficha_con("2026-02-16", "2026-02-16", "/f/ce.pdf", "/f/ce-anexo.pdf"),
+            "/cj": _ficha_con("2026-02-08", "2026-02-08", "/f/cj.pdf"),
+        },
+    )
+    docs = ScrapSIC().scrap("2026-01-01", "2026-12-31")
+    por_url = {d.link["url"].rsplit("/", 1)[-1]: d for d in docs}
+    assert por_url["ce.pdf"].title == "C_SIC_0010_2026"
+    assert por_url["ce-anexo.pdf"].title == "C_SIC_0010_2026_A01"
+    # misma clave que la externa -> baja al título del sitio, sin verificar
+    assert por_url["cj.pdf"].title == "Circular Conjunta 010 de 2026"
+    assert por_url["cj.pdf"].title_unverified is True
+    assert all(d.tipo == "Circular" for d in docs)
+
+
+@responses.activate
+def test_scrap_misma_resolucion_en_resoluciones_y_doctrina_se_ingiere_una_vez():
+    ficha = _ficha_con("2016-02-04", "2016-02-04", "/f/res3839.pdf")
+    _registrar_sitio(
+        {_CLAS_RES: [("/r", "Resolución No. 3839 del 4 de febrero de 2016")],
+         _CLAS_DOC: [("/d", "Resolución No. 3839 del 4 de febrero de 2016")]},
+        {"/r": ficha, "/d": ficha},
+    )
+    docs = ScrapSIC().scrap("2016-01-01", "2016-12-31")
+    assert [d.title for d in docs] == ["R_SIC_3839_2016"]
+
+
+@responses.activate
+def test_scrap_ficha_caida_no_aborta():
+    _registrar_sitio(
+        {_CLAS_RES: [("/mala", "Resolución 1 de 2026"), ("/buena", "Resolución 2 de 2026")]},
+        {"/mala": 500, "/buena": _ficha_con("2026-09-10", "2026-09-10", "/f/2.pdf")},
+    )
+    progreso = []
+    docs = ScrapSIC().scrap("2026-09-01", "2026-09-30", on_progress=progreso.append)
+    assert [d.title for d in docs] == ["R_SIC_0002_2026"]
+    assert any("Error" in m and "Resolución 1" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_clasificaciones_vacias_solo_avisan_si_todas_lo_estan():
+    _registrar_sitio(
+        {_CLAS_RES: [("/r", "Resolución 2 de 2026")]},
+        {"/r": _ficha_con("2026-09-10", "2026-09-10", "/f/2.pdf")},
+    )
+    progreso = []
+    ScrapSIC().scrap("2026-09-01", "2026-09-30", on_progress=progreso.append)
+    assert not any("cambió" in m for m in progreso)
+
+    responses.reset()
+    _registrar_sitio({}, {})
+    progreso = []
+    ScrapSIC().scrap("2026-09-01", "2026-09-30", on_progress=progreso.append)
+    assert any("cambió" in m for m in progreso)
+
+
+@responses.activate
+def test_scrap_respeta_limit_y_stop_event():
+    filas = [(f"/r{i}", f"Resolución {i} de 2026") for i in range(1, 6)]
+    _registrar_sitio(
+        {_CLAS_RES: filas},
+        {h: _ficha_con("2026-09-10", "2026-09-10", f"/f/{h[1:]}.pdf") for h, _ in filas},
+    )
+    assert len(ScrapSIC().scrap("2026-09-01", "2026-09-30", limit=2)) == 2
+
+    ev = threading.Event()
+    ev.set()
+    assert ScrapSIC().scrap("2026-09-01", "2026-09-30", stop_event=ev) == []

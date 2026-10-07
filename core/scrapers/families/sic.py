@@ -7,9 +7,16 @@ docs/superpowers/specs/2026-10-07-fuente-sic-design.md.
 import re
 import unicodedata
 from typing import Dict, List, NamedTuple, Optional, Tuple
+from datetime import date
 from urllib.parse import urljoin
 
+import requests
 from bs4 import BeautifulSoup
+
+from core.models import RawDocModel
+from core.scrapers.base import BaseScrapper
+from core.scrapers.registry import register_family
+from core.utils import storage_path
 
 _BASE = "https://sedeelectronica.sic.gov.co"
 _LISTADO = f"{_BASE}/transparencia/normativa/busqueda-de-normas/entidad"
@@ -248,3 +255,138 @@ def _enumerar_tajada(session, clasif: str, anio: int, presupuesto: List[int],
             f"faltan {total - len(por_href)} que no se pudieron enumerar"
         )
     return por_href
+
+
+_ANIO_MIN = 2015
+_PISO = f"{_ANIO_MIN}-01-01"
+
+# Orden deliberado: las resoluciones de Resoluciones reclaman su título
+# R_SIC_… antes que las mismas resoluciones repetidas en Doctrina.
+_CLASIFICACIONES: List[Tuple[str, str]] = [
+    (_CLAS_RES, "Resoluciones"),
+    (_CLAS_CIR, "Circulares"),
+    (_CLAS_TCU, "Títulos Circular Única"),
+    (_CLAS_DOC, "Doctrina"),
+]
+
+
+def _anios(fini: str, ffin: str, hoy: date) -> List[int]:
+    """Años de PUBLICACIÓN a consultar: un acto expedido a fin de año puede
+    publicarse en enero del siguiente."""
+    desde = max(_ANIO_MIN, int(fini[:4]))
+    hasta = min(int(ffin[:4]) + 1, hoy.year)
+    return list(range(desde, hasta + 1))
+
+
+@register_family("sic")
+class ScrapSIC(BaseScrapper):
+    filters_by_publication_date = True
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        docs: List[RawDocModel] = []
+        vistos: set = set()       # URLs de PDF ya emitidas
+        claves: dict = {}         # (tipo, safe_title) -> URL del PDF que la ocupa
+        presupuesto = [_MAX_BUSQUEDAS]
+        agotado = False
+        filas_totales = 0
+
+        def parar() -> bool:
+            return stop_event is not None and stop_event.is_set()
+
+        for clasif, nombre in _CLASIFICACIONES:
+            if parar():
+                break
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Listando {nombre}...")
+            filas: Dict[str, str] = {}
+            if not agotado:
+                try:
+                    for anio in _anios(fini, ffin, date.today()):
+                        if parar():
+                            break
+                        filas.update(_enumerar_tajada(session, clasif, anio, presupuesto, stop_event, on_progress))
+                except _PresupuestoAgotado:
+                    agotado = True
+                    if on_progress:
+                        on_progress(
+                            f"[{_SOURCE}] Error: presupuesto de {_MAX_BUSQUEDAS} consultas de listado "
+                            f"agotado en {nombre}; se procesa lo ya encontrado"
+                        )
+            filas_totales += len(filas)
+
+            descartadas = 0
+            sin_pdf = 0
+            for href, titulo in filas.items():
+                if parar():
+                    return docs[:limit]
+                tipo = _clasificar(clasif, titulo)
+                if tipo is None:
+                    descartadas += 1
+                    continue
+                try:
+                    resp = session.get(urljoin(_BASE, href), timeout=90)
+                    resp.raise_for_status()
+                except Exception as e:
+                    if on_progress:
+                        on_progress(f"[{_SOURCE}] Error abriendo la ficha «{titulo[:70]}»: {e}")
+                    continue
+                ficha = _ficha(resp.text)
+                expedicion = ficha.expedicion or ficha.publicacion
+                publicacion = ficha.publicacion or ficha.expedicion
+                if expedicion is None:
+                    if on_progress:
+                        on_progress(f"[{_SOURCE}] Aviso: ficha sin fechas «{titulo[:70]}», se omite")
+                    continue
+                if expedicion < _PISO or publicacion < fini or publicacion > ffin:
+                    continue
+                if not ficha.pdfs:
+                    sin_pdf += 1
+                    continue
+
+                base_title, unverified = _titulo(tipo, titulo, expedicion)
+                for i, url_pdf in enumerate(ficha.pdfs):
+                    if url_pdf in vistos:
+                        continue
+                    vistos.add(url_pdf)
+                    sufijo = f"_A{i:02d}" if i else ""
+                    title, unv = base_title + sufijo, unverified
+                    if claves.get((tipo, _safe_title(title)), url_pdf) != url_pdf:
+                        # otra ficha ya ocupó esta clave (p. ej. circular externa
+                        # y conjunta con igual número y año): baja al título del sitio
+                        title, unv = _crudo(titulo) + sufijo, True
+                        n = 2
+                        while claves.get((tipo, _safe_title(title)), url_pdf) != url_pdf:
+                            title = f"{_crudo(titulo)}_{n}{sufijo}"
+                            n += 1
+                    claves[(tipo, _safe_title(title))] = url_pdf
+                    docs.append(RawDocModel(
+                        source=_SOURCE,
+                        link={"url": url_pdf, "method": "GET"},
+                        title=title,
+                        tipo=tipo,
+                        f_public=publicacion,
+                        f_providencia=expedicion,
+                        detalle=titulo or None,
+                        save_path=storage_path(_SOURCE, publicacion, tipo, f"{_safe_title(title)}(extension)"),
+                        title_unverified=unv,
+                    ))
+                    if len(docs) >= limit:
+                        return docs[:limit]
+
+            if on_progress and (descartadas or sin_pdf):
+                on_progress(
+                    f"[{_SOURCE}] {nombre}: {descartadas} fichas descartadas (proyectos, otras "
+                    f"entidades u otra doctrina) y {sin_pdf} sin PDF propio en el rango"
+                )
+
+        if filas_totales == 0 and not parar() and on_progress:
+            on_progress(
+                f"[{_SOURCE}] Aviso: el buscador no devolvió ninguna ficha en el rango "
+                "(¿cambió el marcado de la página?)"
+            )
+        return docs[:limit]
