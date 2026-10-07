@@ -775,6 +775,7 @@ con esa ventana nunca se recogerían. Por eso su corrida diaria mira más atrás
 |---|---|---|
 | Consejo de Estado y Tribunales Administrativos (SAMAI) | 35 días | El 10% más tardío llega con 10-31 días de retraso |
 | Ministerio del Interior | 45 días | Sube sus normas 3-4 semanas después de su fecha |
+| Comisión Nacional de Disciplina Judicial | 30 días | Su buscador muestra los documentos días después de adjuntarlos |
 | Superintendencia de Sociedades | 120 días | Cada boletín lleva la fecha del mes que cubre y sale 1-3 meses después |
 | Corte Constitucional | 21 días | Tarda 10+ días en indexar |
 | Ministerio de Salud | 60 días | Sube documentos semanas después |
