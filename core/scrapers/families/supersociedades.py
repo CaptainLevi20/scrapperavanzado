@@ -187,6 +187,12 @@ _SECCIONES = [
 @register_family("supersociedades")
 class ScrapSupersociedades(BaseScrapper):
     filters_by_publication_date = True
+    # Cada boletín lleva la fecha del período que cubre, pero se publica uno o
+    # dos meses después (el contable semestral, hasta tres): la corrida diaria
+    # tiene que mirar así de atrás o nunca lo recogería. Una sola página de
+    # lista; lo ya descargado no se vuelve a bajar. También fija el margen del
+    # aviso de fuentes que pueden estar fallando (core/salud_fuentes.py).
+    scheduled_min_lookback_days = 120
 
     def __init__(self):
         self.source = _SOURCE

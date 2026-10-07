@@ -517,3 +517,14 @@ def test_scrap_respeta_limit():
 
     docs = ScrapSupersociedades().scrap(fini="2026-01-01", ffin="2026-12-31", limit=1)
     assert len(docs) == 1
+
+
+def test_la_corrida_diaria_mira_lo_bastante_atras_para_boletines_publicados_tarde():
+    # Cada boletín lleva la fecha del período que cubre (el de septiembre, 1 de
+    # septiembre) pero la Superintendencia lo publica uno o dos meses después
+    # (y el contable semestral, hasta tres). Con la ventana diaria normal de 3
+    # días la fecha ya quedó atrás cuando aparece en el sitio y nunca se
+    # recogería (visto en producción, octubre 2026).
+    from core.scrapers.families.supersociedades import ScrapSupersociedades
+
+    assert ScrapSupersociedades.scheduled_min_lookback_days >= 120

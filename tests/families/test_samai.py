@@ -848,3 +848,14 @@ def test_resolve_unverified_document_ignores_tribunal_administrativo_title_forma
     scraper.resolve_unverified_document(doc, Path("fake.pdf"), "application/pdf")
 
     assert doc.title == "T_CUND_25001233300020260001200"
+
+
+def test_la_corrida_diaria_mira_35_dias_sin_redescargar_lo_ya_visto():
+    # Producción, octubre 2026: el 10% más tardío de los documentos de SAMAI
+    # llega con 10-31 días de retraso (máximo 36). La ventana diaria ampliada
+    # solo es viable si las reapariciones con la misma fecha no se vuelven a
+    # descargar (ver worker/tasks.py).
+    from core.scrapers.families.samai import ScrapTribunales
+
+    assert ScrapTribunales.scheduled_min_lookback_days == 35
+    assert ScrapTribunales.republication_only_on_new_listing_date is True

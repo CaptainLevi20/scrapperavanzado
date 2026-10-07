@@ -252,3 +252,12 @@ def test_filters_by_publication_date_stays_at_default_false():
 
 def test_checks_for_republication_stays_at_default_true():
     assert ScrapMininterior.checks_for_republication is True
+
+
+def test_la_corrida_diaria_mira_lo_bastante_atras_para_documentos_subidos_tarde():
+    # Producción, octubre 2026: el Ministerio sube sus normas 3 a 4 semanas
+    # después de su fecha (22-30 días entre f_public y la descarga). Con la
+    # ventana diaria normal de 3 días esos documentos nunca se recogían.
+    from core.scrapers.families.mininterior import ScrapMininterior
+
+    assert ScrapMininterior.scheduled_min_lookback_days >= 45

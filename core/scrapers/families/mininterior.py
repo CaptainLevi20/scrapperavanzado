@@ -154,6 +154,12 @@ def _extraer_item(item, on_progress=None, source: str = "") -> Optional[RawDocMo
 
 @register_family("mininterior")
 class ScrapMininterior(BaseScrapper):
+    # El Ministerio sube sus normas 3 a 4 semanas después de su fecha (visto
+    # en producción, octubre 2026: 22-30 días entre la fecha del documento y
+    # su aparición). La corrida diaria tiene que mirar así de atrás o esos
+    # documentos nunca se recogen; lo ya descargado no se vuelve a bajar.
+    scheduled_min_lookback_days = 45
+
     def __init__(self):
         self.source = "Ministerio del Interior"
 
