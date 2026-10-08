@@ -24,8 +24,8 @@ Fecha: 2026-10-08. Código: `core/scrapers/families/supertransporte.py`.
   (`bibliotecajuridica.supertransporte.gov.co:3000`) es una aplicación React
   en modo desarrollo. Su listado (852 registros; 793 conceptos 2020–2021) está
   escrito dentro de `bundle.js` (`this.documents = [...]` en
-  `ProcessService.js`); el backend que declara (`172.27.244.20`) es una IP
-  privada que no se usa. Los archivos se sirven en `/files/<nombre>`
+  `ProcessService.js`); el backend que declara es una dirección de red
+  interna de la entidad, inaccesible y que la aplicación no usa. Los archivos se sirven en `/files/<nombre>`
   (PDF o TIF escaneado). Fechas de relleno (`01-01-<año>`), título = tema.
 - Las carpetas `/documentos/<año>/<Mes>/<Dependencia>_<día>/` dan la fecha de
   subida del archivo.
