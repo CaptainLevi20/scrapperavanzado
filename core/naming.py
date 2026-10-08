@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import PurePosixPath
 from typing import Dict, List, Optional, Tuple
 
-from core.utils import is_radicado_title, is_samai_case_title
+from core.utils import is_radicado_title, is_samai_case_title, is_sic_canonical_title
 
 
 def codigo_ley_decreto(letra: str, numero: str, anio: str) -> Optional[str]:
@@ -54,7 +54,14 @@ def titulo_padre_de_anexo(title: str) -> Optional[str]:
 _FAMILIAS_CON_ACTUACIONES = {
     "rama_judicial": is_radicado_title,
     "samai": lambda t: is_samai_case_title(t) or is_radicado_title(t),
+    # La SIC publica a veces el mismo acto en varias fichas (archivos distintos):
+    # se conservan todas como actuaciones del mismo código.
+    "sic": is_sic_canonical_title,
 }
+
+# Familias cuyo título ya trae el año: con una sola actuación no se le agrega
+# el sufijo "_AAAA" (sólo la fecha completa cuando hay más de una).
+_FAMILIAS_SIN_ANIO_SI_UNICA = {"sic"}
 
 
 def es_familia_con_actuaciones(family_key: Optional[str], title: str) -> bool:
@@ -69,6 +76,7 @@ def construir_nombre(
     tiene_actuaciones: bool,
     version_no: int,
     total_versiones: int,
+    anio_si_unica: bool = True,
 ) -> str:
     """Arma el nombre canónico: base, luego la fecha de providencia solo si el
     título tiene forma de caso y hay una fecha — con el día completo (AAAAMMDD)
@@ -81,7 +89,7 @@ def construir_nombre(
     if es_caso and fecha is not None:
         if tiene_actuaciones:
             nombre = f"{nombre}_{fecha.strftime('%Y%m%d')}"
-        else:
+        elif anio_si_unica:
             nombre = f"{nombre}_{fecha.strftime('%Y')}"
     if total_versiones > 1:
         nombre = f"{nombre}-v{version_no}"
@@ -101,6 +109,7 @@ def nombre_documento(document, family_key: Optional[str], tiene_actuaciones: boo
     return construir_nombre(
         document.title, _fecha_para_nombre(document), es_caso, tiene_actuaciones,
         version_no=document.version_no, total_versiones=document.version_no,
+        anio_si_unica=family_key not in _FAMILIAS_SIN_ANIO_SI_UNICA,
     )
 
 
@@ -111,6 +120,7 @@ def nombre_version(document, version, family_key: Optional[str], tiene_actuacion
     return construir_nombre(
         document.title, _fecha_para_nombre(document), es_caso, tiene_actuaciones,
         version_no=version.version_no, total_versiones=document.version_no,
+        anio_si_unica=family_key not in _FAMILIAS_SIN_ANIO_SI_UNICA,
     )
 
 

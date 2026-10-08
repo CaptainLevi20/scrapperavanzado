@@ -109,6 +109,12 @@ _FAMILIES = {
         "Resoluciones, circulares, conceptos jurídicos y boletines jurídicos "
         "publicados por el Ministerio de Salud y Protección Social",
     ),
+    "sic": (
+        "Superintendencia de Industria y Comercio",
+        "Normativa propia (resoluciones, circulares, títulos de la Circular Única "
+        "y doctrina) publicada en el buscador de normas de la Superintendencia de "
+        "Industria y Comercio",
+    ),
 }
 
 
@@ -245,6 +251,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="minsalud", name="Ministerio de Salud y Protección Social", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="sic", name="Superintendencia de Industria y Comercio", family_params={}
     )
 
 

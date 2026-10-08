@@ -69,6 +69,21 @@ def is_samai_case_title(title: str) -> bool:
     return bool(SAMAI_CASE_TITLE_PATTERN.match(title)) or bool(SAMAI_CASE_TITLE_RAW_PATTERN.match(title))
 
 
+# Códigos canónicos de la SIC (core/scrapers/families/sic.py), con anexo
+# opcional: R_SIC_10352_2026, C_SIC_0004_2024, REL_SIC_27305_2019,
+# TCU_SIC_X_20260130, CTO_SIC_15-159447, R_SIC_10352_2026_A01. La SIC publica a
+# veces el mismo acto en varias fichas: se agrupan como actuaciones. Se usa
+# también como regex de PostgreSQL (operador ~), así que sin \d ni (?:…)
+# fuera de lo que ambos motores entienden igual.
+SIC_CANONICAL_TITLE_PATTERN = re.compile(
+    r"^((R|C|REL)_SIC_[0-9]{4,}_[0-9]{4}|TCU_SIC_[IVXLC]+_[0-9]{8}|CTO_SIC_[0-9]{2}-[0-9]+)(_A[0-9]{2})?$"
+)
+
+
+def is_sic_canonical_title(title: str) -> bool:
+    return bool(SIC_CANONICAL_TITLE_PATTERN.match(title or ""))
+
+
 def make_doc_id(key: str, f_public: str) -> str:
     return hashlib.sha1(f"{key}_{f_public}".encode()).hexdigest()
 

@@ -708,6 +708,47 @@ Es seguro repetirlo.
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`.
   Es seguro repetirlo.
 
+### Superintendencia de Industria y Comercio (`sic`)
+
+- **Qué trae:** la normativa propia de la SIC desde su buscador de normas
+  (sede electrónica): **Resoluciones** (generales y de carácter particular,
+  incluidos los nombramientos), **Circulares** (externas, internas y
+  conjuntas), los **Títulos de la Circular Única** (cada versión que se
+  republica entra como documento aparte) y la **Doctrina** antigua (conceptos
+  y relatorías, que la SIC dejó de alimentar hacia 2017–2021). Desde 2015.
+- **Cuánto entrega:** el año 2025 completo dio 627 documentos — 607
+  resoluciones, 17 versiones de títulos de la Circular Única y 3 circulares.
+- **Qué no trae:** proyectos de resolución o circular, normas de otras
+  entidades (sólo enlazan a otros sitios), sentencias, informes y actas que el
+  buscador clasifica como "doctrina".
+- **Cómo quedan nombrados:** `R_SIC_77121_2026`, `C_SIC_0004_2024` (toda
+  circular es `C`), `TCU_SIC_X_20260130` (título y fecha de la versión),
+  `CTO_SIC_15-159447`, `REL_SIC_27305_2019`. Anexos: `_A01`. El número sólo se
+  toma si el título empieza por el acto ("Resolución…", "Circular…"): una
+  "Aclaración de la Resolución 56937" no es esa resolución y queda con el
+  título original de la página y marca de "sin verificar", igual que los
+  documentos sin número propio ("Reglamento Interno…", "Tablas de Retención…").
+  Se descartan los "Estudio …" de verificación del cargo que acompañan a los
+  nombramientos.
+- **El mismo acto publicado dos veces:** la SIC a veces sube la misma
+  resolución en dos fichas con archivos distintos. Se conservan ambas como
+  **actuaciones** del mismo código (como en Tribunales y SAMAI): en el listado
+  aparecen agrupadas, y sus archivos llevan la fecha de expedición
+  (`R_SIC_10352_2026_20260216.pdf` y `R_SIC_10352_2026_20260218.pdf`). Un acto
+  con una sola ficha no lleva fecha. Si las dos copias tienen la misma fecha,
+  los archivos conservan su nombre de subida para que ninguno pise al otro.
+- **Detalle técnico:** el buscador desordena los resultados entre páginas, así
+  que la fuente recorre las páginas y luego busca por fragmentos de número
+  hasta completar el total que el propio buscador anuncia; si no lo logra,
+  lo avisa en el informe ("faltan N"). Cada documento exige abrir su ficha
+  (el listado no trae fechas): la corrida diaria tarda unos minutos (más en
+  los primeros días de enero, cuando revisa también el año anterior); un año
+  completo, unos 15 minutos; la carga completa 2015→hoy, del orden de 2 a 3
+  horas. Certificado válido.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Corte Suprema de Justicia (`corte_suprema`)
 
 - **De dónde saca los documentos:** del buscador oficial de providencias de
@@ -780,6 +821,7 @@ con esa ventana nunca se recogerían. Por eso su corrida diaria mira más atrás
 | Superintendencia de Sociedades | 120 días | Cada boletín lleva la fecha del mes que cubre y sale 1-3 meses después |
 | Corte Constitucional | 21 días | Tarda 10+ días en indexar |
 | Ministerio de Salud | 60 días | Sube documentos semanas después |
+| Superintendencia de Industria y Comercio | 30 días | La "fecha de publicación" la digita su personal y puede quedar antes del día en que sube la ficha |
 
 En SAMAI, un documento que reaparece con la misma fecha no se vuelve a
 descargar (solo una fecha nueva indica una republicación), así que la ventana

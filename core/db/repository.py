@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
-from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, matching_prefix_length
+from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, SIC_CANONICAL_TITLE_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
 
@@ -25,6 +25,8 @@ _LIKE_ESCAPE_CHAR = "\\"
 _CASE_GROUPING_FAMILY_PATTERNS = {
     "rama_judicial": [RADICADO_TITLE_PATTERN],
     "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN],
+    # el mismo acto de la SIC publicado en varias fichas (ver core/naming.py)
+    "sic": [SIC_CANONICAL_TITLE_PATTERN],
 }
 
 
