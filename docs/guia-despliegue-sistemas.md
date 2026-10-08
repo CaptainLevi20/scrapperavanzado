@@ -779,16 +779,33 @@ Es seguro repetirlo.
   actuaciones del mismo caso.
 - **De dónde sale el radicado:** primero del nombre del archivo, esté donde
   esté y aunque venga con guiones o espacios (`19. 41001-31-05-002-…`,
-  `Auto 11001 31 10 013 …`). Si el nombre no lo trae completo, se lee de la
-  primera página del PDF ("Radicación: …"). Del PDF solo se toma cuando no hay
-  duda: si el nombre trae el número corto (`2022-00078-01`), el radicado del
-  PDF debe terminar igual; si no, el PDF debe traer un único radicado.
-- **Qué se queda con el nombre original:** las listas de Estados y Edictos
-  del día (son de varios procesos a la vez) y los documentos donde el
-  radicado es dudoso. En una muestra real de octubre de 2026, quedaba con
-  nombre correcto cerca del 86% de lo que antes quedaba sin formato.
-- **Corrección de lo ya guardado (una sola vez):** después de actualizar a la
-  versión que trae este cambio, correr primero en modo simulación (solo
+  `Auto 11001 31 10 013 …`). Si el nombre no lo trae completo, se lee de las
+  dos primeras páginas del PDF ("Radicación: …"). Se reconocen también las
+  formas sueltas que usan los despachos: guiones largos con espacios
+  (`2024 – 00108 – 01`), barra antes de la instancia (`…-10167/00`) y
+  consecutivos de 4 o 6 dígitos (`2024-0321`, `000116`).
+- **Cómo se elige cuando hay dudas:**
+  - si el nombre trae un número corto (`2022-00078-01`, o `(2023-0143)` en
+    Boyacá), se usa el proceso del PDF con ese año y consecutivo; si el PDF
+    no trae ninguno así, no se cambia nada;
+  - la instancia la da el nombre cuando la trae (es la que puso el tribunal),
+    aunque el PDF cite solo la del juzgado (`…00`);
+  - si el PDF trae varios procesos y el nombre no dice cuál, se usa el
+    anunciado como "Radicación:", "Rad." o "Expediente"; si el mismo proceso
+    aparece en varias instancias, la anunciada o, si no, la más alta.
+- **Qué se queda con el nombre original:** las listas del día (Estados,
+  Edictos, las tablas nombradas por sala y fecha como
+  `tribunal superior sala laboral_11-09-2026`, `SIUGJ1`, y cualquier PDF con
+  tres o más procesos sin número en el nombre), los archivos que no son PDF
+  (ZIP, RAR, Excel) o son escaneados sin texto, y los documentos donde el
+  radicado es dudoso. Estos se pueden corregir a mano editando el título en
+  la aplicación; el archivo se renombra solo.
+- **Medición (octubre de 2026):** de los 4.311 documentos de Tribunales que
+  seguían sin formato después de la primera corrección, ~2.900 son listas y
+  ~600 se corrigen con estas reglas.
+- **Corrección de lo ya guardado:** después de actualizar a una versión que
+  cambie estas reglas (la última: octubre de 2026, formas sueltas del
+  radicado), correr primero en modo simulación (solo
   cuenta, no cambia nada):
 
   ```
