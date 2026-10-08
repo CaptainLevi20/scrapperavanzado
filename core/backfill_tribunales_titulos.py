@@ -5,7 +5,7 @@ que quedaron con el nombre de archivo crudo de la fuente en vez de
 Dos pasos por documento, en este orden:
 1. Por el nombre: el radicado completo venía en el nombre pero no al inicio, o
    con guiones/espacios entre sus partes (~24% en producción, octubre 2026).
-2. Por el PDF: se lee la primera página del archivo guardado y se toma el
+2. Por el PDF: se leen las dos primeras páginas del archivo guardado y se toma el
    radicado solo si no hay ambigüedad (mismas reglas que la ingesta diaria,
    _titulo_desde_pdf). Aprovecha la misma lectura para la fecha de providencia.
 
@@ -32,11 +32,11 @@ from core.db.models import Document, Source
 from core.db.session import SessionLocal
 from core.fecha_es import parse_fecha_providencia_es
 from core.scrapers.families.rama_judicial import (
-    _LISTA_DE_ESTADOS,
     TRIBUNAL_CODES,
-    _extraer_texto_primera_pagina,
+    _es_lista_de_estados,
+    _extraer_texto_paginas,
     _normalize_title,
-    _titulo_desde_pdf,
+    _titulo_desde_paginas,
 )
 from core.storage import download_file
 from core.utils import is_radicado_title
@@ -55,14 +55,14 @@ def _titulo_y_fecha_desde_pdf(documento: Document, dept_code: str, carpeta: Path
     local = carpeta / f"doc_{documento.id}.pdf"
     try:
         download_file(documento.storage_bucket, documento.storage_key, local)
-        texto = _extraer_texto_primera_pagina(local)
+        paginas = _extraer_texto_paginas(local)
     except Exception as exc:
         logger.warning("No se pudo leer el PDF del documento %s: %s", documento.id, exc)
         return None, None
     finally:
         local.unlink(missing_ok=True)
-    titulo = _titulo_desde_pdf(documento.title, texto, dept_code)
-    return titulo, (parse_fecha_providencia_es(texto) if titulo else None)
+    titulo = _titulo_desde_paginas(documento.title, paginas, dept_code)
+    return titulo, (parse_fecha_providencia_es(paginas[0]) if titulo and paginas else None)
 
 
 def backfill(db, leer_pdf: bool = True, simular: bool = False) -> dict:
@@ -87,7 +87,7 @@ def backfill(db, leer_pdf: bool = True, simular: bool = False) -> dict:
             if nuevo == documento.title:
                 nuevo = None
                 # Las listas de Estados nunca se renombran: ni se descargan.
-                if leer_pdf and _es_pdf(documento) and not _LISTA_DE_ESTADOS.search(documento.title):
+                if leer_pdf and _es_pdf(documento) and not _es_lista_de_estados(documento.title):
                     nuevo, fecha = _titulo_y_fecha_desde_pdf(documento, dept_code, Path(tmp))
                     via = "por_pdf"
             if nuevo is None:

@@ -131,13 +131,130 @@ _RADICADO_POR_PARTES = re.compile(
 # dígitos — cubre agrupaciones distintas a la oficial, como
 # "73-319-31-03-001-2022-00078-01" o "76 001 31 10 006 2024 00406 00".
 _TIRA_DE_DIGITOS = re.compile(r"(?<!\d)\d(?:[\s\-_.]?\d)+(?!\d)")
-# El radicado "corto" que muchos despachos ponen en el nombre: año +
-# consecutivo + instancia ("2022-00078-01") — los últimos 11 dígitos del
-# radicado completo. Sirve para confirmar cuál radicado del PDF es el bueno.
-_RADICADO_CORTO = re.compile(r"(?<!\d)((?:19|20)\d{2})[\s\-_.]*(\d{5})[\s\-_.]*(\d{2})(?!\d)")
 # Listas de notificaciones del día (varios procesos en un mismo archivo): no
 # corresponden a un solo radicado, se dejan con el nombre que trae la fuente.
+# Ver _es_lista_de_estados: "estado" también aparece en providencias
+# ("…Vs SEGUROS DEL ESTADO").
 _LISTA_DE_ESTADOS = re.compile(r"estados?|edictos?", re.IGNORECASE)
+# Listas que no dicen "estado": la tabla del día que algunos tribunales nombran
+# por la sala y la fecha ("tribunal superior sala laboral_11-09-2026",
+# "tribunal superior de sincelejo - sala civil familia laboral_10-09-2026") y
+# las de Córdoba ("SIUGJ1").
+_LISTA_SIN_LA_PALABRA = re.compile(r"^\s*_?tribunal superior\b.*\d{2}-\d{2}-\d{4}\s*$|^\s*siugj\s*\d*\s*$", re.IGNORECASE)
+
+# Lo que sigue lo midió un diagnóstico de los 4.311 documentos de Tribunales
+# Superiores que seguían sin formato en producción (octubre 2026): los
+# despachos escriben el radicado de muchas formas que la regla estricta de
+# arriba no reconoce.
+#
+# Guiones tipográficos que los PDF traen en lugar de "-" ("2024 – 00108 – 01").
+_GUIONES = re.compile(r"[‐-―−﹘﹣－]")
+# Tira de dígitos con separadores más sueltos: guion, punto, guion bajo o barra
+# con espacios alrededor ("68001-31-05-004 - 2024 - 00108 - 01",
+# "230012214-000-2026-10167/00"), o hasta dos espacios. No cruza saltos de línea.
+_TIRA_TOLERANTE = re.compile(r"(?<!\d)\d(?:(?:[ \t]{0,2}[\-_./][ \t]{0,2}|[ \t]{1,2})?\d)*(?!\d)")
+# Número corto en el nombre: año + consecutivo (3 a 6 dígitos) + instancia
+# opcional — "2024-00214-01", "2019.00217.01", "(2023-0143)", "2026-00485",
+# "20230002401". Sin separador entre año y consecutivo se exige el consecutivo
+# de 5 dígitos, para no confundir fechas ("20261002") con radicados.
+_NUMERO_CORTO = re.compile(r"(?<!\d)((?:19|20)\d{2})([\s\-_./]{0,3})(\d{3,6})(?:[\s\-_./]{1,3}(\d{2}))?(?!\d)")
+# Palabra que anuncia el radicado del propio documento justo antes del número
+# ("Radicación:", "Rad.", "RADICADO", "Expediente N°", "Proceso No.", "NUR").
+_ETIQUETA_RADICADO = re.compile(
+    r"(?i)(rad(?:icado|icaci[oó]n)?|proceso|expediente|ref(?:erencia)?|nur|n[uú]mero)\b[^\n\d]{0,25}$"
+)
+
+
+def _claves_cortas(nombre: str) -> list[tuple[str, str, Optional[str]]]:
+    """(año, consecutivo de 5 dígitos, instancia o None) de cada número corto
+    del nombre, en orden. Boyacá, por ejemplo, pone dos: el número interno del
+    tribunal y el del proceso ("05 (2026-0688) (2023-0143)")."""
+    claves = []
+    for m in _NUMERO_CORTO.finditer(_GUIONES.sub("-", nombre or "")):
+        anio, separador, consecutivo, instancia = m.groups()
+        if not separador and len(consecutivo) != 5:
+            continue
+        if len(consecutivo) == 6:
+            if consecutivo[0] != "0":
+                continue
+            consecutivo = consecutivo[1:]
+        claves.append((anio, consecutivo.zfill(5), instancia))
+    return claves
+
+
+def _es_lista_de_estados(nombre: str) -> bool:
+    """Lista de Estados/Edictos del día: dice "estado" o "edicto" y no trae
+    ningún número de proceso. "2023-00249-01 …SegurosDelEstado" es una
+    providencia, no una lista."""
+    nombre = nombre or ""
+    if _LISTA_SIN_LA_PALABRA.search(nombre):
+        return True
+    return bool(_LISTA_DE_ESTADOS.search(nombre)) and not _claves_cortas(nombre) and not _radicados_en(nombre)
+
+
+def _interpretar_tira(tira: str) -> Optional[tuple[str, Optional[str]]]:
+    """(proceso de 21 dígitos, instancia o None) de una tira de dígitos con
+    separadores, o None si no es un radicado. Acepta, además de los 23 dígitos
+    exactos, el consecutivo con 3-4 dígitos o con un cero de más
+    ("…-2024-0321-01", "…-2024-000116-01") y el radicado sin instancia (21
+    dígitos, "41551-31-84-002-2026-00031"). El proceso son los 12 dígitos de
+    municipio/entidad/especialidad/despacho + año + consecutivo."""
+    grupos = [g for g in re.split(r"\D+", tira) if g]
+    digitos = "".join(grupos)
+
+    def _valido(prefijo: str, anio: str) -> bool:
+        return len(prefijo) == 12 and prefijo[:2] in TRIBUNAL_CODES and re.fullmatch(r"(?:19|20)\d\d", anio) is not None
+
+    if len(digitos) in (21, 23) and _valido(digitos[:12], digitos[12:16]):
+        if len(digitos) == 23 or len(grupos) == 1 or len(grupos[-1]) != 2:
+            return digitos[:21], (digitos[21:] or None)
+
+    # Por grupos: los 12 primeros dígitos, luego el año, el consecutivo y la
+    # instancia en grupos separados.
+    acumulado = ""
+    for k, grupo in enumerate(grupos):
+        if len(acumulado) == 12 and _valido(acumulado, grupo) and len(grupo) == 4:
+            resto = grupos[k + 1:]
+            if not resto:
+                return None
+            consecutivo = resto[0]
+            if len(consecutivo) > 5:
+                if consecutivo[: len(consecutivo) - 5].strip("0"):
+                    return None
+                consecutivo = consecutivo[-5:]
+            if len(consecutivo) < 3:
+                return None
+            instancia = resto[1] if len(resto) > 1 and len(resto[1]) == 2 else None
+            return acumulado + grupo + consecutivo.zfill(5), instancia
+        acumulado += grupo
+        if len(acumulado) > 12:
+            break
+    return None
+
+
+def _procesos_en(texto: str) -> tuple[str, dict[tuple[str, Optional[str]], int]]:
+    """Texto normalizado y {(proceso, instancia): posición de la primera
+    aparición} de los radicados que aparecen en `texto`, escritos de cualquiera
+    de las formas reconocidas."""
+    texto = _GUIONES.sub("-", texto or "")
+    encontrados: dict[tuple[str, Optional[str]], int] = {}
+
+    def _agregar(clave, posicion):
+        if clave is not None and clave not in encontrados:
+            encontrados[clave] = posicion
+
+    for m in _RADICADO_POR_PARTES.finditer(texto):
+        radicado = "".join(m.groups())
+        if radicado[:2] in TRIBUNAL_CODES:
+            _agregar((radicado[:21], radicado[21:]), m.start())
+    for patron in (_TIRA_DE_DIGITOS, _TIRA_TOLERANTE):
+        for m in patron.finditer(texto):
+            _agregar(_interpretar_tira(m.group()), m.start())
+    return texto, encontrados
+
+
+def _con_etiqueta(texto: str, posicion: int) -> bool:
+    return bool(_ETIQUETA_RADICADO.search(texto[max(0, posicion - 40):posicion]))
 
 
 def _radicados_en(texto: str) -> list[str]:
@@ -174,32 +291,95 @@ def _normalize_title(name_no_ext: str, dept_code: str) -> str:
         return name_no_ext
 
     radicados = _radicados_en(name_no_ext)
-    if len(radicados) != 1:
+    if len(radicados) == 1:
+        return _titulo_con_radicado(radicados[0], codigo)
+    if radicados:
         return name_no_ext
-    return _titulo_con_radicado(radicados[0], codigo)
+    # Formas más sueltas ("…004 – 2024 – 00108 – 01", "…/02"): solo si traen
+    # la instancia y hay un único radicado.
+    _, encontrados = _procesos_en(name_no_ext)
+    completos = {proceso + instancia for proceso, instancia in encontrados if instancia}
+    if len(completos) != 1:
+        return name_no_ext
+    return _titulo_con_radicado(completos.pop(), codigo)
 
 
 def _titulo_desde_pdf(nombre: str, texto_pdf: str, dept_code: str) -> Optional[str]:
-    """Título "T_{CODIGO}_…" a partir del radicado escrito en la primera página
-    del documento, para cuando el nombre de archivo no lo trae completo. Solo
-    si no hay ambigüedad:
-    - si el nombre trae el radicado corto ("2022-00078-01"), se usa el radicado
-      del PDF que termina igual (el PDF suele citar también el de la primera
-      instancia, …00); si ninguno o varios coinciden, nada.
-    - si no, el PDF debe traer un único radicado (el nombre suele traer solo la
+    """Título "T_{CODIGO}_…" a partir del radicado escrito en el documento, para
+    cuando el nombre de archivo no lo trae completo. Devuelve None cuando no se
+    puede decidir con seguridad.
+
+    - Si el nombre trae un número corto ("2022-00078-01", "(2023-0143)"), se
+      usa el proceso del PDF con ese año y consecutivo; si el PDF no trae
+      ninguno así, nada (el nombre y el PDF hablan de procesos distintos).
+      La instancia la da el nombre cuando la trae: es la que puso el propio
+      tribunal, aunque el PDF cite solo la de primera instancia.
+    - Si no, el PDF debe traer un único proceso, o uno solo anunciado como
+      "Radicación:"/"Rad."/"Expediente…" (el nombre suele traer solo la
       radicación interna del tribunal, "77.726").
-    Devuelve None cuando no se puede decidir con seguridad."""
+    - Si el proceso aparece en varias instancias (…00 del juzgado y …01 del
+      tribunal) y nada dice cuál es la del documento, se usa la anunciada
+      como "Radicación:" o, si no, la más alta: la del tribunal.
+    """
     codigo = TRIBUNAL_CODES.get(dept_code)
-    if codigo is None or _LISTA_DE_ESTADOS.search(nombre):
+    if codigo is None or _es_lista_de_estados(nombre):
         return None
-    radicados = _radicados_en(texto_pdf)
-    corto = _RADICADO_CORTO.search(nombre)
-    if corto:
-        cola = "".join(corto.groups())
-        radicados = [r for r in radicados if r[12:] == cola]
-    if len(radicados) != 1:
+    texto, encontrados = _procesos_en(texto_pdf)
+    if not encontrados:
         return None
-    return _titulo_con_radicado(radicados[0], codigo)
+
+    claves = _claves_cortas(nombre)
+    clave = next(
+        (k for k in claves if any(p[12:16] == k[0] and p[16:21] == k[1] for p, _ in encontrados)),
+        None,
+    )
+    if claves and clave is None:
+        return None
+
+    if clave is not None:
+        anio, consecutivo, instancia_nombre = clave
+        candidatos = [r for r in encontrados if r[0][12:16] == anio and r[0][16:21] == consecutivo]
+        if instancia_nombre:
+            exactos = {p for p, i in candidatos if i == instancia_nombre}
+            if len(exactos) == 1:
+                return _titulo_con_radicado(exactos.pop() + instancia_nombre, codigo)
+        if len({p for p, _ in candidatos}) != 1:
+            return None
+        if instancia_nombre:
+            return _titulo_con_radicado(candidatos[0][0] + instancia_nombre, codigo)
+    else:
+        candidatos = list(encontrados)
+        procesos = {p for p, _ in candidatos}
+        # Tres o más procesos y ningún número en el nombre: es una lista
+        # (tabla de Estados, fijación en lista, traslados) aunque no se llame
+        # así ("tribunal superior sala laboral_11-09-2026").
+        if len(procesos) >= 3:
+            return None
+        if len(procesos) != 1:
+            candidatos = [r for r in candidatos if _con_etiqueta(texto, encontrados[r])]
+            if len({p for p, _ in candidatos}) != 1:
+                return None
+
+    proceso = candidatos[0][0]
+    instancias = sorted({i for _, i in candidatos if i})
+    if not instancias:
+        return None
+    if len(instancias) > 1:
+        etiquetadas = {i for p, i in candidatos if i and _con_etiqueta(texto, encontrados[(p, i)])}
+        if len(etiquetadas) == 1:
+            return _titulo_con_radicado(proceso + etiquetadas.pop(), codigo)
+    return _titulo_con_radicado(proceso + instancias[-1], codigo)
+
+
+def _titulo_desde_paginas(nombre: str, paginas: list[str], dept_code: str) -> Optional[str]:
+    """_titulo_desde_pdf con la primera página y, si ahí no se decide, con las
+    dos primeras juntas (en ~60 documentos el radicado está en la segunda)."""
+    if not paginas:
+        return None
+    titulo = _titulo_desde_pdf(nombre, paginas[0], dept_code)
+    if titulo is None and len(paginas) > 1:
+        titulo = _titulo_desde_pdf(nombre, "\n".join(paginas[:2]), dept_code)
+    return titulo
 
 
 _JUEZ_PREFIX = re.compile(r"^\s*(Dr|Dra)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]*")
@@ -225,7 +405,8 @@ def _extract_detalle(name_no_ext: str) -> Optional[str]:
     return _CAMEL_CASE_BOUNDARY.sub(" ", resto).strip() or None
 
 
-def _extraer_texto_primera_pagina(local_path) -> str:
+def _extraer_texto_paginas(local_path, cantidad: int = 2) -> list[str]:
+    """Texto de las primeras `cantidad` páginas del PDF."""
     # Los PDFs de Rama Judicial vienen cifrados con AES (contraseña vacía);
     # pypdf los abre solo si 'cryptography' está instalado (ver requirements).
     from pypdf import PdfReader
@@ -236,9 +417,7 @@ def _extraer_texto_primera_pagina(local_path) -> str:
             reader.decrypt("")
         except Exception:
             pass
-    if not reader.pages:
-        return ""
-    return reader.pages[0].extract_text() or ""
+    return [page.extract_text() or "" for page in reader.pages[:cantidad]]
 
 
 # This site (shared by all 33 Tribunales Superiores + Juzgados sources, since
@@ -310,27 +489,28 @@ class ScrapRamaJudicial(BaseScrapper):
         Estados (para recuperar el radicado — ver _titulo_desde_pdf)."""
         if is_radicado_title(titulo):
             return True
-        return self._dept_code in TRIBUNAL_CODES and not _LISTA_DE_ESTADOS.search(titulo)
+        return self._dept_code in TRIBUNAL_CODES and not _es_lista_de_estados(titulo)
 
     def resolve_unverified_document(self, doc, local_path, content_type) -> None:
         # Rama Judicial no expone el radicado completo ni la fecha de
-        # providencia en sus metadatos; ambos se leen de la primera página del
-        # PDF. Si no se puede leer o no hay un radicado sin ambigüedad, el
-        # título queda como venía y f_providencia en None (el nombre canónico
-        # usa el respaldo f_public). Nunca interrumpe la ingestión.
+        # providencia en sus metadatos; ambos se leen del PDF (el radicado de
+        # las dos primeras páginas, la fecha de la primera). Si no se puede
+        # leer o no hay un radicado sin ambigüedad, el título queda como venía
+        # y f_providencia en None (el nombre canónico usa el respaldo
+        # f_public). Nunca interrumpe la ingestión.
         if not self._se_revisa_el_pdf(doc.title):
             return
         try:
-            texto = _extraer_texto_primera_pagina(local_path)
+            paginas = _extraer_texto_paginas(local_path)
         except Exception as e:
-            logger.warning("No se pudo leer la primera página de %s: %s", getattr(local_path, "name", local_path), e)
+            logger.warning("No se pudo leer el PDF %s: %s", getattr(local_path, "name", local_path), e)
             return
         if not is_radicado_title(doc.title):
-            titulo = _titulo_desde_pdf(doc.title, texto, self._dept_code)
+            titulo = _titulo_desde_paginas(doc.title, paginas, self._dept_code)
             if titulo is None:
                 return
             doc.title = titulo
-        fecha = parse_fecha_providencia_es(texto)
+        fecha = parse_fecha_providencia_es(paginas[0] if paginas else "")
         if fecha is not None:
             doc.f_providencia = fecha.strftime("%Y-%m-%d")
 

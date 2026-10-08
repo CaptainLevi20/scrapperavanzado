@@ -33,7 +33,7 @@ def _sin_minio(monkeypatch, texto_pdf=None):
         local.write_bytes(b"%PDF")
 
     monkeypatch.setattr(bf, "download_file", _descargar)
-    monkeypatch.setattr(bf, "_extraer_texto_primera_pagina", lambda p: texto_pdf or "")
+    monkeypatch.setattr(bf, "_extraer_texto_paginas", lambda p: [texto_pdf or ""])
     return copiados, leidos
 
 

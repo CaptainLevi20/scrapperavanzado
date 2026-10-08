@@ -637,8 +637,8 @@ def _raw(title):
 def test_resolve_llena_f_providencia_desde_pdf(monkeypatch, tmp_path):
     scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
     monkeypatch.setattr(
-        rama_judicial, "_extraer_texto_primera_pagina",
-        lambda p: "Bogotá, diez (10) de agosto de dos mil veintiséis (2026)",
+        rama_judicial, "_extraer_texto_paginas",
+        lambda p: ["Bogotá, diez (10) de agosto de dos mil veintiséis (2026)"],
     )
     doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
@@ -647,7 +647,7 @@ def test_resolve_llena_f_providencia_desde_pdf(monkeypatch, tmp_path):
 
 def test_resolve_sin_fecha_deja_f_providencia_none(monkeypatch, tmp_path):
     scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
-    monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", lambda p: "sin fecha")
+    monkeypatch.setattr(rama_judicial, "_extraer_texto_paginas", lambda p: ["sin fecha"])
     doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
     assert doc.f_providencia is None
@@ -657,7 +657,7 @@ def test_resolve_ignora_error_de_lectura(monkeypatch, tmp_path):
     scraper = rama_judicial.ScrapRamaJudicial(dept_code="11", dept_name="Rama Judicial")
     def _boom(p):
         raise RuntimeError("pdf ilegible")
-    monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", _boom)
+    monkeypatch.setattr(rama_judicial, "_extraer_texto_paginas", _boom)
     doc = _raw("T_BTA_11001_31_03_022_2019_00814_02")
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
     assert doc.f_providencia is None
@@ -715,9 +715,10 @@ def test_normalize_title_no_adivina_cuando_el_nombre_es_ambiguo_o_incompleto(nom
 # traen en el PDF como "Radicación: ..."). ---
 
 
-def _resolver(monkeypatch, tmp_path, titulo, texto_pdf, dept="68"):
+def _resolver(monkeypatch, tmp_path, titulo, texto_pdf, dept="68", pagina_2=None):
     scraper = rama_judicial.ScrapRamaJudicial(dept_code=dept, dept_name="Rama Judicial")
-    monkeypatch.setattr(rama_judicial, "_extraer_texto_primera_pagina", lambda p: texto_pdf)
+    paginas = [texto_pdf] + ([pagina_2] if pagina_2 is not None else [])
+    monkeypatch.setattr(rama_judicial, "_extraer_texto_paginas", lambda p: paginas)
     doc = _raw(titulo)
     scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
     return doc
@@ -754,16 +755,31 @@ def test_resolve_toma_el_unico_radicado_del_pdf_cuando_el_nombre_trae_un_numero_
     assert doc.title == "T_ATLA_08001_31_05_005_2024_00199_01"
 
 
-def test_resolve_no_renombra_si_el_pdf_contradice_el_numero_corto_del_nombre(monkeypatch, tmp_path):
-    # El nombre dice instancia 01 y el PDF solo trae la 00: no se adivina.
+def test_resolve_usa_la_instancia_del_nombre_aunque_el_pdf_cite_otra(monkeypatch, tmp_path):
+    # El nombre dice instancia 01 (la del tribunal) y el PDF solo cita la 00
+    # (la del juzgado): el proceso sale del PDF y la instancia del nombre.
     doc = _resolver(monkeypatch, tmp_path, "2026-00217-01", "Radicado: 68001311000420260021700")
+    assert doc.title == "T_SANT_68001_31_10_004_2026_00217_01"
+
+
+def test_resolve_no_renombra_si_el_pdf_contradice_el_numero_corto_del_nombre(monkeypatch, tmp_path):
+    # El nombre habla de 2026-00217 y el PDF de otro proceso: no se adivina.
+    doc = _resolver(monkeypatch, tmp_path, "2026-00217-01", "Radicado: 68001311000420250099900")
     assert doc.title == "2026-00217-01"
+
+
+def test_resolve_elige_el_radicado_anunciado_como_rad_entre_varios(monkeypatch, tmp_path):
+    doc = _resolver(
+        monkeypatch, tmp_path, "AutoAclaraCorrigeOAdicionaProvidencia RAD. 80004 C",
+        "Rad. 08001310500420260001501 ... remitido por 23001310500220190036301", dept="08",
+    )
+    assert doc.title == "T_ATLA_08001_31_05_004_2026_00015_01"
 
 
 def test_resolve_no_renombra_si_el_pdf_trae_varios_radicados_sin_forma_de_elegir(monkeypatch, tmp_path):
     doc = _resolver(
         monkeypatch, tmp_path, "AutoAclaraCorrigeOAdicionaProvidencia RAD. 80004 C",
-        "Rad. 08001310500420260001501 ... remitido por 23001310500220190036301", dept="08",
+        "Se decide sobre 08001310500420260001501 ... remitido por 23001310500220190036301", dept="08",
     )
     assert doc.title == "AutoAclaraCorrigeOAdicionaProvidencia RAD. 80004 C"
 
@@ -797,3 +813,82 @@ def test_rama_judicial_no_renombra_el_archivo_al_corregir_el_titulo():
     # conserva su nombre descriptivo y lo renombra storage_sync, que sí detecta
     # choques entre actuaciones del mismo radicado.
     assert ScrapRamaJudicial.rekey_storage_on_title_fix is False
+
+
+# --- Formas sueltas de escribir el radicado (diagnóstico de los 4.311
+# documentos de Tribunales Superiores sin formato en producción, octubre
+# 2026). Los textos son reales, recortados. ---
+
+
+@pytest.mark.parametrize(
+    "titulo, texto_pdf, dept, esperado",
+    [
+        # Guiones largos con espacios alrededor.
+        ("AutoAceptaImpedimento487-2026", "Bucaramanga, diez (10) de julio de dos mil veintiséis (2026)\n"
+         "Radicado 68001-31-05-004 \u2013 2024 \u2013 00108 \u2013 01", "68", "T_SANT_68001_31_05_004_2024_00108_01"),
+        ("Auto 2021-00140-01 SIUGJ", "RADICADO  11001 \u2013 31 \u2013 05 \u2013 007 \u2013 2021 \u2013 00140 \u2013 01",
+         "11", "T_BTA_11001_31_05_007_2021_00140_01"),
+        # Barra antes de la instancia.
+        ("310-2026 AU CONCEDE IMPUGNACIÓN (1)", "Radicación n°. 230012214-000-2026-10167/00", "23",
+         "T_CORD_23001_22_14_000_2026_10167_00"),
+        # Consecutivo de 4 dígitos y de 6 (con un cero de más).
+        ("2024-0321-01 Auto Decide 2026-0081-01", "EXPEDIENTE: 54-405-31-10-001-2024-0321-01\nRADICADO INT. 2026-0081-01",
+         "54", "T_NSAN_54405_31_10_001_2024_00321_01"),
+        ("06 149 AutoAdmiteConocimientoApelacionSentencia 2024-00116", "RADICACIÓN:  76-111-31-05-001-2024-000116-01",
+         "76", "T_VALL_76111_31_05_001_2024_00116_01"),
+        # Número corto sin instancia: de los dos procesos del PDF, el que
+        # coincide con el nombre.
+        ("2026-00485SentenciaTutela1aInstancia - CLARA INÉS VILLA SAMPER 2026-00485",
+         "Radicación: 20001220400120260048500 ... acción popular 20001333300520230050700", "20",
+         "T_CESA_20001_22_04_001_2026_00485_00"),
+        # Boyacá: número interno del tribunal y número del proceso en el nombre;
+        # el PDF trae primera y segunda instancia y se usa la más alta.
+        ("06 (2026-0093) (2024-0036) Auto Confirma",
+         "Rad. Primera Instancia: 15001311000220240003600\nRad. Segunda Instancia: 15001311000220240003601", "15",
+         "T_BOYA_15001_31_10_002_2024_00036_01"),
+        # Sin número en el nombre, el mismo proceso en dos instancias: la anunciada.
+        ("02. Ap. Auto (43-26) (responsabilidad médica- confirma)",
+         "Radicación: 13001310300120250021201\nInstancia: Segunda\n... juzgado 13001310300120250021200", "13",
+         "T_BOLI_13001_31_03_001_2025_00212_01"),
+        # Dice "Estado" pero es una providencia.
+        ("2023-00249-01 AnaTilciaGuerreroYOtros-SegurosDelEstado", "Radicado 20011310300120230024901", "20",
+         "T_CESA_20011_31_03_001_2023_00249_01"),
+    ],
+)
+def test_resolve_reconoce_formas_sueltas_del_radicado(monkeypatch, tmp_path, titulo, texto_pdf, dept, esperado):
+    assert _resolver(monkeypatch, tmp_path, titulo, texto_pdf, dept=dept).title == esperado
+
+
+def test_resolve_busca_en_la_segunda_pagina_si_la_primera_no_lo_trae(monkeypatch, tmp_path):
+    doc = _resolver(
+        monkeypatch, tmp_path, "7.Radicado2024-00077-02AutoAdmiteRecursoApelaciónDr.Pérez",
+        "Ibagué, veintinueve (29) de septiembre de dos mil veintiséis (2026)\nREFERENCIA: PROCESO DE RESPONSABILIDAD",
+        dept="73", pagina_2="Radicación: 73001-31-03-002-2024-00077-02",
+    )
+    assert doc.title == "T_TOLI_73001_31_03_002_2024_00077_02"
+    assert doc.f_providencia == "2026-09-29"  # la fecha sigue saliendo de la primera página
+
+
+@pytest.mark.parametrize(
+    "lista",
+    ["tribunal superior sala laboral_11-09-2026", "tribunal superior de sincelejo - sala civil familia laboral_10-09-2026",
+     "SIUGJ1", "20260825EstadoSalaPenalAutoEPMSDiego"],
+)
+def test_resolve_no_toca_listas_que_no_dicen_estado_o_traen_fechas(monkeypatch, tmp_path, lista):
+    doc = _resolver(monkeypatch, tmp_path, lista, "Radicación 08001220500020261028700", dept="08")
+    assert doc.title == lista
+
+
+def test_resolve_no_renombra_un_pdf_con_tres_o_mas_procesos_sin_numero_en_el_nombre(monkeypatch, tmp_path):
+    # Tabla de procesos (fijación en lista, traslados) con nombre libre.
+    doc = _resolver(
+        monkeypatch, tmp_path, "FijacionLista",
+        "Radicación 15001310500420210044301\n15001310500120250002301\n15001310500120250004701", dept="15",
+    )
+    assert doc.title == "FijacionLista"
+
+
+def test_normalize_title_acepta_guiones_largos_en_el_nombre():
+    assert _normalize_title("Auto 68001-31-05-004 \u2013 2025 \u2013 00193 - 01", "68") == (
+        "T_SANT_68001_31_05_004_2025_00193_01"
+    )
