@@ -115,6 +115,13 @@ _FAMILIES = {
         "y doctrina) publicada en el buscador de normas de la Superintendencia de "
         "Industria y Comercio",
     ),
+    "supertransporte": (
+        "Superintendencia de Transporte",
+        "Resoluciones generales, circulares (externas, conjuntas y SICOV), "
+        "resoluciones internas, títulos de la Circular Única de Infraestructura y "
+        "Transporte y conceptos de la Biblioteca Jurídica de la Superintendencia de "
+        "Transporte",
+    ),
 }
 
 
@@ -255,6 +262,10 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="sic", name="Superintendencia de Industria y Comercio", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="supertransporte", name="Superintendencia de Transporte", family_params={}
     )
 
 
