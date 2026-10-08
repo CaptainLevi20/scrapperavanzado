@@ -832,6 +832,37 @@ Es seguro repetirlo.
   Al terminar muestra cuántos se corrigieron por el nombre, cuántos por el
   PDF y cuántos quedaron igual.
 
+### Ministerio de Comercio, Industria y Turismo (`mincit`)
+
+- **Circulares conjuntas:** desde octubre de 2026 también se recorre
+  `/normatividad/circulares/circulares-conjuntas` (una sola página, sin
+  archivo por año). Quedan con la letra `C`, igual que las demás circulares.
+- **Circulares sin número:** quedan `C_MCIT_SN_<año>`; si hay varias el mismo
+  año, `_2`, `_3`… por fecha de expedición. Cinco conjuntas que solo tienen el
+  número del Ministerio del Interior dentro del PDF escaneado llevan ese código
+  fijo (p. ej. `C_MCIT_CIR2020-103_2020`).
+- **Corrección de lo ya guardado:** ~550 documentos viejos (sobre todo
+  "Circular Externa 065 de 1995", "Resolución No. …", "Decreto - Ley …")
+  estaban guardados con el texto completo como título. Después de actualizar,
+  correr primero en modo simulación:
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_mincit_titulos --simular
+  ```
+
+  y luego de verdad:
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_mincit_titulos
+  ```
+
+  Recorre el sitio completo de MinCIT (unos 10 minutos). Nunca cambia un
+  título que ya tenía el formato correcto, y se puede repetir sin riesgo; si
+  alguna página del sitio falla durante la corrida, basta con repetirlo.
+- **Lo que sigue con el texto original:** anexos listados como filas sueltas
+  ("ANEXO No 01 MCIT - Licencia Previa"), "Reglamento (UE) …" y "Proyecto ley
+  turismo". Se pueden corregir a mano editando el título en la aplicación.
+
 ### Fuentes que publican con retraso (ventana de la corrida diaria)
 
 La corrida automática diaria normalmente mira solo los últimos 3 días. Algunas

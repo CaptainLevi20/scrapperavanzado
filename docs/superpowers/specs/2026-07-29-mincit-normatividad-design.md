@@ -170,3 +170,28 @@ categorías), cubriendo:
 - Caso `title_unverified=True` cuando el regex no encuentra número al inicio
   de la celda.
 - Un año/slug que falla no descarta los documentos de los demás.
+
+## Ampliación (2026-10-08): circulares conjuntas y números no reconocidos
+
+- **Nueva página:** `/normatividad/circulares/circulares-conjuntas` no tiene
+  archivo por año (una sola tabla `Listado`, 12 filas 2012–2024). Se recorre
+  completa en cada corrida (`_PAGINAS_SUELTAS`) y se pliega a la categoría
+  Circulares (letra `C`, igual que procuraduria/sic con las conjuntas). Una
+  conjunta que también aparece en el archivo anual no se repite (por URL).
+- **Lector de número:** el regex viejo (`palabra + número`) dejaba sin título
+  ~600 de ~3.500 filas del sitio ("Circular Externa 065", "Resolución No.",
+  "Decreto - Ley 444", "Circular DVT 003", "Resolución194", "036A",
+  "100-003"). `_NUMERO_PATTERN` tolera esas variantes; el regex viejo queda
+  como respaldo para no cambiar ningún título que ya se reconocía (verificado
+  contra el sitio completo: 550 títulos nuevos, 0 títulos existentes
+  cambiados).
+- **Sin número:** circular sin número → `C_MCIT_SN_<año>` (convención de
+  minsalud/procuraduria), con `_2`, `_3`… por fecha de expedición dentro de la
+  página completa (independiente del rango de la corrida). Los demás títulos
+  repetidos del sitio no se tocan.
+- **Números solo en el PDF:** 5 conjuntas escaneadas (sin texto) tienen solo
+  el consecutivo/radicado del MinInterior; van en `_NUMEROS_FIJOS` por GUID
+  del enlace (`C_MCIT_CIR2020-103_2020`, `C_MCIT_OFI2021-32628_2021`). No se
+  hace OCR.
+- **Ya guardados:** `core/backfill_mincit_titulos.py` (con `--simular`)
+  recalcula con el scraper y solo cambia títulos que no eran canónicos.

@@ -357,3 +357,127 @@ def test_scrap_continues_past_a_failing_category_index():
 
 def test_filters_by_publication_date_is_enabled():
     assert ScrapMINCIT.filters_by_publication_date is True
+
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "texto, esperado",
+    [
+        ("Circular Externa 065 de 1995", "065"),
+        ("Circular Externa No. 75 de 2006", "75"),
+        ("Circular Externa Conjunta No.026 de 2006. Medidas de control", "026"),
+        ("Circular conjunta externa 006 del 27 de diciembre de 2024: lineamientos", "006"),
+        ("Circular conjunta externa 100-003 del 23 de mayo de 2022: indicaciones", "100-003"),
+        ("Circular externa 018 del 31 de agosto de 2026: aportes", "018"),
+        ("Circular Externa 036A de 2000", "036A"),
+        ('Circular DVT 003 "Competencias"', "003"),
+        ("Circular VDE 032 del 07 de diciembre de 2021: supervisión", "032"),
+        ('Circula externa 100 "Publicación voluntaria"', "100"),
+        ("Resolución No. 2649 “Por la cual se delegan”", "2649"),
+        ('Resolución N° 0003942 de 2009 "Por la cual"', "0003942"),
+        ("Resolución Número 2198 de 2013.", "2198"),
+        ("Resolución194 de 4 de diciembre de 2015", "194"),
+        ('Decreto - Ley 444 de 1967 "Sobre régimen"', "444"),
+        ("Decreto Ley 444 de 1967.", "444"),
+        # El "-2002" es el año, no parte compuesta del número.
+        ("Decreto-1503-2002. Por el cual", "1503"),
+    ],
+)
+def test_parse_numero_tolera_variantes_del_sitio(texto, esperado):
+    assert _parse_numero(texto) == esperado
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Circular conjunta externa del 17 de noviembre de 2021: medidas",
+        "Circular Única de Calidad Turística del 6 febrero de 2026: informar",
+        # 1816 es el número de la ley citada, no de la circular.
+        'Circular ley 1816 "Artículo 36 Ley 1816 de 2016"',
+        "ANEXO No 01 MCIT - Licencia Previa",
+        "Proyecto ley turismo",
+    ],
+)
+def test_parse_numero_no_inventa_numero(texto):
+    assert _parse_numero(texto) is None
+
+
+def test_normalize_title_conserva_letra_y_numeros_compuestos_o_codigos():
+    assert _normalize_title("C", "036A", "2000") == "C_MCIT_0036A_2000"
+    assert _normalize_title("C", "100-003", "2022") == "C_MCIT_100-003_2022"
+    assert _normalize_title("C", "CIR2020-103", "2020") == "C_MCIT_CIR2020-103_2020"
+    assert _normalize_title("C", "SN", "2026") == "C_MCIT_SN_2026"
+
+
+def _tabla(*filas):
+    cuerpo = "".join(
+        f'<tr><td>{i}</td><td>{texto}</td><td>1 MB</td><td>{exp}</td><td>{pub}</td>'
+        f'<td><a href="/getattachment/{guid}/x.aspx">Descargar</a></td></tr>'
+        for i, (texto, exp, pub, guid) in enumerate(filas, start=1)
+    )
+    return f'<table id="Listado"><thead></thead><tbody>{cuerpo}</tbody></table>'
+
+
+_SN_NOVIEMBRE = ("Circular conjunta externa del 10 de noviembre de 2020: medidas", "10/11/2020", "10/11/2020",
+                 "b49b8625-1403-43e7-8fe0-400a9b742d08")
+_SN_ABRIL = ("Circular conjunta del 11 de abril de 2020: alcance", "11/04/2020", "14/04/2020",
+             "520bced0-c36b-442e-8e7f-ea290db3f211")
+
+
+def test_extraer_filas_circular_sin_numero_queda_sn_con_sufijo_por_fecha():
+    docs = ScrapMINCIT()._extraer_filas(_tabla(_SN_NOVIEMBRE, _SN_ABRIL), "Circular", "C", "2020-01-01", "2020-12-31")
+
+    assert {d.f_providencia: d.title for d in docs} == {
+        "2020-04-11": "C_MCIT_SN_2020",
+        "2020-11-10": "C_MCIT_SN_2020_2",
+    }
+    assert all(d.title_unverified is False for d in docs)
+
+
+def test_extraer_filas_sufijo_sn_no_depende_del_rango_pedido():
+    # Solo se pide noviembre: la de abril queda fuera, pero la de noviembre
+    # conserva su _2.
+    docs = ScrapMINCIT()._extraer_filas(_tabla(_SN_NOVIEMBRE, _SN_ABRIL), "Circular", "C", "2020-11-01", "2020-11-30")
+
+    assert [d.title for d in docs] == ["C_MCIT_SN_2020_2"]
+
+
+def test_extraer_filas_usa_numero_fijo_del_pdf_escaneado():
+    html = _tabla(("Circular conjunta externa del 20 de agosto de 2020: protocolo", "20/08/2020", "21/08/2020",
+                   "671d34c1-8d0b-43ea-971c-085629ab90a8"))
+    docs = ScrapMINCIT()._extraer_filas(html, "Circular", "C", "2020-01-01", "2020-12-31")
+
+    assert docs[0].title == "C_MCIT_CIR2020-103_2020"
+
+
+def test_extraer_filas_anexo_en_circulares_no_se_vuelve_sn():
+    html = _tabla(("ANEXO No 01 MCIT - Licencia Previa", "21/10/2015", "21/10/2015",
+                   "11111111-1111-1111-1111-111111111111"))
+    docs = ScrapMINCIT()._extraer_filas(html, "Circular", "C", "2015-01-01", "2015-12-31")
+
+    assert docs[0].title == "ANEXO No 01 MCIT - Licencia Previa"
+    assert docs[0].title_unverified is True
+
+
+@responses.activate
+def test_scrap_recorre_circulares_conjuntas_sin_repetir_las_del_archivo_anual():
+    conjunta = ("Circular conjunta 001 del 16 de agosto de 2019: acciones", "16/08/2019", "22/08/2019",
+                "d63eb49a-8f2f-4e0a-9c64-5dd95f9a6299")
+    base = "https://www.mincit.gov.co/normatividad"
+    for categoria in ("resoluciones", "decretos", "leyes"):
+        responses.add(responses.GET, f"{base}/{categoria}", body=_INDICE_VACIO_HTML)
+    responses.add(responses.GET, f"{base}/circulares", body='<a href="/normatividad/circulares/2019">2019</a>')
+    responses.add(responses.GET, f"{base}/circulares/2019", body=_tabla(conjunta))
+    responses.add(
+        responses.GET,
+        f"{base}/circulares/circulares-conjuntas",
+        body=_tabla(conjunta, ("Circular conjunta 015 del 09 de abril de 2020: medidas", "09/04/2020",
+                               "13/04/2020", "8281f834-7d3f-4816-a576-1ac6757fe9c7")),
+    )
+
+    docs = ScrapMINCIT().scrap(fini="2019-01-01", ffin="2020-12-31")
+
+    assert sorted(d.title for d in docs) == ["C_MCIT_0001_2019", "C_MCIT_0015_2020"]
+    assert all(d.tipo == "Circular" for d in docs)
