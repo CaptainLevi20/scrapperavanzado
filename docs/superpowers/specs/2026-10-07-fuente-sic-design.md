@@ -205,3 +205,31 @@ Se **incluyen** las resoluciones de carácter particular (nombramientos).
 - La página "Normativa aplicable" (normas de otras entidades).
 - Proyectos de resolución/circular, nombramientos sin PDF, sentencias de otros
   tribunales.
+
+## Cambios post-implementación (2026-10-07)
+
+- **Número sólo si el título empieza por el acto** (`re.match`, revisión
+  final): "Aclaración de la Resolución 56937" o "La SIC aclaró la Resolución
+  No. 88766" no son esa resolución → título crudo + `title_unverified`. Se
+  admiten el prefijo "Nombramiento - " y la errata real "Reolución".
+- **Avisos visibles:** "faltan N" y "el buscador no devolvió ninguna ficha"
+  se emiten como `Error` (el worker sólo lleva al informe los mensajes con
+  "Error").
+- **`scheduled_min_lookback_days = 30`:** la "Fecha publicación" la digita el
+  personal de la SIC y puede quedar antes del día en que aparece la ficha.
+- **Estudios de cargo descartados** (decisión del usuario): títulos que
+  empiezan por "Estudio".
+- **El mismo acto en varias fichas = actuaciones** (decisión del usuario,
+  reemplaza la regla de "colisión → título crudo"): todas conservan el mismo
+  código y se agrupan como en Tribunales/SAMAI (`sic` en
+  `core/naming._FAMILIAS_CON_ACTUACIONES` y en el colapso del listado de
+  `core/db/repository`, patrón `core.utils.SIC_CANONICAL_TITLE_PATTERN`).
+  Diferencia con Tribunales: un acto único NO lleva sufijo de año (el código
+  ya lo trae); con varias, `_AAAAMMDD` de la fecha de expedición. El scraper
+  sube cada PDF como `{código}_h{sha1(url)[:7]}` para que ninguna subida
+  reemplace el archivo de otra ficha, y `core/storage_sync` lo renombra al
+  nombre canónico al terminar la corrida. Si dos actuaciones tienen la misma
+  fecha, conservan su nombre de subida (protección de colisión existente).
+  Los títulos crudos repetidos siguen recibiendo `_2`, `_3`.
+- **Corrida de 2026 en dev:** 154 documentos, 0 errores, ningún título sin
+  verificar; 3 actos con dos actuaciones fechadas y 2 con la misma fecha.
