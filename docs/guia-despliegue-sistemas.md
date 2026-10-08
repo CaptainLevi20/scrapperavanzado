@@ -749,6 +749,40 @@ Es seguro repetirlo.
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
 
+### Superintendencia de Transporte (`supertransporte`)
+
+- **Qué trae:** **Resoluciones generales** (2000→hoy, con sus anexos),
+  **resoluciones internas**, **circulares** externas, conjuntas y SICOV, los
+  **Títulos de la Circular Única de Infraestructura y Transporte** (cada
+  versión que suben entra como documento aparte) y los **conceptos** de la
+  Biblioteca Jurídica (sólo 2020–2021: la entidad no la ha vuelto a
+  alimentar; muchos son imágenes escaneadas .tif).
+- **Cuánto entrega:** la carga completa dio 1.777 documentos — 914
+  resoluciones, 76 circulares, 8 títulos de la Circular Única y 779 conceptos.
+- **Qué no trae:** leyes y decretos (la página sólo enlaza a Función Pública,
+  Senado o SUIN), sentencias y normogramas (archivos de Excel), gaceta,
+  políticas y manuales.
+- **Cómo quedan nombrados:** `R_SPT_9788_2026`, `C_SPT_0054_2023` (toda
+  circular es `C`; los radicados largos van tal cual:
+  `C_SPT_20265330000164_2026`), `TCU_SPT_III_20260818`,
+  `CTO_SPT_20203000286531`. Anexos: `_A01`. Si el sitio sube el mismo número
+  dos veces, el segundo lleva `_2`. «Alcance a la Circular…» y «Fe de
+  erratas…» quedan con el texto de la página y marca de "sin verificar".
+- **Fechas:** la fecha de publicación es la del día en que la entidad subió el
+  archivo (va en la dirección del archivo); una resolución del 3 de agosto
+  subida el 2 de septiembre aparece en septiembre. La corrida diaria mira 30
+  días atrás por eso. Los conceptos sólo tienen año (quedan con 1 de enero).
+- **Enlaces rotos:** 12 archivos que el sitio lista ya no existen (11
+  resoluciones antiguas, 1 concepto); aparecen como error de descarga en la
+  carga completa, no es una falla de IURISYNC.
+- **Detalle técnico:** la Biblioteca Jurídica responde en el puerto 3000
+  (`bibliotecajuridica.supertransporte.gov.co:3000`); si el servidor de la
+  oficina tiene un firewall de salida, ese puerto debe estar permitido.
+  Certificados válidos.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Corte Suprema de Justicia (`corte_suprema`)
 
 - **De dónde saca los documentos:** del buscador oficial de providencias de
