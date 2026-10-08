@@ -371,14 +371,73 @@ def _titulo_desde_pdf(nombre: str, texto_pdf: str, dept_code: str) -> Optional[s
     return _titulo_con_radicado(proceso + instancias[-1], codigo)
 
 
-def _titulo_desde_paginas(nombre: str, paginas: list[str], dept_code: str) -> Optional[str]:
+# Salas donde el nombre trae solo "juzgado-año-consecutivo-instancia"
+# ("008-2023-00294-01 NOMBRE") y el radicado completo no aparece ni en el PDF.
+# El juzgado de origen se deduce de la sala: (municipio + entidad +
+# especialidad del juzgado, lo mismo para el propio tribunal cuando el número
+# de juzgado es 000, o None si en esa sala no se deduce). Verificado contra
+# los documentos de esas salas cuyo PDF sí trae el radicado completo
+# (octubre 2026): Familia de Bogotá 54 de 55, Civil del Valle 15 de 15 sin
+# contar los 000.
+_JUZGADO_DE_ORIGEN = {
+    ("11", "FAMILIA"): ("1100131" "10", "1100122" "10"),
+    ("76", "CIVIL"): ("7600131" "03", None),
+}
+_JUZGADO_ANIO_CONSECUTIVO = re.compile(
+    r"(?<![\d\-.])(\d{2,3})\s*-\s*((?:19|20)\d{2})\s*-\s*(\d{3,5})\s*-\s*(\d{2})(?!\d)"
+)
+# La Sala Civil del Valle recibe procesos de todo el distrito, no solo de
+# Cali: si el PDF nombra un juzgado de otro municipio, no se deduce nada.
+_OTRO_MUNICIPIO_DEL_VALLE = re.compile(
+    r"(?i)circuito[^\n]{0,40}?\bde\s+(palmira|buga|tulu[aá]|cartago|buenaventura|roldanillo|sevilla|"
+    r"jamund[ií]|yumbo|caicedonia|candelaria|florida|pradera|el cerrito|dagua|zarzal|la uni[oó]n|"
+    r"ginebra|guacar[ií]|restrepo|bugalagrande|andaluc[ií]a|el [aá]guila|ansermanuevo|toro|obando|"
+    r"la victoria|vijes|yotoco|riofr[ií]o|trujillo|bol[ií]var|el dovio|versalles|argelia|alcal[aá]|"
+    r"ulloa|calima|la cumbre|san pedro)\b"
+)
+
+
+def _titulo_por_juzgado_de_origen(nombre: str, especialidad: Optional[str], texto_pdf: str, dept_code: str) -> Optional[str]:
+    """Título "T_…" armado con el juzgado de origen que se deduce de la sala
+    (ver _JUZGADO_DE_ORIGEN), para los nombres "ddd-AAAA-ccccc-ii". None si la
+    sala no tiene regla, el nombre no trae la instancia, o el PDF apunta a un
+    juzgado de otro municipio."""
+    codigo = TRIBUNAL_CODES.get(dept_code)
+    regla = _JUZGADO_DE_ORIGEN.get((dept_code, (especialidad or "").strip().upper()))
+    if codigo is None or regla is None or _es_lista_de_estados(nombre):
+        return None
+    m = _JUZGADO_ANIO_CONSECUTIVO.search(nombre)
+    if not m:
+        return None
+    juzgado, anio, consecutivo, instancia = m.groups()
+    juzgado_de_origen, tribunal = regla
+    if int(juzgado) == 0:
+        if tribunal is None:
+            return None
+        prefijo = tribunal + "000"
+    elif int(juzgado) <= 99:
+        prefijo = juzgado_de_origen + juzgado.zfill(3)
+    else:
+        return None
+    if dept_code == "76" and _OTRO_MUNICIPIO_DEL_VALLE.search(texto_pdf or ""):
+        return None
+    return _titulo_con_radicado(prefijo + anio + consecutivo.zfill(5) + instancia, codigo)
+
+
+def _titulo_desde_paginas(
+    nombre: str, paginas: list[str], dept_code: str, especialidad: Optional[str] = None
+) -> Optional[str]:
     """_titulo_desde_pdf con la primera página y, si ahí no se decide, con las
-    dos primeras juntas (en ~60 documentos el radicado está en la segunda)."""
+    dos primeras juntas (en ~60 documentos el radicado está en la segunda).
+    Como último recurso, el juzgado de origen deducido de la sala
+    (_titulo_por_juzgado_de_origen)."""
     if not paginas:
         return None
     titulo = _titulo_desde_pdf(nombre, paginas[0], dept_code)
     if titulo is None and len(paginas) > 1:
         titulo = _titulo_desde_pdf(nombre, "\n".join(paginas[:2]), dept_code)
+    if titulo is None:
+        titulo = _titulo_por_juzgado_de_origen(nombre, especialidad, "\n".join(paginas[:2]), dept_code)
     return titulo
 
 
@@ -506,7 +565,7 @@ class ScrapRamaJudicial(BaseScrapper):
             logger.warning("No se pudo leer el PDF %s: %s", getattr(local_path, "name", local_path), e)
             return
         if not is_radicado_title(doc.title):
-            titulo = _titulo_desde_paginas(doc.title, paginas, self._dept_code)
+            titulo = _titulo_desde_paginas(doc.title, paginas, self._dept_code, doc.especialidad)
             if titulo is None:
                 return
             doc.title = titulo

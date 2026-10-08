@@ -892,3 +892,60 @@ def test_normalize_title_acepta_guiones_largos_en_el_nombre():
     assert _normalize_title("Auto 68001-31-05-004 \u2013 2025 \u2013 00193 - 01", "68") == (
         "T_SANT_68001_31_05_004_2025_00193_01"
     )
+
+
+# --- Juzgado de origen deducido de la sala (Familia de Bogotá, Civil del
+# Valle): el nombre trae "juzgado-año-consecutivo-instancia" y el radicado
+# completo no aparece en el PDF. ---
+
+
+def _resolver_con_sala(monkeypatch, tmp_path, titulo, especialidad, dept, texto_pdf="Magistrado Ponente"):
+    scraper = rama_judicial.ScrapRamaJudicial(dept_code=dept, dept_name="Rama Judicial")
+    monkeypatch.setattr(rama_judicial, "_extraer_texto_paginas", lambda p: [texto_pdf])
+    doc = _raw(titulo)
+    doc.especialidad = especialidad
+    scraper.resolve_unverified_document(doc, tmp_path / "x.pdf", "application/pdf")
+    return doc.title
+
+
+@pytest.mark.parametrize(
+    "titulo, especialidad, dept, esperado",
+    [
+        ("008-2023-00294-01 RAFAEL ALBERTO MARTINEZ BERNAL", "FAMILIA", "11", "T_BTA_11001_31_10_008_2023_00294_01"),
+        ("04-2023-00179-01 EDWARD MAURICIO RIAÑO", "FAMILIA", "11", "T_BTA_11001_31_10_004_2023_00179_01"),
+        # 000: el proceso empezó en el propio tribunal.
+        ("000-2025-02206-00 ALFONSO OTALORA GONZÁLEZ", "FAMILIA", "11", "T_BTA_11001_22_10_000_2025_02206_00"),
+        ("003. 017-2023-00097-01 CELV Admite RCE", "CIVIL", "76", "T_VALL_76001_31_03_017_2023_00097_01"),
+    ],
+)
+def test_resolve_deduce_el_juzgado_de_origen_por_la_sala(monkeypatch, tmp_path, titulo, especialidad, dept, esperado):
+    assert _resolver_con_sala(monkeypatch, tmp_path, titulo, especialidad, dept) == esperado
+
+
+@pytest.mark.parametrize(
+    "titulo, especialidad, dept, texto_pdf",
+    [
+        # Sala sin regla.
+        ("008-2023-00294-01 NOMBRE", "CIVIL", "11", "Magistrado"),
+        ("001-2022-00058-02 NRH", "LABORAL", "76", "Magistrado"),
+        # Sin instancia en el nombre.
+        ("008-2023-00294 NOMBRE", "FAMILIA", "11", "Magistrado"),
+        # 000 en el Valle: no se verificó.
+        ("006. 000-2026-00407-00 PGAV", "CIVIL", "76", "Magistrado"),
+        # El PDF nombra un juzgado de otro municipio del Valle.
+        ("001. 002-2022-00058-02 NRH", "CIVIL", "76", "Juzgado Segundo Civil del Circuito de Palmira"),
+        # Número de juzgado que no existe.
+        ("714-2026-80001-02", "FAMILIA", "11", "Magistrado"),
+    ],
+)
+def test_resolve_no_deduce_el_juzgado_de_origen_sin_regla_segura(monkeypatch, tmp_path, titulo, especialidad, dept, texto_pdf):
+    assert _resolver_con_sala(monkeypatch, tmp_path, titulo, especialidad, dept, texto_pdf) == titulo
+
+
+def test_resolve_prefiere_el_radicado_completo_del_pdf_al_juzgado_deducido(monkeypatch, tmp_path):
+    # El PDF dice que el proceso es del propio tribunal, no del juzgado 033.
+    titulo = _resolver_con_sala(
+        monkeypatch, tmp_path, "033-2026-00753-01 YENNY MARCELA", "FAMILIA", "11",
+        "Radicación: 11001-22-10-000-2026-00753-01",
+    )
+    assert titulo == "T_BTA_11001_22_10_000_2026_00753_01"

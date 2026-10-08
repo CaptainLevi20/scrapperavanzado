@@ -793,6 +793,15 @@ Es seguro repetirlo.
   - si el PDF trae varios procesos y el nombre no dice cuál, se usa el
     anunciado como "Radicación:", "Rad." o "Expediente"; si el mismo proceso
     aparece en varias instancias, la anunciada o, si no, la más alta.
+- **Familia de Bogotá y Civil del Valle:** estas salas nombran los archivos
+  solo con `juzgado-año-consecutivo-instancia` (`008-2023-00294-01 NOMBRE`)
+  y muchas veces el PDF tampoco trae el radicado completo. En ese caso se
+  deduce el juzgado de origen: Juzgado de Familia de Bogotá
+  (`11001-31-10-008-…`; `000` es el propio tribunal, `11001-22-10-000-…`) o
+  Juzgado Civil del Circuito de Cali (`76001-31-03-…`; los `000` del Valle no
+  se tocan, y si el PDF nombra un juzgado de otro municipio, tampoco).
+  Verificado contra los documentos de esas salas que sí traen el radicado
+  completo (octubre de 2026).
 - **Qué se queda con el nombre original:** las listas del día (Estados,
   Edictos, las tablas nombradas por sala y fecha como
   `tribunal superior sala laboral_11-09-2026`, `SIUGJ1`, y cualquier PDF con

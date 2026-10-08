@@ -61,7 +61,7 @@ def _titulo_y_fecha_desde_pdf(documento: Document, dept_code: str, carpeta: Path
         return None, None
     finally:
         local.unlink(missing_ok=True)
-    titulo = _titulo_desde_paginas(documento.title, paginas, dept_code)
+    titulo = _titulo_desde_paginas(documento.title, paginas, dept_code, documento.especialidad)
     return titulo, (parse_fecha_providencia_es(paginas[0]) if titulo and paginas else None)
 
 
