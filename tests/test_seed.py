@@ -42,10 +42,10 @@ def test_seed_running_concurrently_does_not_crash_or_duplicate_rows(test_engine,
     assertion_session = session_factory()
     try:
         families = repository.list_source_families(assertion_session)
-        assert len(families) == 30
+        assert len(families) == 31
 
         sources = repository.list_sources(assertion_session, limit=500)
-        assert len(sources) == 1 + 28 + 27 + 33 + 6
+        assert len(sources) == 1 + 28 + 28 + 33 + 6
     finally:
         assertion_session.close()
 
@@ -59,14 +59,14 @@ def test_seed_populates_families_and_sources_and_is_idempotent(db_session):
         "constitucional", "samai", "corte_suprema", "jep", "cndj",
         "adr", "adres", "ane", "anh", "rama_judicial", "mincit", "madr",
         "minambiente", "minvivienda", "mineducacion", "mininterior", "mindeporte", "minjusticia", "minenergia", "mintrabajo", "superfinanciera",
-        "supersalud", "ssf", "snr", "supersociedades", "supersolidaria", "procuraduria", "minsalud", "sic", "supertransporte",
+        "supersalud", "ssf", "snr", "supersociedades", "supersolidaria", "procuraduria", "minsalud", "sic", "supertransporte", "supervigilancia",
     }
 
     sources = repository.list_sources(db_session)
-    # 1 (Corte Constitucional) + 28 (SAMAI) + 27 (fuente única: corte_suprema, jep, cndj,
+    # 1 (Corte Constitucional) + 28 (SAMAI) + 28 (fuente única: corte_suprema, jep, cndj,
     # adr, adres, ane, anh, mincit, madr, minambiente, minvivienda, mineducacion,
-    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera, supersalud, ssf, snr, supersociedades, supersolidaria, procuraduria, minsalud, sic, supertransporte) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 95
-    assert len(sources) == 1 + 28 + 27 + 33 + 6
+    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera, supersalud, ssf, snr, supersociedades, supersolidaria, procuraduria, minsalud, sic, supertransporte, supervigilancia) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 96
+    assert len(sources) == 1 + 28 + 28 + 33 + 6
 
     rama_judicial_sources = repository.list_sources(db_session, family_key="rama_judicial")
     assert len(rama_judicial_sources) == 39

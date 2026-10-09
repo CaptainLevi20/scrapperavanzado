@@ -749,6 +749,36 @@ Es seguro repetirlo.
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
 
+### Superintendencia de Vigilancia y Seguridad Privada (`supervigilancia`)
+
+- **Qué trae:** **resoluciones**, **circulares** y **conceptos jurídicos**
+  publicados en `www.supervigilancia.gov.co`, de 2015 en adelante.
+- **Cuánto entrega:** la carga completa dio 114 documentos — 92 resoluciones,
+  15 circulares y 7 conceptos (el sitio no ha publicado conceptos nuevos desde
+  2020). Tarda menos de un minuto.
+- **Circulares nuevas:** desde 2025 la entidad no las pone en su listado de
+  circulares sino en una página suelta cada una; IURISYNC las encuentra en el
+  mapa del sitio. Las circulares de 2006-2014 que el sitio volvió a subir en
+  2017 se dejan fuera a propósito.
+- **Qué no trae:** esas circulares antiguas (2006-2014), decretos (todos
+  anteriores a 2015), directivas y proyectos normativos.
+- **Cómo quedan nombrados:** `R_SVySP_20263100058557CS_2026`,
+  `C_SVySP_20251300000015_2025` (el número va tal cual lo usa la entidad); un
+  anexo publicado aparte lleva `_A01`. Unos 20 documentos no traen número en ninguna parte
+  (sobre todo los conceptos y resoluciones viejas): quedan con el texto de la
+  página y marca de "sin verificar".
+- **Fechas:** la fecha que muestra el sitio en cada fila (en números o en
+  palabras). La corrida diaria mira 30 días atrás porque a veces suben el
+  archivo semanas después de expedido.
+- **Datos del sitio con errores:** el sitio repite varios PDF bajo enlaces
+  distintos, a veces con otro nombre de archivo (se guardan una sola vez) y unas 4 filas enlazan al PDF de otra
+  resolución; esos casos se guardan con el número del PDF que realmente se
+  descarga. No es una falla de IURISYNC.
+- **Detalle técnico:** certificados válidos; nada especial en el servidor.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Superintendencia de Transporte (`supertransporte`)
 
 - **Qué trae:** **Resoluciones generales** (2000→hoy, con sus anexos),
