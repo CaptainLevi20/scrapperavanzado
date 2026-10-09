@@ -165,7 +165,11 @@ Texto de `.s_dl_doc_meta`. Se toma el primer `DD/MM/AAAA`. Casos especiales:
 - Sin `DD/MM/AAAA` pero con la fecha en palabras (`"27 de julio de 2020"`,
   típico de las filas 2018-2022) → se lee con `core/fecha_es.py`. *(Añadido
   2026-10-09: sin esto se descartaban 26 resoluciones reales.)*
-- `"Hoy"` → fecha de la corrida.
+- `"Hoy"` / `"Hace N días"` **no son fecha**: se usa la de expedición si la
+  hay; si no, se descarta como cualquier fila sin fecha. *(Cambiado
+  2026-10-09: el listado `/2-1-normativa-resoluciones` muestra "Publicación:
+  Hoy" en resoluciones de 2007-2009 sin expedición; la regla anterior las
+  fechaba el día de la corrida, con una fecha distinta cada día.)*
 - `"--"`, vacío, o sin ninguna fecha legible → **se descarta el documento** con un aviso
   vía `on_progress` (no se aproximan fechas; el `Content-Disposition` no trae
   fecha de forma fiable).
@@ -257,7 +261,7 @@ y `.head`) interceptadas con `responses` o un doble de sesión, mapeando URL →
    prosa (respaldo #3).
 4. Sin número en ninguna fuente — `"LINEAMIENTOS PARA LA AUTORIZACIÓN…"` → título
    descriptivo, `title_unverified=True`, el documento **se guarda**.
-5. Fecha `"Hoy"` → fecha de la corrida. Fecha `"--"` / vacía → documento
+5. Fecha `"Hoy"` sin expedición → se descarta con aviso. Fecha `"--"` / vacía → documento
    descartado con aviso vía `on_progress`.
 6. `​` (ancho cero) en `.s_dl_doc_name` → se limpia del título.
 7. Piso 2015 — fila de 2009 → no entra.
@@ -306,6 +310,14 @@ del entorno).
   el número del PDF que realmente se descarga, pero con la fecha de la fila; y
   si su gemela correcta aparece después, la deduplicación por archivo la
   descarta. Es un error de carga del sitio; no se corrige en v1.
+- **Listado alterno `/2-1-normativa-resoluciones` (revisado 2026-10-09): no se
+  usa.** Enlazado desde `/2-1-normativa-de-la-entidad-o-autoridad` (el dominio
+  `supervigilancia.odoo.com` es el mismo sitio). 24 resoluciones sin ningún PDF
+  en común con el listado principal, pero 19 son de 2006-2009 sin fecha de
+  expedición y las otras 5 traen fechas que no cuadran con su número o
+  archivo; aportaría ~3-4 documentos dudosos. Las demás secciones de ese
+  índice: Leyes (sólo un buscador, sin documentos) y Decretos (10, todos
+  1993-2012, bajo el piso 2015).
 - **Corrida diaria a 30 días** (`scheduled_min_lookback_days = 30`): muchas
   filas sólo traen la fecha de expedición, que puede ir semanas antes de la
   subida. El listado se recorre completo en cada corrida, así que no cuesta

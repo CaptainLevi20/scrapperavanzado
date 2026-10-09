@@ -19,7 +19,7 @@
 - **TLS válido → NO usar `verify=False`** en ninguna petición ni en `link`.
 - **Cabecera obligatoria en toda petición:** `Accept-Language: es-CO,es;q=0.9` (fijada en `session.headers`). Sin ella Odoo redirige a `/en/…` y las páginas de paginación vienen sin `div.s_dl_item`.
 - **`User-Agent`:** `"Mozilla/5.0 (Windows NT 10.0; Win64; x64)"`.
-- **Fechas de sitio:** formato `DD/MM/AAAA`. `f_public` y `f_providencia` se ponen **ambas** a esa fecha. Fecha `"Hoy"` → fecha de la corrida (`datetime.date.today()`). Fecha `"--"`, vacía o sin `DD/MM/AAAA` → descartar el documento con aviso `on_progress`, no aproximar.
+- **Fechas de sitio:** formato `DD/MM/AAAA`. `f_public` y `f_providencia` se ponen **ambas** a esa fecha. ~~Fecha `"Hoy"` → fecha de la corrida~~ (cambiado 2026-10-09: "Hoy"/"Hace N días" no son fecha; ver spec). Fecha `"--"`, vacía o sin `DD/MM/AAAA` → descartar el documento con aviso `on_progress`, no aproximar.
 - **Tipo:** se deriva de la sección que se está rastreando, NUNCA de `data-category` ni de `.s_dl_doc_type` (son ruido de plantilla).
 - **Pruebas dirigidas:** `pytest tests/families/test_supervigilancia.py tests/test_seed.py` (sin la suite pesada completa, sin `-p xdist` / `-n`).
 - **Rama de trabajo:** `feature/fuente-supervigilancia` (ya creada; el spec ya está commiteado ahí).

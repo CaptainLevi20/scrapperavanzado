@@ -62,26 +62,24 @@ def test_num_en_prosa():
 
 
 def test_fecha_de_meta_variants():
-    hoy = datetime.date(2026, 9, 10)
-    assert _fecha_de_meta("Publicación: 08/05/2026", hoy) == datetime.date(2026, 5, 8)
-    assert _fecha_de_meta("|Expedición: 23/01/2008", hoy) == datetime.date(2008, 1, 23)
-    assert _fecha_de_meta("Publicación: Hoy", hoy) == hoy
-    assert _fecha_de_meta("Expedición: --", hoy) is None
-    assert _fecha_de_meta("", hoy) is None
-    assert _fecha_de_meta("Expedición: 32/13/2020", hoy) is None
+    assert _fecha_de_meta("Publicación: 08/05/2026") == datetime.date(2026, 5, 8)
+    assert _fecha_de_meta("|Expedición: 23/01/2008") == datetime.date(2008, 1, 23)
+    assert _fecha_de_meta("Publicación: Hoy") is None
+    assert _fecha_de_meta("Expedición: --") is None
+    assert _fecha_de_meta("") is None
+    assert _fecha_de_meta("Expedición: 32/13/2020") is None
 
 
 def test_fecha_de_meta_en_palabras():
     """Regresión: las filas de 2018-2022 escriben la fecha en palabras y se
     descartaban todas como "sin fecha" (26 resoluciones en el sitio real)."""
-    hoy = datetime.date(2026, 9, 10)
     assert _fecha_de_meta(
-        "Publicación: 27 de julio de 2020 | Expedición: 27 de julio de 2020", hoy
+        "Publicación: 27 de julio de 2020 | Expedición: 27 de julio de 2020"
     ) == datetime.date(2020, 7, 27)
     # errata real del sitio: "de /2020"
-    assert _fecha_de_meta("Publicación: 01 de junio de /2020 | Expedición: 01 de junio de 2020", hoy) == datetime.date(2020, 6, 1)
+    assert _fecha_de_meta("Publicación: 01 de junio de /2020 | Expedición: 01 de junio de 2020") == datetime.date(2020, 6, 1)
     # "Hace 5 días" no es una fecha: se usa la de expedición
-    assert _fecha_de_meta("Publicación: Hace 5 días | Expedición: 10 de enero de 2021", hoy) == datetime.date(2021, 1, 10)
+    assert _fecha_de_meta("Publicación: Hace 5 días | Expedición: 10 de enero de 2021") == datetime.date(2021, 1, 10)
 
 
 def test_titulo_con_numero():
@@ -139,7 +137,6 @@ def test_head_info_excepcion_de_red_devuelve_vacio():
     assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": None}
 
 
-HOY = datetime.date(2026, 9, 10)
 FINI, FFIN = "2000-01-01", "2100-12-31"
 
 
@@ -158,7 +155,7 @@ _ITEM_CON_NUM_LISTADO = _item(
 
 def test_numero_desde_head_filename_gana():
     head = {"filename": "20261000015947CS RESOLUCION DE LINEAMIENTOS Y PAGO.pdf", "content_length": 403369}
-    doc = _fila_a_doc(_ITEM_CON_NUM_LISTADO, "Resolución", "R", head, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(_ITEM_CON_NUM_LISTADO, "Resolución", "R", head, FINI, FFIN, None)
     assert doc.title == "R_SVySP_20261000015947CS_2026"
     assert doc.title_unverified is False
     assert doc.tipo == "Resolución"
@@ -170,7 +167,7 @@ def test_numero_desde_head_filename_gana():
 
 def test_numero_desde_listado_cuando_head_sin_filename():
     head = {"filename": None, "content_length": None}
-    doc = _fila_a_doc(_ITEM_CON_NUM_LISTADO, "Resolución", "R", head, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(_ITEM_CON_NUM_LISTADO, "Resolución", "R", head, FINI, FFIN, None)
     assert doc.title == "R_SVySP_20263200005647CS_2026"
 
 
@@ -180,7 +177,7 @@ def test_numero_en_prosa():
         '<div class="s_dl_doc_name">POR MEDIO DE LA CUAL SE EFECTÚA UNA CORRECCIÓN A LA RESOLUCIÓN No. 2023320000649</div>'
         '<div class="s_dl_doc_meta"><span>|Expedición: 30/10/2025</span></div></div>'
     )
-    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, None)
     assert doc.title == "R_SVySP_2023320000649_2025"
 
 
@@ -190,19 +187,33 @@ def test_sin_numero_se_guarda_con_title_unverified():
         '<div class="s_dl_doc_name"><strong>LINEAMIENTOS PARA LA AUTORIZACIÓN DE PRESTACIÓN DE SERVICIOS</strong></div>'
         '<div class="s_dl_doc_meta"><span>Expedición: 15/09/2025</span></div></div>'
     )
-    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, None)
     assert doc.title == "LINEAMIENTOS PARA LA AUTORIZACIÓN DE PRESTACIÓN DE SERVICIOS"
     assert doc.title_unverified is True
 
 
-def test_fecha_hoy():
+def test_fecha_hoy_no_es_fecha():
+    """Regresión: el sitio pone "Publicación: Hoy" como texto fijo incluso en
+    resoluciones de 2007 sin fecha de expedición; tomarlo como la fecha de la
+    corrida las fechaba mal y cambiaba de fecha cada día."""
+    avisos = []
     item = _item(
-        '<div class="s_dl_item" data-href="/web/content/902?download=true">'
-        '<div class="s_dl_doc_name">20263100016027CS - Manual</div>'
+        '<div class="s_dl_item" data-href="/web/content/7151?download=true">'
+        '<div class="s_dl_doc_name">Resolucion 1532 17-03-09.pdf</div>'
         '<div class="s_dl_doc_meta"><span>Publicación: Hoy</span><span>|</span><span>Expedición: --</span></div></div>'
     )
-    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
-    assert doc.f_public == "2026-09-10"
+    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, avisos.append) is None
+    assert avisos and "sin fecha" in avisos[0]
+
+
+def test_fecha_hoy_con_expedicion_usa_la_expedicion():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/7146?download=true">'
+        '<div class="s_dl_doc_name">Resolución 1300025977 características</div>'
+        '<div class="s_dl_doc_meta"><span>Publicación: Hace 2 días | Expedición: 15 de marzo de 2021</span></div></div>'
+    )
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, None)
+    assert doc.f_public == "2021-03-15"
 
 
 def test_fecha_ausente_descarta_con_aviso():
@@ -212,7 +223,7 @@ def test_fecha_ausente_descarta_con_aviso():
         '<div class="s_dl_doc_name">Algo sin fecha</div>'
         '<div class="s_dl_doc_meta"><span>Expedición: --</span></div></div>'
     )
-    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, avisos.append)
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, avisos.append)
     assert doc is None
     assert avisos and "sin fecha" in avisos[0]
 
@@ -223,7 +234,7 @@ def test_zero_width_en_titulo_se_limpia():
         '<div class="s_dl_doc_name">Res​olución sin número</div>'
         '<div class="s_dl_doc_meta"><span>Expedición: 01/02/2020</span></div></div>'
     )
-    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, None)
     assert doc.title == "Resolución sin número"
 
 
@@ -233,7 +244,7 @@ def test_piso_2015():
         '<div class="s_dl_doc_name">Vieja</div>'
         '<div class="s_dl_doc_meta"><span>Expedición: 17/03/2009</span></div></div>'
     )
-    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None) is None
+    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, None) is None
 
 
 def test_fuera_de_rango_fini_ffin():
@@ -242,7 +253,7 @@ def test_fuera_de_rango_fini_ffin():
         '<div class="s_dl_doc_name">20251300003057CS x</div>'
         '<div class="s_dl_doc_meta"><span>Expedición: 04/03/2025</span></div></div>'
     )
-    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, "2026-01-01", "2026-12-31", HOY, None) is None
+    assert _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, "2026-01-01", "2026-12-31", None) is None
 
 
 def test_etiquetas_basura_no_afectan_el_tipo():
@@ -252,7 +263,7 @@ def test_etiquetas_basura_no_afectan_el_tipo():
         '<div class="s_dl_doc_name">RESOLUCION No. 202540000099737CS - Por la cual...</div>'
         '<div class="s_dl_doc_meta"><span>Expedición: 01/12/2025</span></div></div>'
     )
-    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(item, "Resolución", "R", {"filename": None, "content_length": None}, FINI, FFIN, None)
     assert doc.tipo == "Resolución"
     assert doc.title == "R_SVySP_202540000099737CS_2025"
 
@@ -264,7 +275,7 @@ def test_concepto_titulo_es_nombre_de_archivo():
         '<div class="s_dl_doc_name"><strong>Renting operativo.pdf</strong></div>'
         '<div class="s_dl_doc_meta"><span>Expedición: <span>28/05/2018</span></span></div></div>'
     )
-    doc = _fila_a_doc(item, "Concepto", "CTO", {"filename": "Renting operativo.pdf", "content_length": 2696244}, FINI, FFIN, HOY, None)
+    doc = _fila_a_doc(item, "Concepto", "CTO", {"filename": "Renting operativo.pdf", "content_length": 2696244}, FINI, FFIN, None)
     assert doc.tipo == "Concepto"
     assert doc.title == "Renting operativo"
     assert doc.title_unverified is True

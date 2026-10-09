@@ -33,7 +33,6 @@ _NUM_CS_ANY = re.compile(r"(\d{6,}CS)", re.I)
 _NUM_CS_INICIO = re.compile(r"^\s*(\d{6,}CS)\b", re.I)
 _NUM_PROSA = re.compile(r"resoluci[oó]n\s+(?:n[o°º]\.?\s*|n[uú]mero\s*)?(\d{4,})", re.I)
 _FECHA_RE = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})/(\d{4})\b")
-_HOY_RE = re.compile(r"\bhoy\b", re.I)
 _PDF_SUFIJO = re.compile(r"\.pdf$", re.I)
 
 
@@ -66,7 +65,9 @@ def _num_en_prosa(texto: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _fecha_de_meta(meta: str, hoy: datetime.date) -> Optional[datetime.date]:
+def _fecha_de_meta(meta: str) -> Optional[datetime.date]:
+    # "Hoy" / "Hace 5 días" no se toman como fecha: el sitio los pone como texto
+    # fijo incluso en resoluciones de 2007 (listado /2-1-normativa-resoluciones).
     m = _FECHA_RE.search(meta or "")
     if m:
         dd, mm, yyyy = (int(x) for x in m.groups())
@@ -78,8 +79,6 @@ def _fecha_de_meta(meta: str, hoy: datetime.date) -> Optional[datetime.date]:
     escrita = parse_fecha_providencia_es(meta or "")
     if escrita:
         return escrita
-    if _HOY_RE.search(meta or ""):
-        return hoy
     return None
 
 
@@ -119,7 +118,7 @@ def _texto(item, sel: str) -> str:
     return _norm_texto(node.get_text(" ", strip=True)) if node else ""
 
 
-def _fila_a_doc(item, tipo, pref, head_info, fini, ffin, hoy, on_progress) -> Optional[RawDocModel]:
+def _fila_a_doc(item, tipo, pref, head_info, fini, ffin, on_progress) -> Optional[RawDocModel]:
     href = item.get("data-href") or ""
     if not href:
         btn = item.select_one("a.s_dl_btn_download")
@@ -131,7 +130,7 @@ def _fila_a_doc(item, tipo, pref, head_info, fini, ffin, hoy, on_progress) -> Op
     nombre_txt = _texto(item, ".s_dl_doc_name")
     meta_txt = _texto(item, ".s_dl_doc_meta")
 
-    fecha = _fecha_de_meta(meta_txt, hoy)
+    fecha = _fecha_de_meta(meta_txt)
     if fecha is None:
         if on_progress:
             on_progress(f"[{_SOURCE}] Aviso: {tipo} sin fecha «{nombre_txt[:70]}», se omite")
@@ -201,7 +200,6 @@ class ScrapSupervigilancia(BaseScrapper):
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         session = requests.Session()
         session.headers.update(_HEADERS)  # TLS válido: sin verify=False
-        hoy = datetime.date.today()
         docs: List[RawDocModel] = []
         vistos_id: set = set()
         vistos_archivo: set = set()
@@ -230,7 +228,7 @@ class ScrapSupervigilancia(BaseScrapper):
                         continue
                     vistos_archivo.add(clave)
 
-                doc = _fila_a_doc(item, tipo, pref, head, fini, ffin, hoy, on_progress)
+                doc = _fila_a_doc(item, tipo, pref, head, fini, ffin, on_progress)
                 if doc is None:
                     continue
                 docs.append(doc)
