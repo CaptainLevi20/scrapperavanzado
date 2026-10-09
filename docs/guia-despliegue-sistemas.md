@@ -753,12 +753,15 @@ Es seguro repetirlo.
 
 - **Qué trae:** **resoluciones**, **circulares** y **conceptos jurídicos**
   publicados en `www.supervigilancia.gov.co`, de 2015 en adelante.
-- **Cuánto entrega:** la carga completa dio 106 documentos — 92 resoluciones,
-  7 circulares y 7 conceptos (el sitio no ha publicado conceptos nuevos desde
-  2020).
-- **Qué no trae:** las circulares antiguas que el sitio tiene sueltas fuera de
-  su listado (unas 90, la mayoría 2012-2014), decretos (todos anteriores a
-  2015), directivas y proyectos normativos.
+- **Cuánto entrega:** la carga completa dio 114 documentos — 92 resoluciones,
+  15 circulares y 7 conceptos (el sitio no ha publicado conceptos nuevos desde
+  2020). Tarda menos de un minuto.
+- **Circulares nuevas:** desde 2025 la entidad no las pone en su listado de
+  circulares sino en una página suelta cada una; IURISYNC las encuentra en el
+  mapa del sitio. Las circulares de 2006-2014 que el sitio volvió a subir en
+  2017 se dejan fuera a propósito.
+- **Qué no trae:** esas circulares antiguas (2006-2014), decretos (todos
+  anteriores a 2015), directivas y proyectos normativos.
 - **Cómo quedan nombrados:** `R_SVySP_20263100058557CS_2026`,
   `C_SVySP_20251300000015_2025` (el número va tal cual lo usa la entidad); un
   anexo publicado aparte lleva `_A01`. Unos 20 documentos no traen número en ninguna parte

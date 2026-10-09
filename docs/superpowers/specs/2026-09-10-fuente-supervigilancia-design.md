@@ -213,7 +213,18 @@ resto de familias. `_SOURCE = "supervigilancia"`.
   2026-10-09: 9 bloques, una sola página, misma plantilla; tipo `Circular`,
   prefijo `C`, número también en prosa "Circular [externa|interna] [No.] NNN"
   con 3+ dígitos; anexo publicado aparte → sufijo `_A01`. Da 7 circulares
-  2017-2025.)* Las ~90
+  2017-2025.)* *(Y desde 2026-10-09 también las páginas sueltas: la entidad
+  dejó de alimentar el listado en 2025 y publica cada circular nueva en una
+  página `/circular-…` con el mismo bloque `s_dl_item`; las 4 de 2026 sólo
+  existen ahí. Se toman del `sitemap.xml` (índices anidados, sólo direcciones
+  de primer nivel que empiezan por `circular-`; no blog, no `/circulares`, no
+  "informe-…-circular") y se procesan DESPUÉS del listado, compartiendo la
+  dedup. Filtro de antigüedad sólo para las sueltas: ~50 son circulares
+  2006-2014 resubidas en dic-2017 con esa fecha de publicación → se descarta
+  la que trae número corto (< 10 dígitos, numeración vieja) o un radicado
+  cuyo año (4 primeros dígitos) es < 2015; sin número entra sin verificar.
+  Da 8 circulares más, ~97 GET extra por corrida, corrida completa ~40 s.)*
+  Del resto de las ~90
   circulares históricas (2006–2026) son páginas Odoo individuales
   (`/circular-externa-no-XXX-…`) y posts de blog (`/blog/name-2/circular-…-NNN`)
   con maquetación heterogénea, alcanzables sólo rastreando `sitemap.xml`. Es un
@@ -331,9 +342,9 @@ del entorno).
   filas sólo traen la fecha de expedición, que puede ir semanas antes de la
   subida. El listado se recorre completo en cada corrida, así que no cuesta
   peticiones extra.
-- **Corrida real (2026-10-09), con circulares y dedup por ETag:** 106
-  documentos 2015→hoy (92 resoluciones, 7 conceptos, 7 circulares), 23 sin
-  número verificado, 41 filas omitidas por ser el mismo archivo.
+- **Corrida real (2026-10-09), con circulares (listado + sueltas) y dedup por
+  ETag:** 114 documentos 2015→hoy (92 resoluciones, 15 circulares, 7
+  conceptos), sin rutas de almacenamiento repetidas.
 - **Un HEAD por documento.** ~110 peticiones extra por corrida completa. Si el
   host las tolera mal (poco probable en Odoo.sh), habría que serializar con una
   pausa; hoy no se considera necesario.

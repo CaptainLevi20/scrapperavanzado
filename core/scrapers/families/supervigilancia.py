@@ -2,7 +2,7 @@ import datetime
 import re
 import unicodedata
 from typing import List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -27,6 +27,15 @@ _SECCIONES = [
     (f"{_BASE}/2-1-3-3-circulares", "Circular", "C", False),
 ]
 _PAGINA_TOPE = 20
+
+# Desde 2025 la entidad dejó de alimentar el listado de circulares y publica
+# cada circular nueva en una página suelta (/circular-…) con el mismo bloque
+# de descarga; esas páginas sólo se encuentran en el sitemap.
+_SITEMAP = f"{_BASE}/sitemap.xml"
+_SLUG_CIRCULAR = re.compile(r"^/circular-[^/]*$", re.I)
+_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
+_SITEMAP_PROFUNDIDAD = 3
+_RADICADO_MIN_DIGITOS = 10
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 _ID_RE = re.compile(r"/web/content/(\d+)")
@@ -214,6 +223,55 @@ def _items_de_listado(session, url_pagina1: str, pagina: bool, on_progress) -> l
     return todos
 
 
+def _urls_sitemap(session, url: str, on_progress, profundidad: int = 0) -> List[str]:
+    """Todas las URLs de página del sitemap, siguiendo los índices anidados."""
+    try:
+        resp = session.get(url, timeout=60)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Error consultando {url}: {e}")
+        return []
+    urls: List[str] = []
+    for loc in _LOC_RE.findall(resp.text):
+        if loc.endswith(".xml"):
+            if profundidad < _SITEMAP_PROFUNDIDAD:
+                urls.extend(_urls_sitemap(session, loc, on_progress, profundidad + 1))
+        else:
+            urls.append(loc)
+    return urls
+
+
+def _paginas_circulares_sueltas(urls: List[str]) -> List[str]:
+    """Páginas propias de una circular: dirección de primer nivel que empieza
+    por "circular-" (deja fuera el listado /circulares, los posts de blog y
+    páginas que sólo mencionan una circular, como "informe-…-circular-05")."""
+    vistas, out = set(), []
+    for u in urls:
+        ruta = urlparse(u).path.rstrip("/")
+        if _SLUG_CIRCULAR.match(ruta) and ruta.lower() not in vistas:
+            vistas.add(ruta.lower())
+            out.append(urljoin(_BASE, ruta))
+    return out
+
+
+def _es_circular_suelta_antigua(doc: RawDocModel) -> bool:
+    """Las páginas sueltas incluyen ~50 circulares de 2006-2014 resubidas en
+    diciembre de 2017, con esa fecha de publicación. Se reconocen por el
+    número: corto (numeración anterior a los radicados) o un radicado cuyo
+    año (sus 4 primeros dígitos) es anterior al piso. Sin número no se puede
+    saber, y entra con su fecha y título sin verificar."""
+    if doc.title_unverified:
+        return False
+    numero = re.match(r"C_SVySP_(\d+)", doc.title)
+    if not numero:
+        return False
+    digitos = numero.group(1)
+    if len(digitos) < _RADICADO_MIN_DIGITOS:
+        return True
+    return int(digitos[:4]) < _ANIO_MINIMO
+
+
 @register_family("supervigilancia")
 class ScrapSupervigilancia(BaseScrapper):
     # Muchas filas sólo traen la fecha de expedición, que puede ir semanas
@@ -231,35 +289,48 @@ class ScrapSupervigilancia(BaseScrapper):
         vistos_id: set = set()
         vistos_archivo: set = set()
 
+        def procesar(item, tipo, pref, descartar=None) -> bool:
+            """Procesa una fila; devuelve True cuando se alcanzó el límite."""
+            doc_id = _id_de_href(item.get("data-href") or "")
+            if not doc_id or doc_id in vistos_id:
+                return False
+            vistos_id.add(doc_id)
+
+            head = _head_info(session, f"{_BASE}/web/content/{doc_id}?download=true")
+            clave = _clave_archivo(head)
+            if clave is not None:
+                if clave in vistos_archivo:
+                    if on_progress:
+                        on_progress(f"[{_SOURCE}] Aviso: {tipo} {doc_id} es el mismo archivo que otro ya visto, se omite")
+                    return False
+                vistos_archivo.add(clave)
+
+            doc = _fila_a_doc(item, tipo, pref, head, fini, ffin, on_progress)
+            if doc is None or (descartar is not None and descartar(doc)):
+                return False
+            docs.append(doc)
+            return len(docs) >= limit
+
         for url, tipo, pref, pagina in _SECCIONES:
             if stop_event is not None and stop_event.is_set():
                 return docs[:limit]
             if on_progress:
                 on_progress(f"[{_SOURCE}] Procesando {tipo}...")
-            items = _items_de_listado(session, url, pagina, on_progress)
-
-            for item in items:
+            for item in _items_de_listado(session, url, pagina, on_progress):
                 if stop_event is not None and stop_event.is_set():
                     return docs[:limit]
-                doc_id = _id_de_href(item.get("data-href") or "")
-                if not doc_id or doc_id in vistos_id:
-                    continue
-                vistos_id.add(doc_id)
+                if procesar(item, tipo, pref):
+                    return docs[:limit]
 
-                head = _head_info(session, f"{_BASE}/web/content/{doc_id}?download=true")
-                clave = _clave_archivo(head)
-                if clave is not None:
-                    if clave in vistos_archivo:
-                        if on_progress:
-                            on_progress(f"[{_SOURCE}] Aviso: {tipo} {doc_id} es el mismo archivo que otro ya visto, se omite")
-                        continue
-                    vistos_archivo.add(clave)
-
-                doc = _fila_a_doc(item, tipo, pref, head, fini, ffin, on_progress)
-                if doc is None:
-                    continue
-                docs.append(doc)
-                if len(docs) >= limit:
+        # Va después del listado de circulares: si una circular está en los
+        # dos lados, gana la fila del listado (dedup por id y por archivo).
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Procesando circulares publicadas fuera del listado...")
+        for pagina_url in _paginas_circulares_sueltas(_urls_sitemap(session, _SITEMAP, on_progress)):
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            for item in _pagina_items(session, pagina_url, on_progress) or []:
+                if procesar(item, "Circular", "C", _es_circular_suelta_antigua):
                     return docs[:limit]
 
         return docs[:limit]

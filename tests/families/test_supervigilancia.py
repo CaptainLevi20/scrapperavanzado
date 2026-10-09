@@ -530,3 +530,116 @@ def test_scrap_dedup_por_etag_aunque_cambie_el_nombre():
     docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31", on_progress=avisos.append)
     assert len(docs) == 1
     assert any("mismo archivo" in a for a in avisos)
+
+
+# --- Circulares publicadas fuera del listado (páginas sueltas del sitemap) ---
+
+from core.scrapers.families.supervigilancia import (  # noqa: E402
+    _paginas_circulares_sueltas,
+    _es_circular_suelta_antigua,
+    _urls_sitemap,
+)
+
+_SITEMAP = f"{_BASE}/sitemap.xml"
+
+
+def _urlset(paths):
+    locs = "".join(f"<url><loc>{_BASE}{p}</loc></url>" for p in paths)
+    return f'<?xml version="1.0"?><urlset>{locs}</urlset>'
+
+
+def test_paginas_circulares_sueltas_filtra_por_direccion():
+    urls = [
+        f"{_BASE}/circular-20261000000095cs",
+        f"{_BASE}/circular-derechos-humanos",
+        f"{_BASE}/circulares",                                   # el listado viejo
+        f"{_BASE}/2-1-3-3-circulares",                           # el listado oficial
+        f"{_BASE}/blog/name-2/circular-465-de-2017-siplaft-478",  # post de blog
+        f"{_BASE}/informe-semestral-al-plan-de-mejoramiento-cgr-circular-05-de-2019",
+        f"{_BASE}/circular-20261000000095cs",                    # repetida
+    ]
+    assert _paginas_circulares_sueltas(urls) == [
+        f"{_BASE}/circular-20261000000095cs",
+        f"{_BASE}/circular-derechos-humanos",
+    ]
+
+
+@responses.activate
+def test_urls_sitemap_sigue_indices_anidados():
+    responses.add(responses.GET, _SITEMAP, body=(
+        f'<sitemapindex><sitemap><loc>{_BASE}/sitemap-1.xml</loc></sitemap></sitemapindex>'
+    ))
+    responses.add(responses.GET, f"{_BASE}/sitemap-1.xml", body=_urlset(["/a", "/circular-x"]))
+    assert _urls_sitemap(requests.Session(), _SITEMAP, None) == [f"{_BASE}/a", f"{_BASE}/circular-x"]
+
+
+def _doc_circular(title, unverified=False):
+    from core.models import RawDocModel
+    return RawDocModel(
+        source=_SOURCE, link={"url": "u", "method": "GET"}, title=title, tipo="Circular",
+        f_public="2017-12-05", f_providencia="2017-12-05", save_path="x", title_unverified=unverified,
+    )
+
+
+def test_circular_suelta_antigua():
+    # numeración vieja (2006-2014) resubida en 2017: número corto
+    assert _es_circular_suelta_antigua(_doc_circular("C_SVySP_015_2017")) is True
+    # radicado de 2014: año del radicado bajo el piso
+    assert _es_circular_suelta_antigua(_doc_circular("C_SVySP_201400000405_2017")) is True
+    # radicados modernos
+    assert _es_circular_suelta_antigua(_doc_circular("C_SVySP_20261000000095CS_2026")) is False
+    assert _es_circular_suelta_antigua(_doc_circular("C_SVySP_20251000000035CS_2025")) is False
+    # sin número: no se puede saber, entra
+    assert _es_circular_suelta_antigua(_doc_circular("Circular Conjunta UAS", unverified=True)) is False
+
+
+@responses.activate
+def test_scrap_trae_circulares_sueltas_y_descarta_las_antiguas():
+    responses.add(responses.GET, _RES1, body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    responses.add(responses.GET, _CIRC, body=_bloque(7765, "Circular 20241000000045CS Prohibición", "|Expedición: 23/09/2024"))
+    _head(_cd_url(7765), filename="CIRCULAR 20241000000045CS.pdf", length=5, etag="e7765")
+    responses.add(responses.GET, _SITEMAP, body=_urlset([
+        "/circular-20261000000115cs-canales-habilitados",
+        "/circular-externa-no-015-de-2013-tarifas",
+        "/circular-externa-201400000405-de-11-12-2014-requisitos",
+        "/circular-derechos-humanos",
+        "/circular-repetida-del-listado",
+        "/informe-semestral-cgr-circular-05-de-2019",  # no se debe pedir
+    ]))
+    responses.add(responses.GET, f"{_BASE}/circular-20261000000115cs-canales-habilitados",
+                  body=_bloque(51731, "Circular 20261000000115CS - Canales habilitados", "Publicación: 19/09/2026"))
+    responses.add(responses.GET, f"{_BASE}/circular-externa-no-015-de-2013-tarifas",
+                  body=_bloque(9001, "Circular Externa No. 015 de 2013", "Publicación: 05/12/2017"))
+    responses.add(responses.GET, f"{_BASE}/circular-externa-201400000405-de-11-12-2014-requisitos",
+                  body=_bloque(9002, "Circular Externa 201400000405 requisitos", "Publicación: 14/12/2017"))
+    responses.add(responses.GET, f"{_BASE}/circular-derechos-humanos", body=(
+        _bloque(9003, "Circular 20261000000105CS derechos humanos", "Publicación: 26/08/2026")
+        + _bloque(9004, "MANUAL DE IMPLEMENTACIÓN PROTOCOLO DE DDHH", "Publicación: 26/08/2026")
+    ))
+    responses.add(responses.GET, f"{_BASE}/circular-repetida-del-listado",
+                  body=_bloque(9005, "Circular 20241000000045CS Prohibición (copia)", "Publicación: 23/09/2024"))
+    for i in (51731, 9001, 9002, 9003, 9004):
+        _head(_cd_url(i), length=i, etag=f"e{i}")
+    _head(_cd_url(9005), filename="CIRCULAR 20241000000045CS.pdf", length=5, etag="e7765")  # mismo PDF que el listado
+
+    docs = ScrapSupervigilancia().scrap("2015-01-01", "2100-12-31")
+    assert sorted(d.title for d in docs) == sorted([
+        "C_SVySP_20241000000045CS_2024",            # listado
+        "C_SVySP_20261000000115CS_2026",            # suelta moderna
+        "C_SVySP_20261000000105CS_2026",            # suelta moderna
+        "MANUAL DE IMPLEMENTACIÓN PROTOCOLO DE DDHH",  # suelta sin número
+    ])
+    assert all(d.tipo == "Circular" for d in docs)
+    assert not any("informe" in c.request.url for c in responses.calls)
+
+
+@responses.activate
+def test_scrap_sin_sitemap_no_rompe():
+    responses.add(responses.GET, _RES1, body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    responses.add(responses.GET, _CIRC, body="<html></html>")
+    responses.add(responses.GET, _SITEMAP, status=503)
+    avisos = []
+    assert ScrapSupervigilancia().scrap("2015-01-01", "2100-12-31", on_progress=avisos.append) == []
+    assert any("sitemap" in a for a in avisos)
