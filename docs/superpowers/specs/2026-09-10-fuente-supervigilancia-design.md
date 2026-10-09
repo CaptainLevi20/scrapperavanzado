@@ -162,8 +162,11 @@ trae un `\d{6,}CS`, se produce `CTO_SVySP_{numero}_{anio}`.
 
 Texto de `.s_dl_doc_meta`. Se toma el primer `DD/MM/AAAA`. Casos especiales:
 
+- Sin `DD/MM/AAAA` pero con la fecha en palabras (`"27 de julio de 2020"`,
+  típico de las filas 2018-2022) → se lee con `core/fecha_es.py`. *(Añadido
+  2026-10-09: sin esto se descartaban 26 resoluciones reales.)*
 - `"Hoy"` → fecha de la corrida.
-- `"--"`, vacío, o sin `DD/MM/AAAA` → **se descarta el documento** con un aviso
+- `"--"`, vacío, o sin ninguna fecha legible → **se descarta el documento** con un aviso
   vía `on_progress` (no se aproximan fechas; el `Content-Disposition` no trae
   fecha de forma fiable).
 
@@ -297,6 +300,18 @@ del entorno).
   al inicio, o número en prosa) y, si tampoco, a título descriptivo con
   `title_unverified=True` — no rompe, sólo se pierde el nombre canónico en esas
   filas.
+- **Enlaces cruzados en el sitio (observado 2026-10-09).** 4 filas del
+  listado apuntan al PDF de *otra* resolución (p. ej. la fila "41307" sirve el
+  PDF de la "36567"). Como el número sale del nombre del archivo, esa fila toma
+  el número del PDF que realmente se descarga, pero con la fecha de la fila; y
+  si su gemela correcta aparece después, la deduplicación por archivo la
+  descarta. Es un error de carga del sitio; no se corrige en v1.
+- **Corrida diaria a 30 días** (`scheduled_min_lookback_days = 30`): muchas
+  filas sólo traen la fecha de expedición, que puede ir semanas antes de la
+  subida. El listado se recorre completo en cada corrida, así que no cuesta
+  peticiones extra.
+- **Primera corrida real (2026-10-09):** 107 documentos 2015→hoy (100
+  resoluciones, 7 conceptos), 21 sin número verificado.
 - **Un HEAD por documento.** ~110 peticiones extra por corrida completa. Si el
   host las tolera mal (poco probable en Odoo.sh), habría que serializar con una
   pausa; hoy no se considera necesario.
