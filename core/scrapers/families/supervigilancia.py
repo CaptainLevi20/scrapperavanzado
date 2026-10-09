@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
@@ -73,6 +74,10 @@ def _fecha_de_meta(meta: str, hoy: datetime.date) -> Optional[datetime.date]:
             return datetime.date(yyyy, mm, dd)
         except ValueError:
             return None
+    # Las filas de 2018-2022 traen la fecha en palabras ("27 de julio de 2020").
+    escrita = parse_fecha_providencia_es(meta or "")
+    if escrita:
+        return escrita
     if _HOY_RE.search(meta or ""):
         return hoy
     return None
@@ -154,3 +159,82 @@ def _fila_a_doc(item, tipo, pref, head_info, fini, ffin, hoy, on_progress) -> Op
         save_path=storage_path(_SOURCE, iso, tipo, f"{safe}(extension)"),
         title_unverified=unverified,
     )
+
+
+def _pagina_items(session, url: str, on_progress) -> Optional[list]:
+    """Devuelve la lista de items de una página, o None si la petición falló."""
+    try:
+        resp = session.get(url, timeout=60)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        if on_progress:
+            on_progress(f"[{_SOURCE}] Error consultando {url}: {e}")
+        return None
+    return BeautifulSoup(resp.text, "html.parser").select("div.s_dl_item")
+
+
+def _items_de_listado(session, url_pagina1: str, pagina: bool, on_progress) -> list:
+    items = _pagina_items(session, url_pagina1, on_progress)
+    if not items:
+        return []
+    todos = list(items)
+    if not pagina:
+        return todos
+    for n in range(2, _PAGINA_TOPE + 1):
+        pagina_items = _pagina_items(session, f"{url_pagina1}-pagina{n:02d}", on_progress)
+        if not pagina_items:
+            break
+        todos.extend(pagina_items)
+    return todos
+
+
+@register_family("supervigilancia")
+class ScrapSupervigilancia(BaseScrapper):
+    # Muchas filas sólo traen la fecha de expedición, que puede ir semanas
+    # antes de que suban el archivo; el listado se recorre entero en cada
+    # corrida, así que mirar un mes atrás no cuesta peticiones extra.
+    scheduled_min_lookback_days = 30
+
+    def __init__(self):
+        self.source = _SOURCE
+
+    def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
+        session = requests.Session()
+        session.headers.update(_HEADERS)  # TLS válido: sin verify=False
+        hoy = datetime.date.today()
+        docs: List[RawDocModel] = []
+        vistos_id: set = set()
+        vistos_archivo: set = set()
+
+        for url, tipo, pref in _SECCIONES:
+            if stop_event is not None and stop_event.is_set():
+                return docs[:limit]
+            if on_progress:
+                on_progress(f"[{_SOURCE}] Procesando {tipo}...")
+            items = _items_de_listado(session, url, pref == "R", on_progress)
+
+            for item in items:
+                if stop_event is not None and stop_event.is_set():
+                    return docs[:limit]
+                doc_id = _id_de_href(item.get("data-href") or "")
+                if not doc_id or doc_id in vistos_id:
+                    continue
+                vistos_id.add(doc_id)
+
+                head = _head_info(session, f"{_BASE}/web/content/{doc_id}?download=true")
+                clave = (head["content_length"], head["filename"])
+                if clave[0] is not None:
+                    if clave in vistos_archivo:
+                        if on_progress:
+                            on_progress(f"[{_SOURCE}] Aviso: {tipo} {doc_id} es el mismo archivo que otro ya visto, se omite")
+                        continue
+                    vistos_archivo.add(clave)
+
+                doc = _fila_a_doc(item, tipo, pref, head, fini, ffin, hoy, on_progress)
+                if doc is None:
+                    continue
+                docs.append(doc)
+                if len(docs) >= limit:
+                    return docs[:limit]
+
+        return docs[:limit]

@@ -17,7 +17,11 @@ from core.scrapers.families.supervigilancia import (
     _titulo,
     _head_info,
     _fila_a_doc,
+    _items_de_listado,
+    _BASE,
+    ScrapSupervigilancia,
 )
+from core.scrapers.registry import FAMILY_REGISTRY, resolve_scraper
 
 
 def test_source_string_matches_seed_name():
@@ -65,6 +69,19 @@ def test_fecha_de_meta_variants():
     assert _fecha_de_meta("Expedición: --", hoy) is None
     assert _fecha_de_meta("", hoy) is None
     assert _fecha_de_meta("Expedición: 32/13/2020", hoy) is None
+
+
+def test_fecha_de_meta_en_palabras():
+    """Regresión: las filas de 2018-2022 escriben la fecha en palabras y se
+    descartaban todas como "sin fecha" (26 resoluciones en el sitio real)."""
+    hoy = datetime.date(2026, 9, 10)
+    assert _fecha_de_meta(
+        "Publicación: 27 de julio de 2020 | Expedición: 27 de julio de 2020", hoy
+    ) == datetime.date(2020, 7, 27)
+    # errata real del sitio: "de /2020"
+    assert _fecha_de_meta("Publicación: 01 de junio de /2020 | Expedición: 01 de junio de 2020", hoy) == datetime.date(2020, 6, 1)
+    # "Hace 5 días" no es una fecha: se usa la de expedición
+    assert _fecha_de_meta("Publicación: Hace 5 días | Expedición: 10 de enero de 2021", hoy) == datetime.date(2021, 1, 10)
 
 
 def test_titulo_con_numero():
@@ -251,3 +268,172 @@ def test_concepto_titulo_es_nombre_de_archivo():
     assert doc.tipo == "Concepto"
     assert doc.title == "Renting operativo"
     assert doc.title_unverified is True
+
+
+# --- _items_de_listado ---
+
+_RES1 = f"{_BASE}/2-1-3-2-resoluciones"
+_CONC = f"{_BASE}/2-1-3-8-conceptos-juridicos"
+
+
+def _pagina(ids):
+    bloques = "".join(
+        f'<div class="s_dl_item" data-href="/web/content/{i}?download=true">'
+        f'<div class="s_dl_doc_name">Doc {i}</div>'
+        f'<div class="s_dl_doc_meta"><span>Expedición: 01/06/2025</span></div></div>'
+        for i in ids
+    )
+    return f"<html><body>{bloques}</body></html>"
+
+
+@responses.activate
+def test_items_de_listado_conceptos_una_sola_peticion():
+    responses.add(responses.GET, _CONC, body=_pagina([1, 2, 3]))
+    items = _items_de_listado(requests.Session(), _CONC, pagina=False, on_progress=None)
+    assert len(items) == 3
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_items_de_listado_resoluciones_pagina_hasta_vacio():
+    responses.add(responses.GET, _RES1, body=_pagina([10, 11]))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body=_pagina([20, 21, 22]))
+    responses.add(responses.GET, f"{_RES1}-pagina03", body=_pagina([]))  # vacía -> parar
+    # -pagina04 NO se registra: si el scraper la pide, responses lanza ConnectionError y el test falla
+    items = _items_de_listado(requests.Session(), _RES1, pagina=True, on_progress=None)
+    assert len(items) == 5
+    urls = [c.request.url for c in responses.calls]
+    assert urls == [_RES1, f"{_RES1}-pagina02", f"{_RES1}-pagina03"]
+
+
+@responses.activate
+def test_items_de_listado_error_en_pagina1_devuelve_vacio_con_aviso():
+    avisos = []
+    responses.add(responses.GET, _RES1, status=502)
+    items = _items_de_listado(requests.Session(), _RES1, pagina=True, on_progress=avisos.append)
+    assert items == []
+    assert avisos and "Error consultando" in avisos[0]
+
+
+@responses.activate
+def test_items_de_listado_tope_duro_de_paginas(monkeypatch):
+    monkeypatch.setattr("core.scrapers.families.supervigilancia._PAGINA_TOPE", 3)
+    responses.add(responses.GET, _RES1, body=_pagina([1]))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body=_pagina([2]))
+    responses.add(responses.GET, f"{_RES1}-pagina03", body=_pagina([3]))
+    items = _items_de_listado(requests.Session(), _RES1, pagina=True, on_progress=None)
+    assert len(items) == 3  # para en pagina03 por el tope, no pide pagina04
+
+
+# --- ScrapSupervigilancia.scrap ---
+
+
+def _bloque(i, nombre, meta):
+    return (
+        f'<div class="s_dl_item" data-href="/web/content/{i}?download=true">'
+        f'<div class="s_dl_doc_name">{nombre}</div>'
+        f'<div class="s_dl_doc_meta"><span>{meta}</span></div></div>'
+    )
+
+
+def _head(url, filename=None, length=None):
+    headers = {}
+    if filename is not None:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    if length is not None:
+        headers["Content-Length"] = str(length)
+    responses.add(responses.HEAD, url, headers=headers)
+
+
+def _cd_url(i):
+    return f"{_BASE}/web/content/{i}?download=true"
+
+
+@responses.activate
+def test_scrap_end_to_end_dos_secciones():
+    responses.add(responses.GET, _RES1, body=(
+        _bloque(100, "20261000000001CS Uno", "Publicación: 01/03/2026")
+        + _bloque(101, "Sin número dos", "Expedición: 02/03/2026")
+    ))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body="<html></html>")  # vacía
+    responses.add(responses.GET, _CONC, body=_bloque(200, "Renting operativo.pdf", "Expedición: 28/05/2018"))
+    _head(_cd_url(100), filename="20261000000001CS Uno.pdf", length=111)
+    _head(_cd_url(101), filename=None, length=222)
+    _head(_cd_url(200), filename="Renting operativo.pdf", length=333)
+
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31")
+    titles = sorted(d.title for d in docs)
+    assert titles == sorted(["Renting operativo", "R_SVySP_20261000000001CS_2026", "Sin número dos"])
+    assert {d.tipo for d in docs} == {"Resolución", "Concepto"}
+
+
+@responses.activate
+def test_scrap_dedup_primaria_por_id():
+    # el mismo id en página 1 y página 2 -> un solo doc, un solo HEAD
+    responses.add(responses.GET, _RES1, body=_bloque(100, "20261000000001CS Uno", "Publicación: 01/03/2026"))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body=_bloque(100, "20261000000001CS Uno (repe)", "Publicación: 01/03/2026"))
+    responses.add(responses.GET, f"{_RES1}-pagina03", body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    _head(_cd_url(100), filename="20261000000001CS.pdf", length=111)
+
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31")
+    assert len(docs) == 1
+    assert sum(1 for c in responses.calls if c.request.method == "HEAD") == 1
+
+
+@responses.activate
+def test_scrap_dedup_secundaria_por_content_length_y_filename():
+    responses.add(responses.GET, _RES1, body=(
+        _bloque(100, "Res A", "Publicación: 01/03/2026")
+        + _bloque(200, "Res B", "Publicación: 01/03/2026")
+    ))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    _head(_cd_url(100), filename="20261000015947CS ALGO.pdf", length=403369)
+    _head(_cd_url(200), filename="20261000015947CS ALGO.pdf", length=403369)  # mismo archivo, id distinto
+
+    avisos = []
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31", on_progress=avisos.append)
+    assert len(docs) == 1
+    assert any("mismo archivo" in a for a in avisos)
+
+
+@responses.activate
+def test_scrap_head_con_error_de_red_no_rompe():
+    responses.add(responses.GET, _RES1, body=_bloque(100, "20263200005647CS Uno", "Publicación: 01/03/2026"))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    responses.add(responses.HEAD, _cd_url(100), body=requests.ConnectionError("boom"))
+
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31")
+    assert len(docs) == 1
+    assert docs[0].title == "R_SVySP_20263200005647CS_2026"  # cae al número del listado
+
+
+@responses.activate
+def test_scrap_respeta_limit():
+    responses.add(responses.GET, _RES1, body="".join(
+        _bloque(i, f"2026100000000{i}CS x", "Publicación: 01/03/2026") for i in range(1, 6)
+    ))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    for i in range(1, 6):
+        _head(_cd_url(i), filename=f"2026100000000{i}CS.pdf", length=i)
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31", limit=2)
+    assert len(docs) == 2
+
+
+def test_familia_registrada():
+    assert FAMILY_REGISTRY.get("supervigilancia") is ScrapSupervigilancia
+    assert isinstance(resolve_scraper("supervigilancia", {}), ScrapSupervigilancia)
+
+
+def test_corrida_diaria_mira_un_mes_atras():
+    assert ScrapSupervigilancia.scheduled_min_lookback_days == 30
+
+
+def test_registrada_al_importar_el_paquete():
+    import importlib
+    import core.scrapers.families as fam
+    importlib.reload(fam)
+    assert "supervigilancia" in FAMILY_REGISTRY
