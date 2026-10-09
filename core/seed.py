@@ -122,6 +122,11 @@ _FAMILIES = {
         "Transporte y conceptos de la Biblioteca Jurídica de la Superintendencia de "
         "Transporte",
     ),
+    "supervigilancia": (
+        "Superintendencia de Vigilancia y Seguridad Privada",
+        "Normativa (resoluciones) y conceptos jurídicos publicados por la "
+        "Superintendencia de Vigilancia y Seguridad Privada",
+    ),
 }
 
 
@@ -266,6 +271,11 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="supertransporte", name="Superintendencia de Transporte", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="supervigilancia",
+        name="Superintendencia de Vigilancia y Seguridad Privada", family_params={}
     )
 
 
