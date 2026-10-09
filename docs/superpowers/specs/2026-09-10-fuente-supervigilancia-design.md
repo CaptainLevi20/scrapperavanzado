@@ -196,6 +196,11 @@ Un solo conjunto `vistos` compartido por las dos secciones.
   **byte a byte el mismo PDF**; en Conceptos pasa igual con bloques de ids casi
   consecutivos. Si la tupla ya se vio, se descarta con aviso. Si el HEAD falló
   (sin `Content-Length`), sólo aplica la clave primaria.
+- **(Cambiado 2026-10-09) Clave secundaria preferida: el `ETag` del HEAD.** Odoo
+  lo calcula como hash del contenido, así que junta también el mismo PDF
+  subido con otro nombre (`"…oficiales Sup.pdf"` / `"…oficiales .pdf"`). Con
+  la tupla de arriba entraban 8 resoluciones dos veces, 6 de ellas con el
+  mismo título y la misma ruta de almacenamiento. Sin `ETag` se usa la tupla.
 
 ## `save_path` / almacenamiento
 
@@ -204,7 +209,11 @@ resto de familias. `_SOURCE = "supervigilancia"`.
 
 ## Fuera de alcance (v1)
 
-- **Circulares.** El listado `/2-1-3-3-circulares` tiene sólo 9 bloques; las ~90
+- **Circulares sueltas.** *(El listado `/2-1-3-3-circulares` SÍ se incluye desde
+  2026-10-09: 9 bloques, una sola página, misma plantilla; tipo `Circular`,
+  prefijo `C`, número también en prosa "Circular [externa|interna] [No.] NNN"
+  con 3+ dígitos; anexo publicado aparte → sufijo `_A01`. Da 7 circulares
+  2017-2025.)* Las ~90
   circulares históricas (2006–2026) son páginas Odoo individuales
   (`/circular-externa-no-XXX-…`) y posts de blog (`/blog/name-2/circular-…-NNN`)
   con maquetación heterogénea, alcanzables sólo rastreando `sitemap.xml`. Es un
@@ -322,8 +331,9 @@ del entorno).
   filas sólo traen la fecha de expedición, que puede ir semanas antes de la
   subida. El listado se recorre completo en cada corrida, así que no cuesta
   peticiones extra.
-- **Primera corrida real (2026-10-09):** 107 documentos 2015→hoy (100
-  resoluciones, 7 conceptos), 21 sin número verificado.
+- **Corrida real (2026-10-09), con circulares y dedup por ETag:** 106
+  documentos 2015→hoy (92 resoluciones, 7 conceptos, 7 circulares), 23 sin
+  número verificado, 41 filas omitidas por ser el mismo archivo.
 - **Un HEAD por documento.** ~110 peticiones extra por corrida completa. Si el
   host las tolera mal (poco probable en Odoo.sh), habría que serializar con una
   pausa; hoy no se considera necesario.

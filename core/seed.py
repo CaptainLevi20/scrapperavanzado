@@ -124,7 +124,7 @@ _FAMILIES = {
     ),
     "supervigilancia": (
         "Superintendencia de Vigilancia y Seguridad Privada",
-        "Normativa (resoluciones) y conceptos jurídicos publicados por la "
+        "Resoluciones, circulares y conceptos jurídicos publicados por la "
         "Superintendencia de Vigilancia y Seguridad Privada",
     ),
 }

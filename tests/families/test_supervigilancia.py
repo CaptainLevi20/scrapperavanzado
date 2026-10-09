@@ -61,6 +61,17 @@ def test_num_en_prosa():
     assert _num_en_prosa("Ley Lorenzo") is None
 
 
+def test_num_en_prosa_circular():
+    # las circulares traen el número sin "CS" y a veces de 3 dígitos
+    assert _num_en_prosa("Circular externa 20251300000015 corrección circular tarifas", "C") == "20251300000015"
+    assert _num_en_prosa("Circular 465 de 2017.pdf", "C") == "465"
+    assert _num_en_prosa("Circular Externa No. 20241300000445 Tarifas", "C") == "20241300000445"
+    # cada tipo busca sólo su propia palabra: una resolución que menciona una
+    # circular no toma el número de la circular, y viceversa
+    assert _num_en_prosa("Resolución que modifica la Circular 465 de 2017") is None
+    assert _num_en_prosa("Circular sobre la Resolución 20253200007657", "C") is None
+
+
 def test_fecha_de_meta_variants():
     assert _fecha_de_meta("Publicación: 08/05/2026") == datetime.date(2026, 5, 8)
     assert _fecha_de_meta("|Expedición: 23/01/2008") == datetime.date(2008, 1, 23)
@@ -113,7 +124,7 @@ def test_head_info_parsea_filename_y_length():
         },
     )
     got = _head_info(requests.Session(), _URL)
-    assert got == {"filename": "20261000015947CS RESOLUCION.pdf", "content_length": 403369}
+    assert got == {"filename": "20261000015947CS RESOLUCION.pdf", "content_length": 403369, "etag": None}
 
 
 @responses.activate
@@ -128,13 +139,13 @@ def test_head_info_filename_sin_comillas():
 @responses.activate
 def test_head_info_sin_disposition():
     responses.add(responses.HEAD, _URL, headers={"Content-Length": "10"})
-    assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": 10}
+    assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": 10, "etag": None}
 
 
 @responses.activate
 def test_head_info_excepcion_de_red_devuelve_vacio():
     responses.add(responses.HEAD, _URL, body=requests.ConnectionError("boom"))
-    assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": None}
+    assert _head_info(requests.Session(), _URL) == {"filename": None, "content_length": None, "etag": None}
 
 
 FINI, FFIN = "2000-01-01", "2100-12-31"
@@ -347,8 +358,10 @@ def _bloque(i, nombre, meta):
     )
 
 
-def _head(url, filename=None, length=None):
+def _head(url, filename=None, length=None, etag=None):
     headers = {}
+    if etag is not None:
+        headers["ETag"] = f'"{etag}"'
     if filename is not None:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     if length is not None:
@@ -448,3 +461,72 @@ def test_registrada_al_importar_el_paquete():
     import core.scrapers.families as fam
     importlib.reload(fam)
     assert "supervigilancia" in FAMILY_REGISTRY
+
+
+# --- Circulares ---
+
+_CIRC = f"{_BASE}/2-1-3-3-circulares"
+
+
+def test_circular_sin_cs_toma_el_numero_del_texto():
+    item = _item(
+        '<div class="s_dl_item" data-href="/web/content/7762?download=true">'
+        '<div class="s_dl_doc_name">Circular externa 20251300000015 corrección circular tarifas mínimas</div>'
+        '<div class="s_dl_doc_meta"><span>| Expedición: 21/01/2025</span></div></div>'
+    )
+    head = {"filename": "Circular Externa 20251300000015 correccion.pdf", "content_length": 1}
+    doc = _fila_a_doc(item, "Circular", "C", head, FINI, FFIN, None)
+    assert doc.tipo == "Circular"
+    assert doc.title == "C_SVySP_20251300000015_2025"
+    assert doc.title_unverified is False
+
+
+def test_anexo_lleva_sufijo_y_no_choca_con_la_circular():
+    """Regresión: "Circular 465 de 2017" y "Circular 465 de 2017 anexo" son dos
+    PDF distintos; sin sufijo ambos quedaban como C_SVySP_465_2017."""
+    def fila(i, nombre):
+        return _item(
+            f'<div class="s_dl_item" data-href="/web/content/{i}?download=true">'
+            f'<div class="s_dl_doc_name">{nombre}</div>'
+            '<div class="s_dl_doc_meta"><span>|Expedición: 05/10/2017</span></div></div>'
+        )
+    sin = {"filename": None, "content_length": None}
+    principal = _fila_a_doc(fila(7767, "Circular 465 de 2017.pdf"), "Circular", "C", sin, FINI, FFIN, None)
+    anexo = _fila_a_doc(fila(7768, "Circular 465 de 2017 anexo.pdf"), "Circular", "C", sin, FINI, FFIN, None)
+    assert principal.title == "C_SVySP_465_2017"
+    assert anexo.title == "C_SVySP_465_2017_A01"
+    assert principal.save_path != anexo.save_path
+
+
+@responses.activate
+def test_scrap_incluye_circulares_sin_paginar():
+    responses.add(responses.GET, _RES1, body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    responses.add(responses.GET, _CIRC, body=_bloque(7765, "Circular 20241000000045CS Prohibición", "|Expedición: 23/09/2024"))
+    # -pagina02 de circulares NO se registra: el listado es una sola página
+    _head(_cd_url(7765), filename="CIRCULAR 20241000000045CS PROHIBICION.pdf", length=5)
+
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31")
+    assert [(d.tipo, d.title) for d in docs] == [("Circular", "C_SVySP_20241000000045CS_2024")]
+    assert not any("-pagina" in c.request.url for c in responses.calls if "circulares" in c.request.url)
+
+
+@responses.activate
+def test_scrap_dedup_por_etag_aunque_cambie_el_nombre():
+    """Regresión: el sitio sube el mismo PDF dos veces con nombres levemente
+    distintos ("...oficiales Sup.pdf" / "...oficiales .pdf"); con la clave
+    (tamaño, nombre) entraban los dos con el mismo título y la misma ruta."""
+    responses.add(responses.GET, _RES1, body=(
+        _bloque(7139, "Resolución 20253000002067CS medidas", "Publicación: 08/04/2025")
+        + _bloque(19434, "Resolución 20253000002067CS medidas", "Publicación: 08/04/2025")
+    ))
+    responses.add(responses.GET, f"{_RES1}-pagina02", body="<html></html>")
+    responses.add(responses.GET, _CONC, body="<html></html>")
+    responses.add(responses.GET, _CIRC, body="<html></html>")
+    _head(_cd_url(7139), filename="Resolucion 20253000002067CS medidas Sup.pdf", length=456858, etag="a9f30c09")
+    _head(_cd_url(19434), filename="Resolucion 20253000002067CS medidas .pdf", length=456858, etag="a9f30c09")
+
+    avisos = []
+    docs = ScrapSupervigilancia().scrap("2000-01-01", "2100-12-31", on_progress=avisos.append)
+    assert len(docs) == 1
+    assert any("mismo archivo" in a for a in avisos)

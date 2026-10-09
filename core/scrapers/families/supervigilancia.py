@@ -19,19 +19,26 @@ _ANIO_MINIMO = 2015
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-CO,es;q=0.9"}
 
-# (url de la página 1 del listado, tipo asignado, prefijo de título)
+# (url de la página 1 del listado, tipo asignado, prefijo de título, pagina)
+# Sólo Resoluciones pagina; Conceptos y Circulares son una sola página.
 _SECCIONES = [
-    (f"{_BASE}/2-1-3-2-resoluciones", "Resolución", "R"),
-    (f"{_BASE}/2-1-3-8-conceptos-juridicos", "Concepto", "CTO"),
+    (f"{_BASE}/2-1-3-2-resoluciones", "Resolución", "R", True),
+    (f"{_BASE}/2-1-3-8-conceptos-juridicos", "Concepto", "CTO", False),
+    (f"{_BASE}/2-1-3-3-circulares", "Circular", "C", False),
 ]
-# Sólo Resoluciones pagina; Conceptos es una sola página.
 _PAGINA_TOPE = 20
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 _ID_RE = re.compile(r"/web/content/(\d+)")
 _NUM_CS_ANY = re.compile(r"(\d{6,}CS)", re.I)
 _NUM_CS_INICIO = re.compile(r"^\s*(\d{6,}CS)\b", re.I)
-_NUM_PROSA = re.compile(r"resoluci[oó]n\s+(?:n[o°º]\.?\s*|n[uú]mero\s*)?(\d{4,})", re.I)
+# Número en texto, buscado sólo tras la palabra del propio tipo. Las circulares
+# lo traen sin "CS" y a veces corto ("Circular 465 de 2017").
+_NUM_PROSA = {
+    "R": re.compile(r"resoluci[oó]n\s+(?:n[o°º]\.?\s*|n[uú]mero\s*)?(\d{4,})", re.I),
+    "C": re.compile(r"circular(?:\s+(?:externa|interna))?\s+(?:n[o°º]\.?\s*|n[uú]mero\s*)?(\d{3,})", re.I),
+}
+_ANEXO_RE = re.compile(r"\banexo\b", re.I)
 _FECHA_RE = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _PDF_SUFIJO = re.compile(r"\.pdf$", re.I)
 
@@ -60,8 +67,11 @@ def _num_al_inicio(texto: str) -> Optional[str]:
     return m.group(1).upper() if m else None
 
 
-def _num_en_prosa(texto: str) -> Optional[str]:
-    m = _NUM_PROSA.search(unicodedata.normalize("NFC", texto or ""))
+def _num_en_prosa(texto: str, pref: str = "R") -> Optional[str]:
+    patron = _NUM_PROSA.get(pref)
+    if patron is None:
+        return None
+    m = patron.search(unicodedata.normalize("NFC", texto or ""))
     return m.group(1) if m else None
 
 
@@ -104,13 +114,26 @@ def _head_info(session: requests.Session, url: str) -> dict:
     try:
         resp = session.head(url, timeout=30, allow_redirects=True)
     except requests.RequestException:
-        return {"filename": None, "content_length": None}
+        return {"filename": None, "content_length": None, "etag": None}
     disp = resp.headers.get("Content-Disposition", "")
     m = _FILENAME_RE.search(disp)
     filename = m.group(1).strip() if m else None
     raw_len = resp.headers.get("Content-Length", "")
     content_length = int(raw_len) if raw_len.isdigit() else None
-    return {"filename": filename, "content_length": content_length}
+    etag = resp.headers.get("ETag", "").strip('W/"') or None
+    return {"filename": filename, "content_length": content_length, "etag": etag}
+
+
+def _clave_archivo(head: dict) -> Optional[tuple]:
+    """Identifica el archivo servido, para no guardar dos veces el mismo PDF
+    publicado bajo ids distintos. El ETag de Odoo es un hash del contenido y
+    junta también las copias que se subieron con otro nombre de archivo; sin
+    él, (tamaño, nombre). Sin ninguno de los dos, no hay clave."""
+    if head.get("etag"):
+        return ("etag", head["etag"])
+    if head.get("content_length") is not None:
+        return ("len", head["content_length"], head.get("filename"))
+    return None
 
 
 def _texto(item, sel: str) -> str:
@@ -142,9 +165,13 @@ def _fila_a_doc(item, tipo, pref, head_info, fini, ffin, on_progress) -> Optiona
         return None
 
     filename = head_info.get("filename") or ""
-    numero = _num_en_texto(filename) or _num_en_texto(nombre_txt) or _num_al_inicio(nombre_txt) or _num_en_prosa(nombre_txt)
+    numero = _num_en_texto(filename) or _num_en_texto(nombre_txt) or _num_al_inicio(nombre_txt) or _num_en_prosa(nombre_txt, pref)
     filename_stem = filename.rsplit(".", 1)[0] or None if filename else None
     title, unverified = _titulo(pref, numero, fecha.year, nombre_txt, filename_stem)
+    # Un anexo publicado aparte llevaría el mismo número que su documento; el
+    # título descriptivo (sin número) ya dice "anexo" y no choca.
+    if not unverified and _ANEXO_RE.search(f"{nombre_txt} {filename}"):
+        title = f"{title}_A01"
     safe = _safe_title(title)
 
     return RawDocModel(
@@ -204,12 +231,12 @@ class ScrapSupervigilancia(BaseScrapper):
         vistos_id: set = set()
         vistos_archivo: set = set()
 
-        for url, tipo, pref in _SECCIONES:
+        for url, tipo, pref, pagina in _SECCIONES:
             if stop_event is not None and stop_event.is_set():
                 return docs[:limit]
             if on_progress:
                 on_progress(f"[{_SOURCE}] Procesando {tipo}...")
-            items = _items_de_listado(session, url, pref == "R", on_progress)
+            items = _items_de_listado(session, url, pagina, on_progress)
 
             for item in items:
                 if stop_event is not None and stop_event.is_set():
@@ -220,8 +247,8 @@ class ScrapSupervigilancia(BaseScrapper):
                 vistos_id.add(doc_id)
 
                 head = _head_info(session, f"{_BASE}/web/content/{doc_id}?download=true")
-                clave = (head["content_length"], head["filename"])
-                if clave[0] is not None:
+                clave = _clave_archivo(head)
+                if clave is not None:
                     if clave in vistos_archivo:
                         if on_progress:
                             on_progress(f"[{_SOURCE}] Aviso: {tipo} {doc_id} es el mismo archivo que otro ya visto, se omite")
