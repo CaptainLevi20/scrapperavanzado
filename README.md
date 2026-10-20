@@ -17,10 +17,15 @@ Backend SaaS de scraping de fuentes jurídicas/administrativas colombianas. Reut
 - API: `.venv\Scripts\uvicorn api.main:app --reload --port 8000`
 - Worker: `.venv\Scripts\celery -A worker.celery_app worker --pool=solo --loglevel=info`
 - Beat (scheduler diario): `.venv\Scripts\celery -A worker.celery_app beat --loglevel=info`
+- Frontend: `cd frontend && npm install && npm run dev` (apunta a la API en `http://localhost:8000` por defecto; se cambia con `VITE_API_BASE_URL`, ver `frontend/.env.example`)
+
+El worker no recarga el código solo: tras cambiar un scraper hay que reiniciarlo.
 
 ## Tests
 
 `.venv\Scripts\pytest -v` (requiere `docker compose up -d` para las pruebas de integración con Postgres/MinIO).
+
+Frontend: `cd frontend && npm test`.
 
 ## Despliegue
 
@@ -55,4 +60,15 @@ local de desarrollo (Postgres/Redis/MinIO).
 
 ## Alcance
 
-Este repo porta las 10 familias de scraping de `WebScrapping_Fuentes` (`constitucional`, `samai`, `corte_suprema`, `jep`, `cndj`, `adr`, `adres`, `ane`, `anh`, `rama_judicial`) más `mincit` (normativa del Ministerio de Comercio, Industria y Turismo) y `madr` (normativa del Ministerio de Agricultura y Desarrollo Rural), ambas desarrolladas directamente en este repo, cada una siguiendo el patrón `core/scrapers/families/` + `@register_family(...)`.
+El repo empezó portando las 10 familias de scraping de `WebScrapping_Fuentes` (`constitucional`, `samai`, `corte_suprema`, `jep`, `cndj`, `adr`, `adres`, `ane`, `anh`, `rama_judicial`). Las demás se desarrollaron directamente aquí, todas con el patrón `core/scrapers/families/` + `@register_family(...)`:
+
+- **Ministerios:** `mincit`, `madr`, `minambiente`, `minvivienda`, `mineducacion`, `mininterior`, `mindeporte`, `minjusticia`, `minenergia`, `mintrabajo`, `minsalud`.
+- **Superintendencias:** `superfinanciera`, `supersalud`, `ssf`, `snr`, `supersociedades`, `supersolidaria`, `sic`, `supertransporte`, `supervigilancia`.
+- **Otras entidades:** `procuraduria`.
+
+La lista vigente de familias es el import de `core/scrapers/families/__init__.py`; la de fuentes (con su nombre visible) es `core/seed.py`. Qué trae cada fuente está en la sección de fuentes de `docs/guia-despliegue-sistemas.md`.
+
+## Agregar una fuente nueva
+
+Ver `docs/guia-integracion-fuentes.md`: flujo completo (investigación del
+sitio, diseño, scraper, pruebas, corrida real, documentación, PR y despliegue).
