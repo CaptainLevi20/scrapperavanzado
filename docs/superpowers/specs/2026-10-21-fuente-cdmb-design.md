@@ -156,7 +156,9 @@ Corrida diaria: las mismas ~18 peticiones de listado + descargas nuevas.
 - **"Laudos"**: el usuario los mencionó, pero no aparecen en ningún lado: 0
   resultados en la búsqueda del portal nuevo ("laudo", "arbitral",
   "tribunal de arbitramento") y ninguna mención entre ~7.800 resoluciones
-  2015-2026 del GDI. **Pregunta abierta para el cliente.**
+  2015-2026 del GDI. *(Resuelto 2026-10-21: los laudos que pidió el cliente
+  vienen de las cámaras de comercio — Bogotá y Armenia — que se integran como
+  fuentes aparte. La CDMB no los emite.)*
 - Años anteriores a 2025 (el GDI tiene resoluciones desde al menos 2010 y
   acuerdos desde 2006).
 
