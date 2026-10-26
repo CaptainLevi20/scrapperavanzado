@@ -779,6 +779,38 @@ Es seguro repetirlo.
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
 
+### Corporación Autónoma Regional para la Defensa de la Meseta de Bucaramanga (`cdmb`)
+
+- **Qué trae:** **resoluciones** y **acuerdos** de la CDMB, de 2025 en
+  adelante, tomados de su sistema documental (GDI,
+  `caracoli.cdmb.gov.co/gdi`). La página "Normatividad" del portal nuevo de la
+  CDMB no se usa: casi todo lo que muestra son notificaciones por aviso y
+  normas nacionales de otras entidades.
+- **Cuánto entrega:** la carga completa (prueba del 26-oct-2026) dio 1.516
+  documentos — 1.488 resoluciones (859 de 2025 y 629 de 2026) y 28 acuerdos
+  (21 y 7). La consulta de listados tarda unos segundos; el resto es la
+  descarga de los PDF.
+- **Qué no trae:** autos (se dejaron fuera por pedido), las notificaciones y
+  normas del portal nuevo, y nada anterior a 2025. Los laudos arbitrales no
+  son de la CDMB: vienen de las cámaras de comercio.
+- **Cómo quedan nombrados:** `R_CDMB_1298_2026`, `R_CDMB_0045_2025`,
+  `A_CDMB_1511_2026`. Los acuerdos tienen numeración corrida (no vuelve a 1
+  cada año); el año del nombre sale de la fecha del acuerdo.
+- **Fechas:** la fecha del acto que muestra el listado. El GDI publica con
+  mucho retraso (en promedio un mes, a veces casi dos), así que la corrida
+  diaria mira 90 días atrás. Un documento subido aún más tarde sólo entra con
+  una corrida manual.
+- **Datos del sitio con errores:** algunas filas traen fechas imposibles (una
+  resolución con fecha 13/12/2026 y un acuerdo del año 2109). Quedan fuera
+  solas por el rango de fechas y salen como aviso en la pantalla de la
+  corrida. No es una falla de IURISYNC.
+- **Detalle técnico:** el servidor es antiguo y sólo funciona por `http`
+  (sin cifrado; son documentos públicos). Si algún día se cae o la entidad lo
+  reemplaza, la corrida dará 0 documentos o un error de sección.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Superintendencia de Transporte (`supertransporte`)
 
 - **Qué trae:** **Resoluciones generales** (2000→hoy, con sus anexos),
