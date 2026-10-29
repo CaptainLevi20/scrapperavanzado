@@ -127,6 +127,11 @@ _FAMILIES = {
         "Resoluciones, circulares y conceptos jurídicos publicados por la "
         "Superintendencia de Vigilancia y Seguridad Privada",
     ),
+    "cdmb": (
+        "Corporación Autónoma Regional para la Defensa de la Meseta de Bucaramanga",
+        "Resoluciones y acuerdos publicados en el sistema documental (GDI) de la "
+        "Corporación Autónoma Regional para la Defensa de la Meseta de Bucaramanga",
+    ),
 }
 
 
@@ -276,6 +281,11 @@ def seed_source_families_and_sources(db) -> None:
     repository.create_source_if_missing(
         db, family_key="supervigilancia",
         name="Superintendencia de Vigilancia y Seguridad Privada", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="cdmb",
+        name="Corporación Autónoma Regional para la Defensa de la Meseta de Bucaramanga", family_params={}
     )
 
 
