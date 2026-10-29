@@ -1,6 +1,7 @@
 import datetime
 import re
 import time
+import unicodedata
 from typing import List, Optional
 from urllib.parse import urljoin
 
@@ -87,7 +88,10 @@ _FECHA_PATTERN = re.compile(
 
 
 def _limpiar_titulo(titulo: str) -> str:
-    return _ZERO_WIDTH.sub("", titulo).strip()
+    # NFC: desde agosto de 2026 algunas filas traen la tilde descompuesta
+    # ("o" + U+0301); sin recomponerla, "Resolución" no coincide con _TIPOS y
+    # la fila se descarta en silencio.
+    return unicodedata.normalize("NFC", _ZERO_WIDTH.sub("", titulo)).strip()
 
 
 def _clasificar_tipo(titulo: str):

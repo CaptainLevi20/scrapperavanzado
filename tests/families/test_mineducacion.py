@@ -41,6 +41,15 @@ def test_limpiar_titulo_strips_surrounding_whitespace():
     assert _limpiar_titulo("  Circular 040 del 28 de julio de 2026  ") == "Circular 040 del 28 de julio de 2026"
 
 
+def test_limpiar_titulo_recompone_tilde_descompuesta():
+    # Desde agosto de 2026 algunas filas reales escriben la "ó" como "o" +
+    # tilde combinante (U+0301): se ve igual, pero sin recomponerla la
+    # primera palabra no se reconocía y la fila se perdía sin aviso.
+    titulo = _limpiar_titulo("Resolución 026789 de 02 de octubre de 2026")
+    assert titulo == "Resolución 026789 de 02 de octubre de 2026"
+    assert _clasificar_tipo(titulo) == ("Resolución", "R")
+
+
 def test_clasificar_tipo_resolucion_con_tilde():
     assert _clasificar_tipo("Resolución N° 020664 del 4 de agosto de 2026") == ("Resolución", "R")
 

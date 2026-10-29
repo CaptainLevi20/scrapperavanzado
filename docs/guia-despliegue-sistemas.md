@@ -959,6 +959,21 @@ Es seguro repetirlo.
   ("ANEXO No 01 MCIT - Licencia Previa"), "Reglamento (UE) …" y "Proyecto ley
   turismo". Se pueden corregir a mano editando el título en la aplicación.
 
+### Ministerio de Educación Nacional (`mineducacion`)
+
+- **Resoluciones que se saltaban (corregido en octubre de 2026):** desde
+  agosto de 2026 el Ministerio escribe algunos títulos con la tilde de
+  "Resolución" guardada de otra forma. Se ve igual en pantalla, pero el
+  sistema no reconocía la palabra y descartaba la fila sin avisar. Así se
+  quedaron fuera las resoluciones 021580 y 021581 (6 de agosto) y 026789
+  (2 de octubre). Ya se reconocen.
+- **Recuperar lo que faltó:** después de actualizar, lanzar una corrida
+  manual de Educación desde el **1 de agosto de 2026** hasta hoy. Lo que ya
+  estaba guardado no se vuelve a descargar.
+- **Lo que sigue fuera:** filas sin fecha en el título (por ejemplo
+  "CIRCULAR 002 - Útiles Escolares" de 2026); salen como aviso en la
+  pantalla de la corrida.
+
 ### Fuentes que publican con retraso (ventana de la corrida diaria)
 
 La corrida automática diaria normalmente mira solo los últimos 3 días. Algunas
