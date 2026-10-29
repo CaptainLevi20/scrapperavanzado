@@ -90,7 +90,7 @@ Hay que ir a buscar `subtipo` con `.get`: un registro (una notificación) no lo 
 
 `ctrlAction=D&doc=<id>` responde un PDF real (`%PDF-1.6`) con
 `Content-Disposition: attachment; filename=<otro-id>.pdf` y
-`Content-Type: text/plain` (equivocado; ver "Riesgos"). `HEAD` responde `200` con `Content-Length` pero **sin `ETag` ni
+`Content-Type: text/plain` (equivocado; ver "Descargador"). `HEAD` responde `200` con `Content-Length` pero **sin `ETag` ni
 `Last-Modified`**; no respeta `Range`. El chequeo de republicación del worker
 funciona por tamaño (`checks_for_republication = True`, por defecto).
 
@@ -169,6 +169,33 @@ Dos opciones; se propone la **A** por ser la convención del proyecto:
 
 Ver "Preguntas abiertas".
 
+## Descargador: `text/plain` → `application/pdf`
+
+Hoy `core/downloader.py` sólo corrige el `content_type` cuando el servidor
+manda uno vacío o `application/octet-stream` (caso Superfinanciera): lo
+deriva de la extensión ya resuelta con `_EXT_TO_CONTENT_TYPE`. Un
+`text/plain` pasa intacto y se guarda así; el endpoint de vista previa
+ramifica por `content_type` exacto (`== "application/pdf"`), así que **los
+~4.700 PDF de Corantioquia quedarían sin vista previa**.
+
+Cambio (fuera de la familia, en `core/downloader.py`):
+
+- Tratar `text/plain` igual que `application/octet-stream` / vacío, **pero
+  sólo si la extensión resuelta está en `_EXT_TO_CONTENT_TYPE`** (`.pdf`,
+  `.docx`, `.doc`, `.rtf`, `.xlsx`). La extensión sale del
+  `Content-Disposition` (`filename=<id>.pdf`), que `extract_filename` ya lee
+  antes que el `Content-Type`.
+- Un `.txt` real (o cualquier extensión no mapeada) sigue como
+  `text/plain`: no se inventa un tipo.
+- Actualizar el comentario de `_EXT_TO_CONTENT_TYPE` para nombrar a
+  Corantioquia junto a la Superfinanciera.
+
+Es genérico (no mira la fuente): cualquier otra fuente que mande un PDF como
+`text/plain` con un nombre `.pdf` también gana la vista previa.
+
+**Documentos ya guardados:** ninguno (la fuente es nueva), así que no hace
+falta corregir `content_type` en la base.
+
 ## `save_path` / almacenamiento
 
 `storage_path(_SOURCE, f_public, tipo, f"{title}(extension)")`, igual que el
@@ -218,6 +245,9 @@ subtipo `General`. Ver "Preguntas abiertas".
 **Archivos que se tocan:**
 
 - `core/scrapers/families/__init__.py` — añadir `corantioquia` al import.
+- `core/downloader.py` — `text/plain` con extensión conocida se normaliza
+  por la extensión (ver "Descargador").
+- `tests/test_downloader.py` — pruebas del cambio (ver "Pruebas").
 - `core/seed.py` — entrada en `_FAMILIES` y
   `create_source_if_missing(db, family_key="corantioquia", name=_SOURCE, family_params={})`.
 - `tests/test_seed.py` — sumar uno al número de familias y al bloque de
@@ -261,7 +291,17 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
     y sigue con el siguiente.
 15. `limit` respetado.
 
-Se corren dirigidas: `pytest tests/families/test_corantioquia.py tests/test_seed.py`.
+En `tests/test_downloader.py`:
+
+16. Respuesta `Content-Type: text/plain` con
+    `Content-Disposition: attachment; filename=2483007.pdf` → se guarda con
+    `content_type = "application/pdf"` y extensión `.pdf`.
+17. `text/plain` con un `.txt` (o sin extensión mapeada) → queda
+    `text/plain`.
+18. Un tipo real (`application/pdf`, `application/msword`) pasa intacto
+    (regresión del caso Superfinanciera).
+
+Se corren dirigidas: `pytest tests/families/test_corantioquia.py tests/test_downloader.py tests/test_seed.py`.
 
 ## Riesgos y notas
 
@@ -274,8 +314,9 @@ Se corren dirigidas: `pytest tests/families/test_corantioquia.py tests/test_seed
 - **TLS roto en el servidor** (falta el intermedio). Si lo arreglan, la
   opción A sigue funcionando y la B también.
 - **Sin `ETag`:** la republicación sólo se detecta si cambia el tamaño.
-- El `Content-Type` del PDF es `text/plain`; el descargador debe tomar la
-  extensión de `Content-Disposition` (`.pdf`). Verificarlo en la corrida real.
+- El `Content-Type` del PDF es `text/plain`; lo corrige el descargador (ver
+  "Descargador"). Verificar en la corrida real que el documento guardado
+  quede `application/pdf` y abra la vista previa.
 
 ## Decisiones (2026-10-26)
 
@@ -287,3 +328,6 @@ Se corren dirigidas: `pytest tests/families/test_corantioquia.py tests/test_seed
 4. **Sigla:** `CORANT`.
 5. **TLS:** opción A (`verify=False` sólo para `*.corantioquia.gov.co`, como
    `snr`).
+6. **Vista previa (2026-10-29):** los PDF llegan como `text/plain`; se
+   arregla en el descargador (`text/plain` + extensión conocida → tipo por
+   extensión), no en la familia.

@@ -29,8 +29,9 @@ ver "Preguntas abiertas"):
 
 Las dos colecciones se piden juntas con una sola búsqueda sobre la
 subcomunidad (2.155 ítems; uno está en las dos colecciones). Cada laudo (PDF)
-entra como un `RawDocModel`. Familia **plana**: sin actuaciones, sin
-`family_params`.
+entra como un `RawDocModel`. Sin `family_params`. Un radicado con más de un
+PDF distinto se agrupa como **actuaciones**, igual que la SIC (ver "Número y
+nombre canónico").
 
 ## Construcción del sitio
 
@@ -118,9 +119,41 @@ PDF está en el bundle **`ORIGINAL`** (los otros: `TEXT` = texto extraído,
   **mismo PDF subido dos veces** (p. ej. `11520/29990` y `11520/29987`: MD5
   idéntico) o dos piezas distintas del mismo proceso (laudo y auto de
   aclaración/complementación, fechas distintas). Regla: el mismo MD5 se
-  descarta (ver "Deduplicación"); un PDF distinto con el mismo título recibe
-  sufijo de fecha: `LA_CCB_142529_2025` y `LA_CCB_142529_2025_0813`
-  (MMDD del `dc.date.issued`). Ver "Preguntas abiertas".
+  descarta (ver "Deduplicación"); un PDF distinto con el mismo título son
+  **actuaciones del mismo título**, como en la SIC — ver abajo.
+
+### Actuaciones (como la SIC)
+
+Dos PDF distintos del mismo radicado y año **conservan el mismo título**
+(`LA_CCB_142529_2025`, sin sufijo inventado por la familia). El nombre final
+lo arma `core/naming.py`, igual que para la SIC:
+
+- Una sola actuación → `LA_CCB_142529_2025` (el título ya trae el año; no se
+  le agrega otro).
+- Más de una → cada una con su fecha completa de `f_providencia`
+  (`dc.date.issued`): `LA_CCB_142529_2025_20250610`,
+  `LA_CCB_142529_2025_20250813`.
+
+En la familia (copiado de `core/scrapers/families/sic.py`):
+
+- `save_path` con un sufijo único por archivo para que dos actuaciones no se
+  pisen al subir: `f"{title}_h{sha1(url_bitstream)[:7]}(extension)"`. Al
+  terminar la corrida `core/storage_sync.py` lo renombra al nombre canónico.
+- Sólo para títulos verificados. Un título de respaldo (`dc.title`,
+  `title_unverified=True`) no tiene forma de caso y no se agrupa.
+
+Fuera de la familia (registro de la familia con actuaciones):
+
+- `core/utils.py` — `CCB_CANONICAL_TITLE_PATTERN =
+  re.compile(r"^LA_CCB_[0-9]+_[0-9]{4}(_A[0-9]{2})?$")` e
+  `is_ccb_canonical_title`.
+- `core/naming.py` — `"ccb": is_ccb_canonical_title` en
+  `_FAMILIAS_CON_ACTUACIONES` y `"ccb"` en `_FAMILIAS_SIN_ANIO_SI_UNICA`.
+- `core/db/repository.py` — `"ccb": [CCB_CANONICAL_TITLE_PATTERN]` en
+  `_CASE_GROUPING_FAMILY_PATTERNS` (agrupación en el listado).
+
+Con eso `worker/tasks.py` (actuación nueva) y `core/storage_sync.py`
+(renombre) funcionan sin cambios.
 
 ## Fechas
 
@@ -160,12 +193,16 @@ PDF está en el bundle **`ORIGINAL`** (los otros: `TEXT` = texto extraído,
 
 - Clave principal: **`checkSum` MD5 del bitstream** (junta el mismo PDF subido
   en dos ítems). Clave secundaria: `uuid` del bitstream.
+- Lo que sobrevive con el mismo título no es un duplicado: son actuaciones
+  (ver arriba).
 - Un ítem que está mapeado en las dos colecciones aparece una sola vez en la
   búsqueda por subcomunidad.
 
 ## `save_path` / almacenamiento
 
-`storage_path(_SOURCE, fecha_issued_iso, "Laudo arbitral", f"{title}(extension)")`.
+`storage_path(_SOURCE, fecha_issued_iso, "Laudo arbitral", f"{title}_h{hash}(extension)")`
+para títulos verificados (ver "Actuaciones"); `f"{title}(extension)"` para
+los de respaldo.
 `_SOURCE = "Cámara de Comercio de Bogotá"` (mismo texto que el `name` del seed).
 Se usa la fecha del laudo para la carpeta (es la que un abogado busca), no la
 de subida.
@@ -211,6 +248,10 @@ de subida.
 **Archivos que se tocan:**
 
 - `core/scrapers/families/__init__.py` — añadir `ccb` al import.
+- `core/utils.py`, `core/naming.py`, `core/db/repository.py` — registro de
+  `ccb` como familia con actuaciones (ver "Actuaciones").
+- `tests/test_naming.py` —
+  nombre con una y con dos actuaciones.
 - `core/seed.py` — entrada en `_FAMILIES` (`"Cámara de Comercio de Bogotá"`,
   "Laudos arbitrales del Centro de Arbitraje y Conciliación de la Cámara de
   Comercio de Bogotá") y
@@ -243,7 +284,8 @@ sin internet:
    la subcomunidad, paginación hasta `totalPages`.
 8. `dc.type = book` → excluido.
 9. Mismo MD5 en dos ítems → uno solo, con aviso.
-10. Mismo radicado y año, PDF distinto → segundo con sufijo `_MMDD`.
+10. Mismo radicado y año, PDF distinto → los dos con el mismo título
+    `LA_CCB_142529_2025` y `save_path` con sufijo `_h<hash>` distinto.
 11. Dos PDF en `ORIGINAL` → el segundo con `_A01`; bundles `TEXT`/`THUMBNAIL`
     ignorados.
 12. Falla de bundles de un ítem → aviso y sigue con los demás.
@@ -251,6 +293,9 @@ sin internet:
 14. `stop_event` y `limit` respetados.
 15. Atributos de clase (`filters_by_publication_date`,
     `checks_for_republication`, lookback, margen de alerta).
+16. Naming: `es_familia_con_actuaciones("ccb", "LA_CCB_142529_2025")` es
+    `True` y con un título de respaldo es `False`; una actuación →
+    `LA_CCB_142529_2025`, dos → `…_20250610` y `…_20250813`.
 
 Se corren dirigidas: `pytest tests/families/test_ccb.py tests/test_seed.py`.
 
@@ -269,6 +314,9 @@ Se corren dirigidas: `pytest tests/families/test_ccb.py tests/test_seed.py`.
 - **DSpace 7.5 viejo.** Una migración a DSpace 8/9 conserva la API REST casi
   igual, pero el campo `dc.date.accessioned_dt` del índice podría cambiar; se
   vería como "0 documentos" (alerta a los 120 días) o un error de consulta.
+- **Dos actuaciones con la misma `dc.date.issued`**: el nombre con fecha no
+  las distinguiría. En los 17 casos de hoy las fechas son distintas; si
+  pasa, se comporta igual que en la SIC.
 - **Datos del sitio con errores:** 3 laudos con fecha posterior a la subida,
   17 radicados repetidos, PDF duplicados en ítems distintos, 6 ítems sin
   radicado en el metadato.
@@ -279,6 +327,7 @@ Se corren dirigidas: `pytest tests/families/test_ccb.py tests/test_seed.py`.
 2. **Prefijo:** `LA` para laudo arbitral (`LA_CCB_159970_2026`), igual en
    Armenia.
 3. **Arbitraje social:** entra, con el mismo tipo `Laudo arbitral`.
-4. **Mismo radicado con dos PDF distintos:** sufijo con la fecha `_MMDD` del
-   `dc.date.issued` (p. ej. `_0813`).
+4. **Mismo radicado con dos PDF distintos (cambiado el 2026-10-29):**
+   actuaciones del mismo título, como en la SIC, no sufijo `_MMDD`. El nombre
+   final lleva la fecha completa sólo cuando hay más de una.
 5. **Sentencias sobre los MRC:** no entran; sólo laudos.

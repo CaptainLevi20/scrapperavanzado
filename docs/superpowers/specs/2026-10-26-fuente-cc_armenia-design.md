@@ -91,8 +91,16 @@ sirve como fecha de publicación.
   2025 borró cualquier otra pista. **El retraso es desconocido** y la
   publicación, esporádica.
 - Como una sola petición trae toda la tabla, mirar atrás no cuesta nada:
-  `scheduled_min_lookback_days = 730` (dos años). Así un laudo subido con
-  meses de retraso entra igual en la diaria.
+  **la corrida diaria mira desde 2006** (el piso). Así un laudo subido con
+  años de retraso entra igual en la diaria.
+- `scheduled_min_lookback_days` es un número fijo de días (el worker hace
+  `hoy - días`), así que se pone uno que llegue hasta antes de 2006:
+  `scheduled_min_lookback_days = 10_000` (~27 años: hoy llega a 1999 y cubre
+  2006 hasta 2033). El piso `_ANIO_MINIMO = 2006` de la familia recorta lo
+  anterior. Una prueba falla si el número deja de cubrir el 2006-01-01.
+- Costo: igual que antes (1 GET + 14 HEAD). Los laudos ya guardados vuelven
+  a listarse cada día y el worker los reconoce por su id; su chequeo de
+  republicación hace un `HEAD` por laudo (12).
 - Fila sin fecha legible → se descarta con aviso. Fecha posterior a hoy →
   aviso `on_progress` (no se vio ninguna).
 
@@ -111,9 +119,15 @@ todo (es poco y es lo que el cliente quiere).
   Ministerio de Justicia, no el laudo. El laudo correcto existe en la
   biblioteca de medios de WordPress:
   `/wp-content/uploads/2024/07/LAUDO-ARBITRAL.-JUNIO-24-DE-2022.-MARTHA-LIBIA-CRUZ-VS-GEOCASAMAESTRA-SAS.pdf`.
-  Propuesta: una fila cuyo nombre de archivo no contiene `LAUDO` se descarta
-  con aviso (así no se guarda una circular con nombre de laudo). Ver
-  preguntas abiertas para la alternativa de corregirlo a mano.
+  Regla: una fila cuyo **nombre de archivo** no contiene `LAUDO` se descarta
+  con aviso (así no se guarda una circular con nombre de laudo).
+- **El "LAUDO" se busca sólo en el nombre del archivo, no en la URL
+  completa.** Todos los PDF viven en `/DocumentosCamara/Laudos/`, así que
+  buscar en la ruta siempre encontraría "Laudos" y la regla no descartaría
+  nada. Nombre = último segmento de la ruta del `href`, decodificado
+  (`unquote`, por los `%20`), comparado sin distinguir mayúsculas.
+  Ej.: `Respuesta a la Invitacion … DMSC-20100.pdf` → descartado;
+  `LAUDO ARBITRAL AGROPECUARIA … .pdf` → entra.
 - **Archivo roto:** la fila `20221111` (Soluciones Integrales de Ingeniería
   Aplicada SIIA, 01-oct-2024) da **404**. Como son 14 filas, el scraper hace
   `HEAD` a cada PDF (14 peticiones) y descarta con aviso los que no
@@ -149,7 +163,8 @@ Corrida diaria: 1 GET + 14 HEAD. Prácticamente nunca habrá documentos nuevos.
 **Archivos nuevos:**
 
 - `core/scrapers/families/cc_armenia.py` — `@register_family("cc_armenia")`,
-  `class ScrapCcArmenia(BaseScrapper)`, `scheduled_min_lookback_days = 730`.
+  `class ScrapCcArmenia(BaseScrapper)`, `scheduled_min_lookback_days = 10_000`
+  (corrida diaria desde 2006, ver "Fechas").
 - `tests/families/test_cc_armenia.py`.
 
 **Archivos que se tocan:**
@@ -176,7 +191,9 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 2. Fecha sin el segundo "DE" (`06 DE MARZO 2017`) → `2017-03-06`.
 3. Año del título sale de la fecha, no del radicado (`20220403` → `_2023`).
 4. Filtro `fini`/`ffin` y piso.
-5. Archivo sin `LAUDO` en el nombre → descartado con aviso.
+5. Archivo sin `LAUDO` en el nombre → descartado con aviso, **aunque la
+   ruta tenga `/Laudos/`**; nombre con `%20` o en minúsculas (`laudo …`)
+   → entra.
 6. `HEAD` 404 → descartado con aviso; los demás entran.
 7. Tabla ubicada por `aria-labelledby` aunque cambie el id de la pestaña.
 8. Página sin la pestaña de laudos → aviso y 0 documentos (no excepción).
@@ -184,6 +201,8 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 10. Dedup por URL.
 11. `stop_event` y `limit`.
 12. Error 500 en la página → aviso, lista vacía.
+13. `date.today() - timedelta(days=ScrapCcArmenia.scheduled_min_lookback_days)`
+    es anterior o igual a `2006-01-01`.
 
 Se corren dirigidas: `pytest tests/families/test_cc_armenia.py tests/test_seed.py`.
 
@@ -214,6 +233,9 @@ Se corren dirigidas: `pytest tests/families/test_cc_armenia.py tests/test_seed.p
 5. **Alerta de salud:** se acepta que la fuente salga como "sin documentos en
    más de un año"; no se cambia `salud_fuentes`.
 6. **Alcance:** sólo laudos.
+7. **Filtro "LAUDO" (2026-10-29):** sólo en el nombre del archivo, no en la
+   ruta.
+8. **Corrida diaria (2026-10-29):** mira desde 2006, no dos años.
 
 Resultado esperado de la carga completa (revisado el 2026-10-26 contra el
 sitio): **12 laudos**, con dos avisos (la circular de 20220624 y el 404 de
