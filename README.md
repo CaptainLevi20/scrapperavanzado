@@ -77,8 +77,11 @@ contenido qué es de verdad. Acepta solo PDF, Word, Excel, RTF, TIFF y ZIP de
 anexos con esos formatos. Rechaza los archivos dañados y los documentos de
 Office con macros. Además, cada descarga tiene un tope de tamaño
 (`MAX_DOWNLOAD_MB`, 300 MB por defecto): un archivo más grande se corta a mitad
-de la descarga y el documento queda fallido. Todavía **no** hay antivirus: es
-el siguiente paso del plan de seguridad.
+de la descarga y el documento queda fallido. Cada documento, y cada versión
+archivada, guarda la huella digital SHA-256 de su archivo (`sha256`, calculada
+al descargar; para lo guardado antes, `python -m core.backfill_sha256`). Sirve
+para encontrar y rastrear un archivo que resulte malo. Todavía **no** hay
+antivirus: es el siguiente paso del plan de seguridad.
 
 ## Agregar una fuente nueva
 

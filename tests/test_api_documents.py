@@ -620,6 +620,22 @@ def test_document_out_con_otra_actuacion_usa_fecha_completa(api_client, auth_hea
     assert response.json()["nombre"] == "T_SANT_68001_33_33_007_2025_00290_02_20260806"
 
 
+def test_get_document_incluye_la_huella_digital(api_client, auth_header, db_session):
+    from core.db import repository
+
+    repository.create_source_family(db_session, key="constitucional", display_name="Corte Constitucional")
+    source = repository.create_source(db_session, family_key="constitucional", name="Corte Constitucional", family_params={})
+    doc = repository.insert_document(
+        db_session, doc_id="sha-1", source_id=source.id, title="T-1",
+        storage_bucket="iurisync-test", storage_key="a.pdf", sha256="a" * 64,
+    )
+
+    response = api_client.get(f"/documents/{doc.id}", headers=auth_header)
+
+    assert response.status_code == 200
+    assert response.json()["sha256"] == "a" * 64
+
+
 def test_get_document_returns_404_when_missing(api_client, auth_header):
     response = api_client.get("/documents/999999", headers=auth_header)
     assert response.status_code == 404

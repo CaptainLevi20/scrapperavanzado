@@ -179,6 +179,7 @@ def _download_and_upload_one(
             "content_type": result.content_type,
             "file_extension": Path(storage_key).suffix,
             "file_size_bytes": result.file_size_bytes,
+            "sha256": result.sha256,
             "converted_format": result.converted_format,
         }, None
     except Exception as exc:
