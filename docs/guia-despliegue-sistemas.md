@@ -932,6 +932,8 @@ Es seguro repetirlo.
   boletín, así que un acto publicado meses después de expedido entra igual en
   la corrida diaria del día en que sale. Los actos anteriores a 2025 que el
   boletín vuelve a publicar se descartan.
+  Si un acto de 2025 en adelante ya guardado vuelve a salir en un boletín
+  posterior, se reconoce como el mismo documento y no se guarda dos veces.
 - **Detalle técnico:** el servidor de Corantioquia entrega su certificado sin
   la cadena completa, así que la conexión a ese sitio se hace sin verificar
   el certificado (son documentos públicos). Sus PDF llegan marcados como

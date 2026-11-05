@@ -260,3 +260,26 @@ def test_resolucion_con_tilde_descompuesta_o_en_mayusculas_no_se_pierde():
         ("R_CORANT_3893_2026", "Resolución"),
         ("A_CORANT_0084_2026", "Acuerdo"),
     ]
+
+
+@responses.activate
+def test_un_acto_republicado_en_otro_boletin_conserva_su_identidad():
+    # Hallazgo de la revisión del PR #110: la identidad del documento (doc_id)
+    # incluía la fecha del boletín. El boletín republica actos ya publicados;
+    # en una corrida posterior el mismo acto (mismo doc= en el enlace) llegaba
+    # con otra fecha, otro doc_id, y se guardaba duplicado.
+    from core.utils import compute_doc_id
+
+    _indice((2026, [(2876, "2876 de 14 de octubre de 2026"), (2890, "2890 de 28 de octubre de 2026")]))
+    _pagina(2876, 1, _documento(7))
+    republicado = _documento(7)
+    # El mismo acto, con los parámetros del enlace en otro orden.
+    republicado["linkDescarga"] = "https://sirena.corantioquia.gov.co/esirena/CtrlPublicaciones?doc=7&ctrlAction=D"
+    _pagina(2890, 1, republicado)
+
+    [primero] = _scrap("2026-10-01", "2026-10-20")
+    [segundo] = _scrap("2026-10-21", "2026-10-31")
+
+    usa_fecha = ScrapCorantioquia.doc_id_uses_publication_date
+    assert primero.f_public != segundo.f_public
+    assert compute_doc_id(primero, usa_fecha) == compute_doc_id(segundo, usa_fecha)

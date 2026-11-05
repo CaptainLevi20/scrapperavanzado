@@ -92,6 +92,15 @@ def _id_descarga(link: str) -> str:
     return (parse_qs(urlparse(link or "").query).get("doc") or [link])[0]
 
 
+def _enlace_canonico(link: str) -> str:
+    """El mismo acto siempre con el mismo enlace (de él sale su identidad,
+    ver doc_id_uses_publication_date): sólo el id del documento, en un orden
+    fijo. Si el enlace no trae `doc=`, se deja como llegó."""
+    if "doc" not in parse_qs(urlparse(link or "").query):
+        return link
+    return f"{_URL}?ctrlAction=D&doc={_id_descarga(link)}"
+
+
 def _boletines(session, fini: datetime.date, ffin: datetime.date, on_progress) -> List[Tuple[datetime.date, int]]:
     """(fecha, número) de los boletines con fecha en [fini, ffin], en orden
     cronológico. La fecha sólo viene en el nombre."""
@@ -143,7 +152,7 @@ def _doc(documento: dict, publicacion: datetime.date, on_progress) -> Optional[R
     # El boletín republica actos viejos (resoluciones de 2000-2015 en 2026).
     if fecha.year < _ANIO_MINIMO:
         return None
-    link = (documento.get("linkDescarga") or "").strip()
+    link = _enlace_canonico((documento.get("linkDescarga") or "").strip())
     if not link:
         if on_progress:
             on_progress(f"[{_SOURCE}] Aviso: {tipo} {radicado} sin enlace de descarga, se omite")
@@ -175,6 +184,11 @@ class ScrapCorantioquia(BaseScrapper):
     # sean de meses atrás: se filtra por la fecha del boletín y la corrida
     # diaria no necesita mirar más atrás.
     filters_by_publication_date = True
+    # La identidad del documento sale sólo del enlace (doc= del acto), no de la
+    # fecha del boletín: el boletín republica actos ya publicados, y con la
+    # fecha en la identidad el mismo acto se guardaba otra vez en cada boletín
+    # que lo repetía (revisión del PR #110). Igual que SAMAI o Procuraduría.
+    doc_id_uses_publication_date = False
 
     def __init__(self):
         self.source = _SOURCE
