@@ -238,3 +238,25 @@ def test_limit_y_stop_event():
     parar = threading.Event()
     parar.set()
     assert _scrap(stop_event=parar) == []
+
+
+@responses.activate
+def test_resolucion_con_tilde_descompuesta_o_en_mayusculas_no_se_pierde():
+    # Hallazgo de la revisión del PR #110: el tipo se comparaba letra por letra
+    # con "Resolución". Si el sitio manda la tilde descompuesta ("o" + U+0301,
+    # se ve igual en pantalla) o el texto en mayúsculas, la resolución se
+    # descartaba sin aviso. Es el mismo error que costó 3 resoluciones en
+    # MinEducación (PR #104).
+    _indice((2026, [(2876, "2876 de 14 de octubre de 2026")]))
+    _pagina(
+        2876, 1,
+        _documento(1, radicado="040-RES2610-3892", tipo="Resolución"),
+        _documento(2, radicado="040-RES2610-3893", tipo="RESOLUCIÓN"),
+        _documento(3, radicado="180-ACU2610-84", tipo=" acuerdo "),
+    )
+
+    assert [(d.title, d.tipo) for d in _scrap()] == [
+        ("R_CORANT_3892_2026", "Resolución"),
+        ("R_CORANT_3893_2026", "Resolución"),
+        ("A_CORANT_0084_2026", "Acuerdo"),
+    ]

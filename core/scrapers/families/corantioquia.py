@@ -1,5 +1,6 @@
 import datetime
 import re
+import unicodedata
 from typing import Iterator, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
@@ -31,11 +32,23 @@ _POR_PAGINA = 15
 _PAGINA_TOPE = 30
 
 # tipo.nombre del boletín → (tipo asignado, prefijo). Autos ("Acto
-# administrativo"), edictos y notificaciones por aviso no entran.
+# administrativo"), edictos y notificaciones por aviso no entran. Las claves van
+# sin tildes y en minúsculas: se comparan con _clave_tipo (ver abajo).
 _TIPOS = {
-    "Resolución": ("Resolución", "R"),
-    "Acuerdo": ("Acuerdo", "A"),
+    "resolucion": ("Resolución", "R"),
+    "acuerdo": ("Acuerdo", "A"),
 }
+
+
+def _clave_tipo(texto: str) -> str:
+    """Nombre del tipo sin tildes, en minúsculas y sin espacios sobrantes.
+    "Resolución" puede llegar con la tilde descompuesta ("o" + U+0301, se ve
+    igual en pantalla) o en mayúsculas; una comparación letra por letra la
+    descartaba sin aviso (revisión del PR #110; mismo error que MinEducación,
+    PR #104)."""
+    descompuesto = unicodedata.normalize("NFKD", texto or "")
+    sin_tildes = "".join(c for c in descompuesto if not unicodedata.combining(c))
+    return " ".join(sin_tildes.lower().split())
 
 _MESES = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
@@ -117,10 +130,10 @@ def _documentos(session, numero: int, stop_event) -> Iterator[dict]:
 
 
 def _doc(documento: dict, publicacion: datetime.date, on_progress) -> Optional[RawDocModel]:
-    tipo_sitio = ((documento.get("tipo") or {}).get("nombre") or "").strip()
-    if tipo_sitio not in _TIPOS:
+    clave = _clave_tipo((documento.get("tipo") or {}).get("nombre"))
+    if clave not in _TIPOS:
         return None
-    tipo, pref = _TIPOS[tipo_sitio]
+    tipo, pref = _TIPOS[clave]
     radicado = (documento.get("sirenaRadicado") or "").strip()
     fecha = _fecha(documento.get("fechaRadicacion"))
     if fecha is None:
