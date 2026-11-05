@@ -50,6 +50,23 @@ def escanear(
 ) -> str | None:
     """Revisa el archivo en `ruta`. Devuelve None si está limpio, o el nombre
     del virus encontrado. Lanza AntivirusNoDisponible si no se pudo revisar."""
+
+    def trozos():
+        with open(ruta, "rb") as archivo:
+            while trozo := archivo.read(tamano_trozo):
+                yield trozo
+
+    return escanear_flujo(trozos(), host=host, puerto=puerto, timeout=timeout)
+
+
+def escanear_flujo(
+    trozos,
+    host: str | None = None,
+    puerto: int | None = None,
+    timeout: float | None = None,
+) -> str | None:
+    """Igual que `escanear`, pero con el contenido como iterable de bytes (por
+    ejemplo, leído directo del almacenamiento, sin copiarlo al disco)."""
     settings = get_settings()
     host = host or settings.clamav_host
     puerto = puerto or settings.clamav_port
@@ -58,8 +75,8 @@ def escanear(
     try:
         with socket.create_connection((host, puerto), timeout=timeout) as conexion:
             conexion.sendall(b"zINSTREAM\0")
-            with open(ruta, "rb") as archivo:
-                while trozo := archivo.read(tamano_trozo):
+            for trozo in trozos:
+                if trozo:
                     conexion.sendall(len(trozo).to_bytes(4, "big") + trozo)
             conexion.sendall((0).to_bytes(4, "big"))
             respuesta = b""

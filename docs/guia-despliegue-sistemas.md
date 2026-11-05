@@ -364,6 +364,34 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail
 Debe aparecer una línea con `Self checking every 600 seconds` o
 `Activating the newly loaded database`.
 
+**Revisar con el antivirus lo que ya estaba guardado (una sola vez).** Los
+documentos guardados antes de noviembre de 2026 no pasaron por el antivirus.
+Esta revisión los lee todos, los pasa por el antivirus y entrega una lista de
+lo que encuentra. **No cambia, mueve ni borra nada**: qué hacer con los
+hallazgos se decide después. Con unos 80.000 documentos tarda del orden de 5
+horas, así que conviene dejarla corriendo de noche, en segundo plano:
+
+```
+mkdir revision
+docker compose --env-file .env.production -f docker-compose.prod.yml run -d --name revision-antivirus -v "${PWD}/revision:/revision" worker python -m core.revisar_antivirus --salida /revision/antivirus.csv
+```
+
+Para ver cómo va (cada 1.000 archivos muestra una línea, con el último
+documento revisado):
+
+```
+docker logs --tail 5 revision-antivirus
+```
+
+Al terminar, `docker logs revision-antivirus` muestra el resumen
+(infectados, no revisados completos, errores, no encontrados) y la lista
+completa queda en `revision/antivirus.csv`. Después se borra el contenedor
+con `docker rm revision-antivirus`.
+
+Si se corta a mitad de camino, se puede retomar con `--desde-id` y un número
+un poco menor que el último documento que mostró el avance (revisa varios a
+la vez, así que unos pocos anteriores pueden no haber terminado).
+
 ## 8. Respaldos (copias de seguridad)
 
 Esta herramienta guarda dos cosas que conviene respaldar periódicamente: la
