@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 import urllib3
 
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
@@ -50,12 +51,6 @@ def _clave_tipo(texto: str) -> str:
     sin_tildes = "".join(c for c in descompuesto if not unicodedata.combining(c))
     return " ".join(sin_tildes.lower().split())
 
-_MESES = {
-    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
-    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
-    "noviembre": 11, "diciembre": 12,
-}
-_FECHA_RE = re.compile(r"(\d{1,2})\s+de\s+([a-zñ]+)\s+de\s+(\d{4})", re.I)
 # <dependencia>[<oficina>]-<TIPO><AAMM>-<consecutivo>: 040-RES2610-3892,
 # 160TH-RES2501-80. El consecutivo es anual por tipo, común a todas las
 # dependencias, así que la dependencia no va en el título.
@@ -63,19 +58,10 @@ _RADICADO_RE = re.compile(r"^\d{3}[A-Z]{0,4}-(RES|ACU)(\d{2})(\d{2})-(\d+)$")
 _NO_SEGURO_RE = re.compile(r"[^A-Za-z0-9-]+")
 
 
-def _fecha(texto: str) -> Optional[datetime.date]:
-    """"09 de Octubre de 2026" (fechaRadicacion) o el nombre del boletín
-    "2876 de 14 de octubre de 2026"."""
-    m = _FECHA_RE.search(texto or "")
-    if not m:
-        return None
-    mes = _MESES.get(m.group(2).lower())
-    if mes is None:
-        return None
-    try:
-        return datetime.date(int(m.group(3)), mes, int(m.group(1)))
-    except ValueError:
-        return None
+# Fechas en español: el lector común del proyecto (core/fecha_es.py), que
+# entiende todos los formatos de esta fuente. Antes había una copia propia aquí
+# (revisión del PR #110).
+_fecha = parse_fecha_providencia_es
 
 
 def _titulo(pref: str, radicado: str) -> Tuple[str, bool]:

@@ -6,6 +6,7 @@ from urllib.parse import unquote, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
@@ -27,14 +28,6 @@ _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-CO,es;q=0.9"}
 _TAB_LABEL = "fusion-tab-laudos"
 _TAB_ID = "tab-9bad5edebe8f416b63c"
 
-_MESES = {
-    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
-    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
-    "noviembre": 11, "diciembre": 12,
-}
-# "03 DE MARZO DE 2006"; una fila trae "06 DE MARZO 2017" (sin el segundo DE),
-# que core.fecha_es no reconoce.
-_FECHA_RE = re.compile(r"(\d{1,2})\s+(?:de\s+)?([a-zñ]+)\s+(?:de\s+)?(\d{4})", re.I)
 _RADICADO_RE = re.compile(r"^\d+$")
 # Ventana de la corrida diaria: más días que los que hay desde el piso (2006),
 # es decir, toda la tabla (~27 años).
@@ -45,17 +38,12 @@ def _norm_texto(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
+# Fechas en español: el lector común del proyecto (core/fecha_es.py), que
+# entiende todos los formatos de esta fuente. Antes había una copia propia aquí
+# (revisión del PR #110).
 def _fecha(texto: str) -> Optional[datetime.date]:
-    m = _FECHA_RE.search(texto or "")
-    if not m:
-        return None
-    mes = _MESES.get(m.group(2).lower())
-    if mes is None:
-        return None
-    try:
-        return datetime.date(int(m.group(3)), mes, int(m.group(1)))
-    except ValueError:
-        return None
+    # Esta fuente escribe a veces el año sin "de" ("06 DE MARZO 2017").
+    return parse_fecha_providencia_es(texto, anio_sin_conector=True)
 
 
 def _titulo(radicado: str, anio: int) -> str:

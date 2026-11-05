@@ -5,6 +5,7 @@ from typing import Iterator, List, Optional
 import requests
 from bs4 import BeautifulSoup, Comment, NavigableString
 
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
@@ -23,18 +24,9 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-CO,es;q=0.9"}
 _DRIVE_DESCARGA = "https://drive.google.com/uc?export=download&id={}"
 
-_MESES = {
-    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
-    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
-    "noviembre": 11, "diciembre": 12,
-}
 _DRIVE_RE = re.compile(r"drive\.google\.com/file/d/([\w-]+)")
 # 200.3-2-26-001, 200.3.2.26.007, 200.3.2-25-006: separadores mezclados.
 _CODIGO_RE = re.compile(r"200\.3[.\-]2[.\-](\d{2})[.\-](\d{1,3})(?!\d)")
-# "05 ENERO 2026", "DE FECHA 27 DE JULIO DE 2026", "08 DE ABRIL 2025".
-_FECHA_RE = re.compile(
-    r"(?<!\d)(\d{1,2})\s+(?:de\s+)?(" + "|".join(_MESES) + r")\s+(?:de\s+)?(\d{4})", re.I
-)
 # Fecha-hora de publicación que sigue a la referencia ("29/01/2026  14:50").
 _PUBLICACION_RE = re.compile(r"\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{4}")
 
@@ -43,14 +35,12 @@ def _norm_texto(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
+# Fechas en español: el lector común del proyecto (core/fecha_es.py), que
+# entiende todos los formatos de esta fuente. Antes había una copia propia aquí
+# (revisión del PR #110).
 def _fecha(texto: str) -> Optional[datetime.date]:
-    m = _FECHA_RE.search(texto or "")
-    if not m:
-        return None
-    try:
-        return datetime.date(int(m.group(3)), _MESES[m.group(2).lower()], int(m.group(1)))
-    except ValueError:
-        return None
+    # Esta fuente escribe a veces el año sin "de" ("06 DE MARZO 2017").
+    return parse_fecha_providencia_es(texto, anio_sin_conector=True)
 
 
 def _titulo(numero: int, anio: int) -> str:
