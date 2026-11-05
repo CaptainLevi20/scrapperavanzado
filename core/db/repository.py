@@ -513,6 +513,7 @@ def archive_and_replace_document(
         content_type=document.content_type,
         file_extension=document.file_extension,
         file_size_bytes=document.file_size_bytes,
+        sha256=document.sha256,
         converted_format=document.converted_format,
         source_url=document.source_url,
         downloaded_at=document.downloaded_at,

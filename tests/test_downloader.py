@@ -614,3 +614,19 @@ def test_el_tope_por_defecto_sale_de_la_configuracion(monkeypatch):
     monkeypatch.setattr(get_settings(), "max_download_mb", 7)
 
     assert Downloader().max_bytes == 7 * 1024 * 1024
+
+
+@responses.activate
+def test_download_calcula_la_huella_digital_del_archivo(tmp_path):
+    # SHA-256 del contenido, calculado mientras se descarga (sin volver a leer
+    # el archivo): sirve para encontrar y rastrear un archivo que resulte malo.
+    import hashlib
+
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"%PDF-1.4 contenido", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    result = Downloader().download(_doc(), tmp_path)
+
+    assert result.sha256 == hashlib.sha256(b"%PDF-1.4 contenido").hexdigest()

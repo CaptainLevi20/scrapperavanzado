@@ -1,12 +1,15 @@
+import hashlib
 import time
 from datetime import date
 
 import pytest
 import responses
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 import worker.tasks as tasks_module
 from core.db import repository
+from core.db.models import Document
 from core.models import RawDocModel
 from tests.conftest import DummyFamilyScraper, TEST_S3_BUCKET
 from worker.celery_app import celery_app
@@ -59,6 +62,11 @@ def test_scrape_source_task_downloads_new_document_and_marks_run_source_complete
         assert refreshed.status == "completed"
         assert refreshed.docs_new == 1
         assert refreshed.docs_errors == 0
+
+        # Huella digital (SHA-256) del contenido descargado, para rastrear el
+        # archivo si después resulta malo.
+        [document] = assertion_session.scalars(select(Document).where(Document.source_id == source.id)).all()
+        assert document.sha256 == hashlib.sha256(b"contenido").hexdigest()
     finally:
         assertion_session.close()
 
@@ -340,6 +348,7 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
         file_size_bytes=9,  # tamaño de "contenido" (el body del test original)
         source_url="https://example.com/doc1",
         review_status="useful",
+        sha256="huella-de-la-version-anterior",
     )
 
     DummyFamilyScraper.docs_to_return = [
@@ -392,6 +401,9 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
         assert version.file_size_bytes == 9
         assert version.updated_by_run_source_id == run_source.id
+        # La versión archivada conserva su huella; el documento vigente, la nueva.
+        assert version.sha256 == "huella-de-la-version-anterior"
+        assert updated_document.sha256 == hashlib.sha256(b"contenido mas largo!").hexdigest()
     finally:
         assertion_session.close()
 

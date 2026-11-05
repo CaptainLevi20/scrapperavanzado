@@ -1,3 +1,4 @@
+import hashlib
 import re
 import shutil
 import subprocess
@@ -129,6 +130,8 @@ class DownloadResult:
     content_type: str
     file_size_bytes: int
     converted_format: str | None = None
+    # Huella digital SHA-256 del archivo descargado (ver Document.sha256).
+    sha256: str | None = None
 
 
 class Downloader:
@@ -250,6 +253,9 @@ class Downloader:
 
                     temp_path = tmp_dir / f"{uuid.uuid4().hex}{filename['extension']}"
                     recibidos = 0
+                    # La huella se calcula mientras llega cada trozo, sin
+                    # volver a leer el archivo. Se reinicia en cada reintento.
+                    huella = hashlib.sha256()
                     try:
                         with open(temp_path, "wb") as f:
                             for chunk in r.iter_content(8192):
@@ -262,6 +268,7 @@ class Downloader:
                                     recibidos += len(chunk)
                                     if recibidos > self.max_bytes:
                                         raise self._error_por_tamano(doc.link["url"])
+                                    huella.update(chunk)
                                     f.write(chunk)
                     except ArchivoNoPermitido:
                         temp_path.unlink(missing_ok=True)
@@ -288,4 +295,5 @@ class Downloader:
             storage_key=storage_key,
             content_type=content_type,
             file_size_bytes=temp_path.stat().st_size,
+            sha256=huella.hexdigest(),
         )

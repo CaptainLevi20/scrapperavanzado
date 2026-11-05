@@ -294,6 +294,33 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm ap
 
 Es seguro repetirlo aunque ya se haya corrido.
 
+### Huella digital de los documentos ya guardados (una sola vez, noviembre de 2026)
+
+Desde noviembre de 2026 cada documento descargado guarda su **huella
+digital**: un código SHA-256 que identifica su contenido exacto. Sirve para
+encontrar un archivo que resulte malo y rastrear a qué productos llegó, y para
+saber si un archivo cambió. Los documentos guardados antes no la tienen.
+
+Después de actualizar a esa versión, con el `alembic upgrade head` de la
+sección 4 ya corrido, hay que calcularla una vez. Primero en modo simulación,
+que solo cuenta y no cambia nada:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_sha256 --simular
+```
+
+y luego de verdad:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_sha256
+```
+
+Lee cada archivo del almacenamiento, sin cambiarlo ni moverlo. En desarrollo,
+2.698 documentos (3,4 GB) tardaron 23 segundos; en producción, con unos 80.000
+documentos, puede tardar del orden de una hora. Se puede interrumpir y
+repetir sin riesgo: retoma donde quedó, porque lo que ya tiene huella no se
+vuelve a leer.
+
 ## 8. Respaldos (copias de seguridad)
 
 Esta herramienta guarda dos cosas que conviene respaldar periódicamente: la

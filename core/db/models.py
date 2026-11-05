@@ -145,6 +145,12 @@ class Document(Base):
     content_type = Column(String, nullable=True)
     file_extension = Column(String, nullable=True)
     file_size_bytes = Column(BigInteger, nullable=True)
+    # Huella digital (SHA-256, 64 caracteres hexadecimales) del archivo tal como
+    # se descargó. Identifica el contenido exacto: sirve para encontrar un
+    # archivo que resulte malicioso y rastrear a qué productos llegó, y para
+    # saber si un archivo cambió. Null en lo guardado antes de 2026-11-05 hasta
+    # que corra core.backfill_sha256.
+    sha256 = Column(String(64), nullable=True, index=True)
     converted_format = Column(String, nullable=True)
     preview_storage_key = Column(Text, nullable=True)
     downloaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -171,6 +177,8 @@ class DocumentVersion(Base):
     content_type = Column(String, nullable=True)
     file_extension = Column(String, nullable=True)
     file_size_bytes = Column(BigInteger, nullable=True)
+    # Huella del archivo de ESTA versión (ver Document.sha256).
+    sha256 = Column(String(64), nullable=True, index=True)
     converted_format = Column(String, nullable=True)
     source_url = Column(Text, nullable=True)
     downloaded_at = Column(DateTime(timezone=True), nullable=False)
