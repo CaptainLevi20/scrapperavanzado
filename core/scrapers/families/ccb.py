@@ -30,6 +30,10 @@ _PAGINA_TOPE = 50
 _MAX_TITULO = 120
 
 _RADICADO_RE = re.compile(r"^\s*(\d+)")
+# Respaldo (dc.title, nombre del PDF): sólo un número de 5-6 dígitos, el largo
+# del radicado del Centro. Así un año ("2019 Laudo…") o una numeración ("1.
+# Laudo…") no se toman por radicado (revisión del PR #110).
+_RADICADO_RESPALDO_RE = re.compile(r"^\s*(\d{5,6})(?!\d)")
 _ISSUED_RE = re.compile(r"^(\d{4})-(\d{2})(?:-(\d{2}))?")
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
@@ -57,12 +61,16 @@ def _fecha_accessioned(texto: str) -> Optional[datetime.date]:
         return None
 
 
-def _radicado(*candidatos: str) -> Optional[str]:
-    """Dígitos iniciales del primer candidato que los tenga: metadato radicado,
-    luego dc.title ("157594: …"), luego el nombre del PDF ("151064 ….pdf").
-    "137003Encargo fiduciario" → 137003; "4920/5468" → 4920."""
-    for texto in candidatos:
-        m = _RADICADO_RE.match(texto or "")
+def _radicado(metadato: str, *respaldos: str) -> Optional[str]:
+    """Radicado del Centro: dígitos iniciales del metadato propio
+    (dc.description.radicado: "137003Encargo fiduciario" → 137003, "4920/5468"
+    → 4920, "1133 V" → 1133); si no los tiene, un número inicial de 5-6
+    dígitos de dc.title ("157594: …") o del nombre del PDF ("151064 ….pdf")."""
+    m = _RADICADO_RE.match(metadato or "")
+    if m:
+        return str(int(m.group(1)))
+    for texto in respaldos:
+        m = _RADICADO_RESPALDO_RE.match(texto or "")
         if m:
             return str(int(m.group(1)))
     return None

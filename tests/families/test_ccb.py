@@ -327,3 +327,22 @@ def test_si_la_busqueda_llega_al_tope_de_paginas_lo_reporta_como_error(monkeypat
 
     assert [d.title for d in docs] == ["LA_CCB_159970_2026"]
     assert any("Error" in m and "2 páginas" in m for m in mensajes)
+
+
+def test_del_titulo_o_del_pdf_solo_vale_un_numero_de_5_o_6_digitos():
+    # Hallazgo de la revisión del PR #110: del título o del nombre del PDF se
+    # tomaba cualquier número inicial. "2019 Laudo…" o "1. Laudo…" daban
+    # LA_CCB_2019_2019 / LA_CCB_1_2020 como verificados y, como la CCB agrupa
+    # por radicado, juntaban laudos que no tienen nada que ver. El radicado del
+    # Centro tiene 5-6 dígitos (spec); el metadato propio se sigue aceptando
+    # como antes (allí vienen los raros de 4 dígitos, como 4920/5468).
+    assert _radicado("", "2019 Laudo arbitral X VS. Y") is None
+    assert _radicado("", "1. Laudo arbitral", "1 laudo.pdf") is None
+    assert _radicado("", "Laudo", "2020-laudo final.pdf") is None
+    assert _radicado("", "1234567 X") is None
+    # Lo válido sigue igual.
+    assert _radicado("", "157594: X VS. Y") == "157594"
+    assert _radicado("", "TRIBUNAL", "151064 ESTEFANIA.pdf") == "151064"
+    assert _radicado("", "15759 X") == "15759"
+    assert _radicado("4920/5468") == "4920"
+    assert _radicado("1133 V") == "1133"
