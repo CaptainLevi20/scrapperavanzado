@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import PurePosixPath
 from typing import Dict, List, Optional, Tuple
 
-from core.utils import is_radicado_title, is_samai_case_title, is_sic_canonical_title
+from core.utils import is_ccb_canonical_title, is_radicado_title, is_samai_case_title, is_sic_canonical_title
 
 
 def codigo_ley_decreto(letra: str, numero: str, anio: str) -> Optional[str]:
@@ -57,11 +57,14 @@ _FAMILIAS_CON_ACTUACIONES = {
     # La SIC publica a veces el mismo acto en varias fichas (archivos distintos):
     # se conservan todas como actuaciones del mismo código.
     "sic": is_sic_canonical_title,
+    # La CCB sube a veces dos PDF distintos del mismo radicado (laudo y su
+    # aclaración): actuaciones del mismo laudo, como en la SIC.
+    "ccb": is_ccb_canonical_title,
 }
 
 # Familias cuyo título ya trae el año: con una sola actuación no se le agrega
 # el sufijo "_AAAA" (sólo la fecha completa cuando hay más de una).
-_FAMILIAS_SIN_ANIO_SI_UNICA = {"sic"}
+_FAMILIAS_SIN_ANIO_SI_UNICA = {"sic", "ccb"}
 
 
 def es_familia_con_actuaciones(family_key: Optional[str], title: str) -> bool:

@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-26
 **Entidad:** Cámara de Comercio de Bogotá — Centro de Arbitraje y Conciliación (`ccb`, sigla `CCB`)
-**Estado:** borrador con las decisiones del usuario (2026-10-26, ver "Decisiones") — pendiente de aprobación del administrador antes de implementar
+**Estado:** aprobado por el administrador (2026-11-05) e implementado
 
 > El cliente pidió "laudos" y la CDMB no los emite (ver
 > `2026-10-21-fuente-cdmb-design.md`): vienen de las cámaras de comercio. La

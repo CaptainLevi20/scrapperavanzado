@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-26
 **Entidad:** Corporación Autónoma Regional del Centro de Antioquia (`corantioquia`, sigla `CORANT`)
-**Estado:** borrador con las decisiones del usuario (2026-10-26, ver "Decisiones") — pendiente de aprobación del administrador antes de implementar
+**Estado:** aprobado por el administrador (2026-11-05) e implementado
 
 > El enlace que dio el usuario (`https://www.corantioquia.gov.co/normativa-interna/`)
 > es una página WordPress/Elementor armada a mano: trae unos cuantos PDF

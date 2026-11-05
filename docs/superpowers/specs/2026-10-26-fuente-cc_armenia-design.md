@@ -3,7 +3,7 @@
 **Fecha:** 2026-10-26
 **Entidad:** Cámara de Comercio de Armenia y del Quindío — Centro de Conciliación,
 Arbitraje y Amigable Composición (`cc_armenia`, sigla `CCAQ`)
-**Estado:** borrador con las decisiones del usuario (2026-10-26, ver "Decisiones") — pendiente de aprobación del administrador antes de implementar
+**Estado:** aprobado por el administrador (2026-11-05) e implementado
 
 > El cliente pidió "laudos" al hablar de la CDMB; los laudos vienen de las
 > cámaras de comercio (ver `2026-10-21-fuente-cdmb-design.md`). Esta familia

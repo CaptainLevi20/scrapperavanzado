@@ -26,8 +26,10 @@ _VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net
 # cual, el endpoint de vista previa (que ramifica por content_type exacto) no
 # puede previsualizar ninguno. Cuando el servidor no envió un tipo real, se
 # deriva uno de la extensión del archivo (que el pipeline ya usa para la clave
-# de almacenamiento). Solo se aplica al caso octet-stream / vacío; un tipo real
-# enviado por el servidor pasa intacto.
+# de almacenamiento). Solo se aplica al caso octet-stream / vacío, o a un
+# `text/plain` cuando la extensión es una de las de abajo (Corantioquia sirve
+# sus PDF como `text/plain` con `filename=<id>.pdf`); un tipo real enviado por
+# el servidor pasa intacto.
 _EXT_TO_CONTENT_TYPE = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -216,9 +218,10 @@ class Downloader:
                     # Si el servidor no dio un tipo real (vacío) o mandó el
                     # genérico `application/octet-stream` (la Superfinanciera lo
                     # hace para todo), se normaliza a partir de la extensión ya
-                    # resuelta. Una extensión no mapeada deja el content_type
-                    # como estaba.
-                    if content_type == "" or content_type.lower() == "application/octet-stream":
+                    # resuelta. Un `text/plain` (Corantioquia) también, pero sólo
+                    # con una extensión mapeada: un .txt real sigue como texto.
+                    # Una extensión no mapeada deja el content_type como estaba.
+                    if content_type == "" or content_type.lower() in ("application/octet-stream", "text/plain"):
                         content_type = _EXT_TO_CONTENT_TYPE.get(
                             filename["extension"].lower(), content_type
                         )

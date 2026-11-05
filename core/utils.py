@@ -84,6 +84,15 @@ def is_sic_canonical_title(title: str) -> bool:
     return bool(SIC_CANONICAL_TITLE_PATTERN.match(title or ""))
 
 
+# Laudo de la Cámara de Comercio de Bogotá: LA_CCB_<radicado>_<año>. Dos PDF
+# distintos del mismo radicado y año son actuaciones del mismo proceso.
+CCB_CANONICAL_TITLE_PATTERN = re.compile(r"^LA_CCB_[0-9]+_[0-9]{4}(_A[0-9]{2})?$")
+
+
+def is_ccb_canonical_title(title: str) -> bool:
+    return bool(CCB_CANONICAL_TITLE_PATTERN.match(title or ""))
+
+
 def make_doc_id(key: str, f_public: str) -> str:
     return hashlib.sha1(f"{key}_{f_public}".encode()).hexdigest()
 

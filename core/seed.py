@@ -132,6 +132,25 @@ _FAMILIES = {
         "Resoluciones y acuerdos publicados en el sistema documental (GDI) de la "
         "Corporación Autónoma Regional para la Defensa de la Meseta de Bucaramanga",
     ),
+    "cc_armenia": (
+        "Cámara de Comercio de Armenia y del Quindío",
+        "Laudos arbitrales del Centro de Conciliación, Arbitraje y Amigable "
+        "Composición de la Cámara de Comercio de Armenia y del Quindío",
+    ),
+    "ccb": (
+        "Cámara de Comercio de Bogotá",
+        "Laudos arbitrales del Centro de Arbitraje y Conciliación de la Cámara de "
+        "Comercio de Bogotá",
+    ),
+    "corantioquia": (
+        "Corporación Autónoma Regional del Centro de Antioquia",
+        "Resoluciones y acuerdos publicados en el Boletín Oficial (e-SIRENA) de la "
+        "Corporación Autónoma Regional del Centro de Antioquia",
+    ),
+    "corporinoquia": (
+        "Corporación Autónoma Regional de la Orinoquía",
+        "Acuerdos del Consejo Directivo de la Corporación Autónoma Regional de la Orinoquía",
+    ),
 }
 
 
@@ -286,6 +305,22 @@ def seed_source_families_and_sources(db) -> None:
     repository.create_source_if_missing(
         db, family_key="cdmb",
         name="Corporación Autónoma Regional para la Defensa de la Meseta de Bucaramanga", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="cc_armenia", name="Cámara de Comercio de Armenia y del Quindío", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="ccb", name="Cámara de Comercio de Bogotá", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="corantioquia", name="Corporación Autónoma Regional del Centro de Antioquia", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="corporinoquia", name="Corporación Autónoma Regional de la Orinoquía", family_params={}
     )
 
 
