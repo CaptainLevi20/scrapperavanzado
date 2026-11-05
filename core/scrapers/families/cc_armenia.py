@@ -1,7 +1,7 @@
 import datetime
 import re
 from typing import Iterator, List, Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -82,7 +82,9 @@ def _filas(html: str, on_progress) -> Iterator[dict]:
             "demandante": _norm_texto(tds[1].get_text(" ", strip=True)),
             "demandado": _norm_texto(tds[2].get_text(" ", strip=True)),
             "fecha": _norm_texto(tds[3].get_text(" ", strip=True)),
-            "href": enlace["href"].strip(),
+            # Un href relativo (WordPress guarda lo que pegue el editor) se
+            # completa con el dominio de la página (revisión del PR #110).
+            "href": urljoin(_URL, enlace["href"].strip()),
         }
 
 
@@ -125,12 +127,17 @@ def _fila_a_doc(fila: dict, fini: str, ffin: str, hoy: datetime.date, on_progres
     )
 
 
-def _archivo_disponible(session, url: str) -> bool:
+def _archivo_no_existe(session, url: str) -> bool:
+    """True solo si el servidor dice claramente que el PDF no existe (404/410).
+    Cualquier otra cosa (405 si no acepta HEAD, 403 de un firewall, 5xx, un
+    corte de red) no es concluyente: el laudo se incluye y la descarga decide;
+    si falla, queda como error visible de la corrida en vez de saltarse en
+    silencio en todas las corridas (revisión del PR #110)."""
     try:
         resp = session.head(url, timeout=60, allow_redirects=True)
     except requests.RequestException:
         return False
-    return resp.status_code == 200
+    return resp.status_code in (404, 410)
 
 
 @register_family("cc_armenia")
@@ -174,9 +181,9 @@ class ScrapCcArmenia(BaseScrapper):
             vistos.add(url)
             # Una fila (20221111) enlaza a un PDF que da 404: se descarta aquí
             # en vez de fallar la descarga en cada corrida.
-            if not _archivo_disponible(session, url):
+            if _archivo_no_existe(session, url):
                 if on_progress:
-                    on_progress(f"[{_SOURCE}] Aviso: el PDF de {doc.title} no responde, se omite")
+                    on_progress(f"[{_SOURCE}] Aviso: el PDF de {doc.title} no existe en el sitio (404), se omite")
                 continue
             docs.append(doc)
             if len(docs) >= limit:

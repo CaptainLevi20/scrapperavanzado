@@ -986,6 +986,9 @@ Es seguro repetirlo.
   corrida y no se guardan: la del radicado 20220624 enlaza a una circular del
   Ministerio de Justicia en lugar del laudo, y la del 20221111 enlaza a un
   archivo que ya no existe. No es una falla de IURISYNC.
+  Solo se descarta un laudo cuando el sitio dice que su archivo no existe;
+  si el sitio está lento o no contesta, el laudo se intenta descargar igual
+  y, si falla, aparece como error de la corrida.
 - **Aviso de salud:** el último laudo es de enero de 2025, así que esta
   fuente aparecerá casi siempre en "fuentes que pueden estar fallando" (sin
   documentos en más de un año). Es esperado.
