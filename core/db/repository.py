@@ -7,7 +7,7 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, up
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, QuarantinedFile, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
 from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, SIC_CANONICAL_TITLE_PATTERN, matching_prefix_length
 
@@ -253,6 +253,14 @@ def set_run_source_status(db: Session, run_source_id: int, status: str, **fields
     for key, value in fields.items():
         setattr(run_source, key, value)
     db.commit()
+
+
+def add_quarantined_file(db: Session, **fields) -> QuarantinedFile:
+    registro = QuarantinedFile(**fields)
+    db.add(registro)
+    db.commit()
+    db.refresh(registro)
+    return registro
 
 
 def add_run_error(db: Session, run_source_id: int, message: str, context: Optional[dict] = None) -> RunError:

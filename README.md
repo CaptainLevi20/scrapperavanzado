@@ -6,7 +6,7 @@ Backend SaaS de scraping de fuentes jurídicas/administrativas colombianas. Reut
 
 1. `python -m venv .venv && .venv\Scripts\pip install -r requirements.txt`
 2. `copy .env.example .env`
-3. `docker compose up -d` (Postgres, Redis, MinIO)
+3. `docker compose up -d` (Postgres, Redis, MinIO y el antivirus ClamAV; la primera vez ClamAV tarda uno o dos minutos en bajar sus firmas)
 4. `docker compose exec postgres psql -U iurisync -d iurisync -c "CREATE DATABASE iurisync_test;"`
 5. `.venv\Scripts\alembic upgrade head`
 6. `.venv\Scripts\python -m core.seed` (puebla `source_families`/`sources`)
@@ -80,8 +80,12 @@ Office con macros. Además, cada descarga tiene un tope de tamaño
 de la descarga y el documento queda fallido. Cada documento, y cada versión
 archivada, guarda la huella digital SHA-256 de su archivo (`sha256`, calculada
 al descargar; para lo guardado antes, `python -m core.backfill_sha256`). Sirve
-para encontrar y rastrear un archivo que resulte malo. Todavía **no** hay
-antivirus: es el siguiente paso del plan de seguridad.
+para encontrar y rastrear un archivo que resulte malo. Por último, cada archivo
+pasa por el antivirus ClamAV (servicio `clamav` del docker-compose,
+`core/antivirus.py`) antes de guardarse: un infectado va al bucket de
+cuarentena (`quarantined_files`) y no se crea el documento, y si el antivirus
+no responde el documento no se guarda. En desarrollo hay que encenderlo con
+`docker compose up -d clamav`; en las pruebas está apagado por defecto.
 
 ## Agregar una fuente nueva
 

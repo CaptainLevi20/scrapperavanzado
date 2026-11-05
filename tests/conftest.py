@@ -26,6 +26,17 @@ def _sin_verificacion_de_archivos(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _sin_antivirus(monkeypatch):
+    # Las pruebas no tienen un ClamAV encendido: el antivirus se apaga por
+    # defecto. Las que lo ejercen lo encienden y simulan la respuesta
+    # (ver las pruebas de cuarentena en tests/test_tasks.py y tests/test_antivirus.py).
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "antivirus_habilitado", False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limits():
     from core.rate_limit import reset_rate_limits
 
