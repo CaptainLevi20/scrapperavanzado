@@ -18,7 +18,8 @@ from core.models import RawDocModel
 # descarga pasa verify=False a propósito (ver link["verify"]).
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from core.utils import extract_filename, is_safe_storage_key, storage_path
-from core.verificacion_archivos import verificar_archivo
+from core.config import get_settings
+from core.verificacion_archivos import ArchivoNoPermitido, verificar_archivo
 
 _VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net[^"]*)"')
 
@@ -131,6 +132,15 @@ class DownloadResult:
 
 
 class Downloader:
+    def __init__(self, max_bytes: int | None = None):
+        # Tope de tamaño por archivo (ver max_download_mb en core/config.py).
+        self.max_bytes = max_bytes if max_bytes is not None else get_settings().max_download_mb * 1024 * 1024
+
+    def _error_por_tamano(self, url: str) -> ArchivoNoPermitido:
+        return ArchivoNoPermitido(
+            f"El archivo supera el tamaño máximo permitido ({self.max_bytes // (1024 * 1024)} MB): {url}"
+        )
+
     @staticmethod
     def _resolve_jwt_indirect(jwt_url: str, headers: dict) -> requests.Response:
         session = requests.Session()
@@ -233,13 +243,29 @@ class Downloader:
                         # every other document expects to live.
                         raise ValueError(f"Clave de almacenamiento no segura: {storage_key!r}")
 
+                    # Si el sitio anuncia un tamaño mayor al tope, ni se empieza.
+                    anunciado = r.headers.get("Content-Length", "")
+                    if anunciado.isdigit() and int(anunciado) > self.max_bytes:
+                        raise self._error_por_tamano(doc.link["url"])
+
                     temp_path = tmp_dir / f"{uuid.uuid4().hex}{filename['extension']}"
-                    with open(temp_path, "wb") as f:
-                        for chunk in r.iter_content(8192):
-                            if stop_event is not None and getattr(stop_event, "is_set", lambda: False)():
-                                raise InterruptedError("Descarga cancelada")
-                            if chunk:
-                                f.write(chunk)
+                    recibidos = 0
+                    try:
+                        with open(temp_path, "wb") as f:
+                            for chunk in r.iter_content(8192):
+                                if stop_event is not None and getattr(stop_event, "is_set", lambda: False)():
+                                    raise InterruptedError("Descarga cancelada")
+                                if chunk:
+                                    # El tamaño anunciado puede faltar o ser falso:
+                                    # se cuenta lo que de verdad llega y se corta
+                                    # apenas pasa el tope.
+                                    recibidos += len(chunk)
+                                    if recibidos > self.max_bytes:
+                                        raise self._error_por_tamano(doc.link["url"])
+                                    f.write(chunk)
+                    except ArchivoNoPermitido:
+                        temp_path.unlink(missing_ok=True)
+                        raise
                 break
             except _TRANSIENT_ERRORS as e:
                 last_exc = e

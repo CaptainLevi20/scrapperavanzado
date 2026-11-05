@@ -383,6 +383,7 @@ No tienes acceso directo al servidor de producción; lo hace el administrador:
 | El listado llega vacío desde Python pero en el navegador se ve | Falta una cabecera (idioma, `User-Agent`), una cookie o el sitio carga por JavaScript. |
 | Error de certificado SSL | Cadena incompleta en el sitio: evalúa `verify=False` solo para ese host y documéntalo. |
 | Documentos fallidos con "Tipo de archivo no permitido", "trae macros" o "dañado" | La verificación del tipo real rechazó el archivo (ver sección 1). Revisa qué entrega de verdad el enlace antes de pensar en ampliar los formatos permitidos. |
+| Documentos fallidos con "supera el tamaño máximo permitido" | El archivo pasa el tope `MAX_DOWNLOAD_MB` (300 MB por defecto). Confirma que el archivo es legítimo antes de subir el tope en `.env.production`. |
 | Una prueba de descarga nueva no rechaza un archivo inválido | En las pruebas la verificación está apagada por defecto (`tests/conftest.py`); márcala con `@pytest.mark.verificar_archivos`. |
 | Corridas "pendientes" que no avanzan | Una tarea anterior quedó colgada en el worker local; reinícialo y limpia la cola de Redis. |
 

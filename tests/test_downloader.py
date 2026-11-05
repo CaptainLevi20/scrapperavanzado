@@ -547,3 +547,70 @@ def test_check_remote_content_length_verify_defaults_to_true(monkeypatch):
 
     check_remote_content_length("https://x/f.pdf")
     assert captured.get("verify", True) is True
+
+
+# --- Tope de tamaño de las descargas ----------------------------------------
+# Un archivo enorme (por error del sitio o a propósito) no debe poder llenar el
+# disco del servidor: la descarga se corta apenas pasa el tope y el temporal se
+# borra. Se configura con MAX_DOWNLOAD_MB (ver core/config.py).
+
+from core.verificacion_archivos import ArchivoNoPermitido
+
+
+@responses.activate
+def test_download_rechaza_sin_descargar_si_el_servidor_anuncia_un_tamano_mayor_al_tope(tmp_path):
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"x" * 50, headers={"Content-Type": "application/pdf", "Content-Length": "5000"}, status=200,
+    )
+
+    with pytest.raises(ArchivoNoPermitido, match="tamaño máximo"):
+        Downloader(max_bytes=1000).download(_doc(), tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@responses.activate
+def test_download_corta_y_borra_el_temporal_si_el_archivo_pasa_el_tope_sin_anunciarlo(tmp_path):
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"x" * 5000, headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    with pytest.raises(ArchivoNoPermitido, match="tamaño máximo"):
+        Downloader(max_bytes=1000).download(_doc(), tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@responses.activate
+def test_download_no_reintenta_un_archivo_que_pasa_el_tope(tmp_path):
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"x" * 5000, headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    with pytest.raises(ArchivoNoPermitido):
+        Downloader(max_bytes=1000).download(_doc(), tmp_path)
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_download_acepta_un_archivo_justo_en_el_tope(tmp_path):
+    responses.add(
+        responses.GET, "https://example.com/file.pdf",
+        body=b"x" * 1000, headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    result = Downloader(max_bytes=1000).download(_doc(), tmp_path)
+
+    assert result.file_size_bytes == 1000
+
+
+def test_el_tope_por_defecto_sale_de_la_configuracion(monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "max_download_mb", 7)
+
+    assert Downloader().max_bytes == 7 * 1024 * 1024
