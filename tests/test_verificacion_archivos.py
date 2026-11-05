@@ -99,6 +99,37 @@ def test_rechaza_lo_que_no_es_un_documento_permitido(tmp_path, contenido, motivo
         verificar_archivo(_escribir(tmp_path, contenido))
 
 
+def test_un_zip_de_soportes_con_archivos_que_crea_el_sistema_se_acepta(tmp_path):
+    # Caso real de producción (Tribunal Superior de Boyacá, 119 ZIP): carpetas
+    # comprimidas en Windows traen un desktop.ini; las de Mac, .DS_Store y
+    # __MACOSX/. Los crea el sistema operativo solo, no son documentos.
+    contenido = _zip(
+        {
+            "Soportes/estado.pdf": _PDF_VALIDO,
+            "Soportes/desktop.ini": b"[.ShellClassInfo]",
+            "Soportes/2025-1260/Desktop.ini": b"[.ShellClassInfo]",
+            "Soportes/Thumbs.db": b"\x00",
+            "Soportes/.DS_Store": b"\x00",
+            "__MACOSX/Soportes/._estado.pdf": b"\x00",
+        }
+    )
+    assert verificar_archivo(_escribir(tmp_path, contenido)) == "zip"
+
+
+def test_ignorar_los_archivos_del_sistema_no_deja_pasar_lo_demas(tmp_path):
+    contenido = _zip({"Soportes/desktop.ini": b"[.ShellClassInfo]", "Soportes/abrir.exe": b"MZ"})
+    with pytest.raises(ArchivoNoPermitido, match="abrir.exe"):
+        verificar_archivo(_escribir(tmp_path, contenido))
+
+
+def test_un_rar_se_rechaza_porque_no_se_puede_revisar_por_dentro(tmp_path):
+    # Caso real de producción (Tribunal Superior de Antioquia): listas de
+    # estados en RAR. Python no puede abrir un RAR para revisar qué trae; se
+    # decidió rechazarlos hasta tener antivirus.
+    with pytest.raises(ArchivoNoPermitido, match="no permitido"):
+        verificar_archivo(_escribir(tmp_path, b"Rar!\x1a\x07\x01\x00" + b"\x00" * 32, nombre="estados.rar"))
+
+
 def test_un_programa_con_extension_pdf_se_rechaza(tmp_path):
     # La extensión no cuenta: lo que manda es el contenido.
     with pytest.raises(ArchivoNoPermitido):

@@ -82,7 +82,10 @@ republicación, el almacenamiento y la interfaz ya están resueltos.
 La descarga también **comprueba el tipo real de cada archivo** antes de
 guardarlo (`core/verificacion_archivos.py`). Solo se aceptan PDF, Word
 (DOC/DOCX), Excel (XLS/XLSX), RTF, TIFF y ZIP de anexos que contengan
-únicamente esos formatos. Se rechazan los archivos dañados, por ejemplo
+únicamente esos formatos. Dentro de un ZIP se ignoran los archivos que
+crea el sistema operativo (`desktop.ini`, `Thumbs.db`, `.DS_Store`,
+`__MACOSX/`). Los RAR se rechazan porque no se pueden revisar por
+dentro. Se rechazan los archivos dañados, por ejemplo
 un PDF cortado o un ZIP ilegible, y los documentos de Office con macros.
 Esto aplica aunque el sitio declare otro tipo o el nombre tenga otra
 extensión. Un archivo rechazado deja el documento como fallido en la

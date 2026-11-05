@@ -37,6 +37,16 @@ _PDF_BUSCAR_FINAL = 4096
 
 _EXTENSIONES_PERMITIDAS_EN_ZIP = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".rtf", ".tif", ".tiff"}
 
+# Archivos que el sistema operativo crea solo al comprimir una carpeta: no son
+# documentos y se pasan por alto dentro de un ZIP. En producción, 119 ZIP de
+# soportes del Tribunal Superior de Boyacá traían un desktop.ini (2026-11-05).
+_ARCHIVOS_DEL_SISTEMA = {"desktop.ini", "thumbs.db", ".ds_store"}
+
+
+def _es_archivo_del_sistema(nombre: str) -> bool:
+    ruta = PurePosixPath(nombre)
+    return ruta.name.lower() in _ARCHIVOS_DEL_SISTEMA or (ruta.parts and ruta.parts[0] == "__MACOSX")
+
 
 class ArchivoNoPermitido(ValueError):
     """El archivo descargado no es un documento permitido, está dañado o trae macros."""
@@ -105,6 +115,8 @@ def _verificar_zip(ruta: Path, sufijo: str) -> str:
 
     # ZIP de anexos: cada archivo de adentro debe ser de un formato permitido.
     for nombre in nombres:
+        if _es_archivo_del_sistema(nombre):
+            continue
         if PurePosixPath(nombre).suffix.lower() not in _EXTENSIONES_PERMITIDAS_EN_ZIP:
             raise ArchivoNoPermitido(
                 f"El archivo comprimido contiene un archivo no permitido ({nombre}){sufijo}"
