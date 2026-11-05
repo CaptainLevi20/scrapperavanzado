@@ -660,7 +660,10 @@ def orchestrate_run(run_id: int, source_ids: list[int] | None = None):
     db = SessionLocal()
     try:
         repository.set_run_status(db, run_id, "running", started_at=datetime.now(timezone.utc))
-        sources = repository.list_sources(db, active=True)
+        # limit=None: TODAS las fuentes activas. Con el tamaño de página por
+        # defecto (100), al pasar de 100 fuentes la corrida dejaba fuera las de
+        # id más alto sin avisar (revisión del PR #110).
+        sources = repository.list_sources(db, active=True, limit=None)
         if source_ids:
             wanted = set(source_ids)
             sources = [s for s in sources if s.id in wanted]

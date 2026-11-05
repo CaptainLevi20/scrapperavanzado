@@ -84,9 +84,11 @@ def list_sources(
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
     has_documents: Optional[bool] = None,
-    limit: int = 100,
+    limit: Optional[int] = 100,
     offset: int = 0,
 ) -> list[Source]:
+    # limit=None trae todas: lo usan quienes necesitan la lista completa (la
+    # corrida), no una página para mostrar.
     stmt = select(Source)
     if id is not None:
         stmt = stmt.where(Source.id == id)
@@ -97,7 +99,9 @@ def list_sources(
     if has_documents is not None:
         has_docs_clause = exists().where(Document.source_id == Source.id)
         stmt = stmt.where(has_docs_clause if has_documents else ~has_docs_clause)
-    stmt = stmt.order_by(Source.id).limit(limit).offset(offset)
+    stmt = stmt.order_by(Source.id).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.scalars(stmt).all())
 
 
