@@ -97,6 +97,9 @@ class DocumentOut(BaseModel):
     storage_key: str
     content_type: Optional[str] = None
     file_size_bytes: Optional[int] = None
+    # Huella digital SHA-256 del archivo (null en lo guardado antes de 2026-11-05
+    # hasta que corra core.backfill_sha256).
+    sha256: Optional[str] = None
     review_status: str
     reviewed_at: Optional[datetime] = None
     downloaded_at: datetime
@@ -166,6 +169,7 @@ class DocumentVersionOut(BaseModel):
     nombre: str
     file_size_bytes: Optional[int] = None
     content_type: Optional[str] = None
+    sha256: Optional[str] = None
     downloaded_at: datetime
     superseded_at: datetime
 
