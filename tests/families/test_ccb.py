@@ -128,7 +128,9 @@ def test_item_a_documento():
     assert doc.tipo == "Laudo arbitral"
     assert doc.f_providencia == "2026-05-29"
     assert doc.f_public == "2026-10-01"
-    assert doc.link == {"url": f"{_API}/core/bitstreams/b1/content", "method": "GET"}
+    assert doc.link == {
+        "url": f"{_API}/core/bitstreams/b1/content", "method": "GET", "body": {"path": "ccb-md5:md5-1"},
+    }
     assert doc.detalle == "159970: MANUFACTURAS TERPIEL SAS VS. MOLASASA COL SAS"
     assert doc.title_unverified is False
     assert doc.save_path.startswith(f"{_SOURCE}/2026-05-29/Laudo arbitral/LA_CCB_159970_2026_h")
@@ -346,3 +348,42 @@ def test_del_titulo_o_del_pdf_solo_vale_un_numero_de_5_o_6_digitos():
     assert _radicado("", "15759 X") == "15759"
     assert _radicado("4920/5468") == "4920"
     assert _radicado("1133 V") == "1133"
+
+
+@responses.activate
+def test_el_mismo_pdf_subido_dos_veces_en_corridas_distintas_tiene_la_misma_identidad():
+    # Hallazgo de la revisión del PR #110: el descarte por MD5 solo funcionaba
+    # dentro de una corrida (md5_vistos es local a scrap()). Si las dos copias
+    # del mismo PDF (ítems 11520/29990 y 11520/29987 del diseño) se suben en
+    # días distintos, cada una llega en otra corrida, con otra URL y otro
+    # doc_id, y se guardaba dos veces. La identidad del documento sale ahora
+    # del MD5 del PDF: la segunda copia se reconoce como ya guardada.
+    from core.utils import compute_doc_id
+
+    _listado([_item("i1", accessioned="2026-03-01T10:00:00Z")], fini="2026-03-01", ffin="2026-03-31")
+    _listado([_item("i2", accessioned="2026-04-15T10:00:00Z")], fini="2026-04-01", ffin="2026-04-30")
+    _archivos("i1", _bitstream("b1", "ABC123"))
+    _archivos("i2", _bitstream("b2", "abc123"))
+
+    [primero] = _scrap("2026-03-01", "2026-03-31")
+    [segundo] = _scrap("2026-04-01", "2026-04-30")
+
+    usa_fecha = ScrapCcb.doc_id_uses_publication_date
+    assert primero.link["url"] != segundo.link["url"]
+    assert compute_doc_id(primero, usa_fecha) == compute_doc_id(segundo, usa_fecha)
+
+
+@responses.activate
+def test_pdfs_distintos_tienen_identidades_distintas_y_sin_md5_se_usa_el_archivo():
+    from core.utils import compute_doc_id
+
+    _listado([_item("i1"), _item("i2"), _item("i3"), _item("i4")])
+    _archivos("i1", _bitstream("b1", "md5-1"))
+    _archivos("i2", _bitstream("b2", "md5-2"))
+    _archivos("i3", _bitstream("b3", ""))
+    _archivos("i4", _bitstream("b4", ""))
+
+    docs = _scrap()
+
+    usa_fecha = ScrapCcb.doc_id_uses_publication_date
+    assert len({compute_doc_id(d, usa_fecha) for d in docs}) == 4

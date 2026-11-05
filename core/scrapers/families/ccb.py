@@ -150,6 +150,10 @@ class ScrapCcb(BaseScrapper):
     # HEAD sobre /bitstreams/{uuid}/content responde JSON con Content-Length 1:
     # el chequeo de republicación por tamaño volvería a bajar todo.
     checks_for_republication = False
+    # La identidad sale del MD5 del PDF (ver link.body.path en _docs_de_item),
+    # no de la fecha de subida: dos copias subidas en fechas distintas son el
+    # mismo documento.
+    doc_id_uses_publication_date = False
     # Margen por si el índice de búsqueda tarda en reflejar un ítem archivado.
     scheduled_min_lookback_days = 7
     # Sube por tandas, con meses enteros sin nada.
@@ -257,9 +261,15 @@ class ScrapCcb(BaseScrapper):
                 nombre_archivo = f"{title}_h{h}"
             else:
                 nombre_archivo = title
+            # Identidad del documento (link.body.path, como en constitucional o
+            # rama_judicial): el MD5 del PDF. El mismo PDF subido dos veces
+            # (ítems distintos, URL distinta) se reconoce como ya guardado
+            # aunque llegue en otra corrida; md5_vistos solo cubre la misma
+            # corrida (revisión del PR #110). Sin MD5, el id del archivo.
+            identidad = f"ccb-md5:{md5}" if md5 else f"ccb-bitstream:{bit_uuid}"
             docs.append(RawDocModel(
                 source=_SOURCE,
-                link={"url": url, "method": "GET"},
+                link={"url": url, "method": "GET", "body": {"path": identidad}},
                 title=title,
                 tipo=_TIPO,
                 f_public=iso_subida,
