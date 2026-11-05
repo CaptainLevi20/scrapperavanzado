@@ -232,6 +232,32 @@ def test_sic_version_de_acto_unico():
     assert nombre_documento(doc, "sic", tiene_actuaciones=False) == "R_SIC_10352_2026-v2"
 
 
+# --- CCB: dos PDF distintos del mismo radicado = actuaciones del laudo -------
+
+@pytest.mark.parametrize("titulo", ["LA_CCB_142529_2025", "LA_CCB_4920_2016", "LA_CCB_159970_2026_A01"])
+def test_ccb_titulos_canonicos_tienen_actuaciones(titulo):
+    assert es_familia_con_actuaciones("ccb", titulo)
+
+
+@pytest.mark.parametrize("titulo", [
+    "TRIBUNAL ARBITRAL DE CONSTRUCTORA X VS. Y", "LA_CCB_142529", "LA_CCAQ_20230515_2024",
+])
+def test_ccb_titulos_de_respaldo_no_tienen_actuaciones(titulo):
+    assert not es_familia_con_actuaciones("ccb", titulo)
+
+
+def test_ccb_laudo_unico_no_lleva_sufijo_de_anio():
+    doc = _doc_sic("LA_CCB_142529_2025", date(2025, 6, 10))
+    assert nombre_documento(doc, "ccb", tiene_actuaciones=False) == "LA_CCB_142529_2025"
+
+
+def test_ccb_dos_actuaciones_llevan_fecha_del_laudo():
+    laudo = _doc_sic("LA_CCB_142529_2025", date(2025, 6, 10))
+    aclaracion = _doc_sic("LA_CCB_142529_2025", date(2025, 8, 13))
+    assert nombre_documento(laudo, "ccb", tiene_actuaciones=True) == "LA_CCB_142529_2025_20250610"
+    assert nombre_documento(aclaracion, "ccb", tiene_actuaciones=True) == "LA_CCB_142529_2025_20250813"
+
+
 def test_tribunales_siguen_llevando_el_anio_con_actuacion_unica():
     doc = _doc_sic("T_CUND_25269_33_33_001_2025_00051_01", date(2026, 3, 15))
     assert nombre_documento(doc, "rama_judicial", tiene_actuaciones=False) == "T_CUND_25269_33_33_001_2025_00051_01_2026"

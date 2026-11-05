@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-26
 **Entidad:** Corporación Autónoma Regional de la Orinoquía (`corporinoquia`, sigla `CORPORINOQUIA`)
-**Estado:** borrador con las decisiones del usuario (2026-10-26, ver "Decisiones") — pendiente de aprobación del administrador antes de implementar.
+**Estado:** aprobado por el administrador (2026-11-05) e implementado
 v1 sólo acuerdos; resoluciones pendientes hasta que el ScriptCase responda.
 
 > El enlace que dio el usuario

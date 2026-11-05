@@ -18,26 +18,38 @@ _MESES = {
 # como escribe a veces la Superintendencia del Subsidio Familiar). El conector
 # entre el mes y el año admite "de" o "del" ("... del año dos mil veintiséis
 # (2026)").
-_PATRON = re.compile(
-    r"\(?\s*(\d{1,2})\s*\)?\s+"
+#
+# El día no puede ser el final de otro número: en "200.3-2-25-012 DE MARZO
+# 2025" el 012 es el número de un acuerdo, no el día 12.
+#
+# El conector entre el mes y el año puede faltar ("06 DE MARZO 2017", "05 ENERO
+# 2026": Cámara de Comercio de Armenia y Corporinoquia), pero solo si la fuente
+# lo pide (anio_sin_conector=True): en general es peligroso, porque "Boletín
+# No 12 Diciembre 2025" (MinSalud) se leería como el 12 de diciembre.
+_DIA_Y_MES = (
+    r"\(?\s*(?<!\d)(\d{1,2})\s*\)?\s+"
     r"(?:(?:d[ií]as?\s+del\s+mes\s+de|de)\s+)?"
     r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
-    r"\s+del?\s+[^\d]{0,40}?\(?\s*(\d{4})",
-    re.IGNORECASE,
+)
+_PATRON = re.compile(_DIA_Y_MES + r"\s+del?\s+[^\d]{0,40}?\(?\s*(\d{4})", re.IGNORECASE)
+_PATRON_ANIO_SIN_CONECTOR = re.compile(
+    _DIA_Y_MES + r"\s+(?:del?\s+)?[^\d]{0,40}?\(?\s*(\d{4})", re.IGNORECASE
 )
 
 
-def parse_fecha_providencia_es(texto: str) -> Optional[date]:
+def parse_fecha_providencia_es(texto: str, anio_sin_conector: bool = False) -> Optional[date]:
     """Extrae la primera fecha de providencia de un texto en español. Acepta el
     día en dígitos ("8 de mayo de 2026"), en letras con el número entre
     paréntesis ("diez (10) de agosto de dos mil veintiséis (2026)") y la forma
     formal de cierre ("a los diez (10) días del mes de agosto del año dos mil
     veintiséis (2026)"). Tolera saltos de línea. Devuelve None si no encuentra
-    una fecha válida."""
+    una fecha válida. Con anio_sin_conector=True acepta también el año sin "de"
+    ("06 DE MARZO 2017"); ver el comentario de _PATRON."""
     if not texto:
         return None
     normalizado = re.sub(r"\s+", " ", texto)
-    for m in _PATRON.finditer(normalizado):
+    patron = _PATRON_ANIO_SIN_CONECTOR if anio_sin_conector else _PATRON
+    for m in patron.finditer(normalizado):
         dia = int(m.group(1))
         mes = _MESES[m.group(2).lower()]
         anio = int(m.group(3))

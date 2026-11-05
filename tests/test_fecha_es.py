@@ -56,3 +56,29 @@ def test_sin_de_entre_dia_y_mes():
     assert parse_fecha_providencia_es("Resolución 0789 del 31 marzo de 2026") == date(2026, 3, 31)
     # La forma canónica "con de" sigue funcionando.
     assert parse_fecha_providencia_es("Resolución 0789 del 31 de marzo de 2026") == date(2026, 3, 31)
+
+
+def test_mes_y_anio_sin_conector():
+    # Cámara de Comercio de Armenia y Corporinoquia (PR #110) escriben a veces
+    # el año sin "de": cada una tenía su propia copia del lector de fechas
+    # para eso. Ahora lo entiende el lector común.
+    # Solo si la fuente lo pide: en general es peligroso (ver la prueba de abajo).
+    assert parse_fecha_providencia_es("06 DE MARZO 2017", anio_sin_conector=True) == date(2017, 3, 6)
+    assert parse_fecha_providencia_es("ACUERDO 200.3-2-26-001 DEL 05 ENERO 2026", anio_sin_conector=True) == date(2026, 1, 5)
+    assert parse_fecha_providencia_es("200.3.2-25-004 08 DE ABRIL 2025", anio_sin_conector=True) == date(2025, 4, 8)
+
+
+def test_sin_pedirlo_el_anio_sin_conector_no_se_acepta():
+    # MinSalud: "Boletín Jurídico No 12 Diciembre 2025" — el 12 es el número
+    # del boletín, no el día. Por eso el año sin "de" es una opción de cada
+    # fuente y no el comportamiento general.
+    assert parse_fecha_providencia_es("Boletín Jurídico No 12 Diciembre 2025") is None
+    assert parse_fecha_providencia_es("06 DE MARZO 2017") is None
+
+
+def test_el_dia_no_sale_del_final_de_otro_numero():
+    # "-012 DE MARZO" es el número de un acuerdo, no el día 12 (protección que
+    # tenía la copia de Corporinoquia).
+    assert parse_fecha_providencia_es("ACUERDO 200.3-2-25-012 DE MARZO 2025", anio_sin_conector=True) is None
+    assert parse_fecha_providencia_es("Acuerdo 012 de marzo de 2025") is None
+    assert parse_fecha_providencia_es("2876 de 14 de octubre de 2026") == date(2026, 10, 14)

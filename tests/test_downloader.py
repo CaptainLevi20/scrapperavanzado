@@ -200,6 +200,62 @@ def test_download_does_not_override_a_real_server_content_type_using_the_extensi
 
 
 @responses.activate
+def test_download_normalizes_text_plain_content_type_to_pdf_from_filename_extension(tmp_path):
+    """Corantioquia (e-SIRENA) sirve sus PDF con `Content-Type: text/plain` y
+    `filename=<id>.pdf`. Guardado tal cual, quedarían sin vista previa."""
+    responses.add(
+        responses.GET,
+        "https://example.com/CtrlPublicaciones?ctrlAction=D&doc=2483007",
+        body=b"%PDF-1.6 contenido",
+        headers={
+            "Content-Type": "text/plain",
+            "Content-Disposition": "attachment; filename=2483007.pdf",
+        },
+        status=200,
+    )
+    result = Downloader().download(
+        _doc(url="https://example.com/CtrlPublicaciones?ctrlAction=D&doc=2483007"), tmp_path
+    )
+
+    assert result.content_type == "application/pdf"
+    assert result.local_path.suffix == ".pdf"
+
+
+@responses.activate
+def test_download_leaves_text_plain_content_type_untouched_for_a_real_text_file(tmp_path):
+    responses.add(
+        responses.GET,
+        "https://example.com/notas",
+        body=b"texto plano",
+        headers={
+            "Content-Type": "text/plain",
+            "Content-Disposition": 'attachment; filename="notas.txt"',
+        },
+        status=200,
+    )
+    result = Downloader().download(_doc(url="https://example.com/notas"), tmp_path)
+
+    assert result.content_type == "text/plain"
+
+
+@responses.activate
+def test_download_does_not_override_a_real_msword_content_type_using_the_extension(tmp_path):
+    responses.add(
+        responses.GET,
+        "https://example.com/loader.php?id=5",
+        body=b"\xd0\xcf\x11\xe0 contenido",
+        headers={
+            "Content-Type": "application/msword",
+            "Content-Disposition": 'attachment; filename="x.pdf"',
+        },
+        status=200,
+    )
+    result = Downloader().download(_doc(url="https://example.com/loader.php?id=5"), tmp_path)
+
+    assert result.content_type == "application/msword"
+
+
+@responses.activate
 def test_download_post_sends_json_body(tmp_path):
     responses.add(
         responses.POST,

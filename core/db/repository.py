@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, aliased
 
 from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, QuarantinedFile, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
-from core.utils import MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, SIC_CANONICAL_TITLE_PATTERN, matching_prefix_length
+from core.utils import CCB_CANONICAL_TITLE_PATTERN, MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, SIC_CANONICAL_TITLE_PATTERN, matching_prefix_length
 
 _LIKE_ESCAPE_CHAR = "\\"
 
@@ -27,6 +27,8 @@ _CASE_GROUPING_FAMILY_PATTERNS = {
     "samai": [SAMAI_CASE_TITLE_PATTERN, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN],
     # el mismo acto de la SIC publicado en varias fichas (ver core/naming.py)
     "sic": [SIC_CANONICAL_TITLE_PATTERN],
+    # laudo y aclaración del mismo radicado en la CCB
+    "ccb": [CCB_CANONICAL_TITLE_PATTERN],
 }
 
 
@@ -82,9 +84,11 @@ def list_sources(
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
     has_documents: Optional[bool] = None,
-    limit: int = 100,
+    limit: Optional[int] = 100,
     offset: int = 0,
 ) -> list[Source]:
+    # limit=None trae todas: lo usan quienes necesitan la lista completa (la
+    # corrida), no una página para mostrar.
     stmt = select(Source)
     if id is not None:
         stmt = stmt.where(Source.id == id)
@@ -95,7 +99,9 @@ def list_sources(
     if has_documents is not None:
         has_docs_clause = exists().where(Document.source_id == Source.id)
         stmt = stmt.where(has_docs_clause if has_documents else ~has_docs_clause)
-    stmt = stmt.order_by(Source.id).limit(limit).offset(offset)
+    stmt = stmt.order_by(Source.id).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.scalars(stmt).all())
 
 

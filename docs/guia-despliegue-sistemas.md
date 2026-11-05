@@ -890,7 +890,8 @@ Es seguro repetirlo.
   descarga de los PDF.
 - **Qué no trae:** autos (se dejaron fuera por pedido), las notificaciones y
   normas del portal nuevo, y nada anterior a 2025. Los laudos arbitrales no
-  son de la CDMB: vienen de las cámaras de comercio.
+  son de la CDMB: vienen de las cámaras de comercio (fuentes `cc_armenia` y
+  `ccb`).
 - **Cómo quedan nombrados:** `R_CDMB_1298_2026`, `R_CDMB_0045_2025`,
   `A_CDMB_1511_2026`. Los acuerdos tienen numeración corrida (no vuelve a 1
   cada año); el año del nombre sale de la fecha del acuerdo.
@@ -905,6 +906,134 @@ Es seguro repetirlo.
 - **Detalle técnico:** el servidor es antiguo y sólo funciona por `http`
   (sin cifrado; son documentos públicos). Si algún día se cae o la entidad lo
   reemplaza, la corrida dará 0 documentos o un error de sección.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Corporación Autónoma Regional del Centro de Antioquia (`corantioquia`)
+
+- **Qué trae:** **resoluciones** y **acuerdos** de Corantioquia, de 2025 en
+  adelante, tomados del Boletín Oficial de su sistema de trámites (e-SIRENA,
+  `sirena.corantioquia.gov.co`), que es a donde lleva la página "Normativa
+  interna" del portal para cada año. Entran todas las resoluciones, sin
+  filtrar por tema ni dependencia.
+- **Cuánto entrega:** del orden de 2.600 resoluciones y 25 acuerdos al año
+  (unos 230 documentos al mes). Casi todas las resoluciones son actos
+  individuales de trámite ambiental: permisos de vertimiento, concesiones de
+  aguas, sancionatorios, archivos de expediente.
+- **Qué no trae:** autos ("acto administrativo" en el boletín), edictos,
+  notificaciones por aviso, anexos de los actos (hoy ninguno trae), los PDF
+  sueltos de la página de WordPress y nada anterior a 2025.
+- **Cómo quedan nombrados:** `R_CORANT_3892_2026`, `A_CORANT_0084_2026`. El
+  número es el consecutivo anual del radicado de e-SIRENA
+  (`040-RES2610-3892`), común a todas las dependencias.
+- **Fechas:** la de publicación es la del boletín en que salió el acto; la
+  del acto es su fecha de radicación. La corrida se hace por fecha de
+  boletín, así que un acto publicado meses después de expedido entra igual en
+  la corrida diaria del día en que sale. Los actos anteriores a 2025 que el
+  boletín vuelve a publicar se descartan.
+  Si un acto de 2025 en adelante ya guardado vuelve a salir en un boletín
+  posterior, se reconoce como el mismo documento y no se guarda dos veces.
+- **Detalle técnico:** el servidor de Corantioquia entrega su certificado sin
+  la cadena completa, así que la conexión a ese sitio se hace sin verificar
+  el certificado (son documentos públicos). Sus PDF llegan marcados como
+  "texto"; IURISYNC los reconoce por la extensión y los guarda como PDF, con
+  vista previa.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Corporación Autónoma Regional de la Orinoquía (`corporinoquia`)
+
+- **Qué trae:** sólo los **acuerdos del Consejo Directivo**, de 2025 en
+  adelante, de la página "Acuerdos aprobados por el Consejo Directivo" del
+  portal. Cada acuerdo está en Google Drive y se descarga desde allí.
+- **Cuánto entrega:** pocos: 17 acuerdos de 2025 y 13 de 2026 (prueba del
+  5-nov-2026). Uno o dos al mes.
+- **Qué no trae (todavía):** las **resoluciones y autos** de la entidad. Están
+  en un sistema aparte que no responde (ni desde la oficina ni desde el
+  navegador); quedan para una segunda entrega cuando la entidad lo
+  restablezca. Tampoco: normas nacionales republicadas, circulares,
+  reglamentos, estatutos ni la lista manual de "Actos Administrativos
+  Internos".
+- **Cómo quedan nombrados:** `A_CORPORINOQUIA_0001_2026`. La numeración de
+  los acuerdos vuelve a 1 cada año; el año sale de la fecha del acuerdo.
+- **Fechas:** la del acuerdo (la página no tiene otra fiable). La entidad lo
+  publica a veces semanas después, así que la corrida diaria mira 60 días
+  atrás.
+- **Datos del sitio con errores:** la lista se edita a mano y el formato del
+  texto cambia; un acuerdo que no se pueda leer sale como aviso ("sin
+  código", "sin fecha") en la pantalla de la corrida. Si Google Drive no
+  entrega un archivo (borrado, privado o con límite de descargas), aparece
+  como error de descarga.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Cámara de Comercio de Armenia y del Quindío (`cc_armenia`)
+
+- **Qué trae:** los **laudos arbitrales** del Centro de Conciliación,
+  Arbitraje y Amigable Composición, de la pestaña "Laudos" de su página de
+  arbitraje. Todos, desde 2006.
+- **Cuánto entrega:** 12 laudos (de 14 filas de la tabla; prueba del
+  5-nov-2026). Casi nunca hay nuevos.
+- **Cómo quedan nombrados:** `LA_CCAQ_20230515_2024` — radicado del Centro y
+  año del laudo. Las partes (demandante vs demandado) van en el detalle.
+- **Fechas:** la del laudo. El sitio no dice cuándo se publicó cada uno, y
+  como la tabla entera llega en una sola consulta, la corrida diaria la
+  revisa completa desde 2006.
+- **Datos del sitio con errores:** dos filas salen como aviso en cada
+  corrida y no se guardan: la del radicado 20220624 enlaza a una circular del
+  Ministerio de Justicia en lugar del laudo, y la del 20221111 enlaza a un
+  archivo que ya no existe. No es una falla de IURISYNC.
+  Solo se descarta un laudo cuando el sitio dice que su archivo no existe;
+  si el sitio está lento o no contesta, el laudo se intenta descargar igual
+  y, si falla, aparece como error de la corrida.
+- **Aviso de salud:** el último laudo es de enero de 2025, así que esta
+  fuente aparecerá casi siempre en "fuentes que pueden estar fallando" (sin
+  documentos en más de un año). Es esperado.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Cámara de Comercio de Bogotá (`ccb`)
+
+- **Qué trae:** los **laudos arbitrales** del Centro de Arbitraje y
+  Conciliación (arbitraje nacional y arbitraje social), tomados de la
+  Biblioteca Digital de la CCB (`bibliotecadigital.ccb.org.co`). Laudos de
+  2015 en adelante.
+- **Cuánto entrega:** la carga completa son unos 1.180 laudos. Son PDF
+  grandes (7-30 MB): la primera carga pesa varios GB.
+- **Qué no trae:** laudos anteriores a 2015, las sentencias de otras cortes
+  sobre arbitraje, normas, eventos, publicaciones ni las guías de arbitraje
+  internacional.
+- **Cómo quedan nombrados:** `LA_CCB_159970_2026` — radicado del Centro y año
+  del laudo. Si un laudo no trae radicado legible, queda con el título de la
+  biblioteca seguido del número del laudo en la biblioteca (por ejemplo
+  `Laudo arbitral_29990`) y marca de "sin verificar". Ese número evita que
+  dos laudos con el mismo título se guarden en el mismo archivo, y sirve
+  para encontrarlo en la biblioteca al corregir el título a mano.
+- **Laudo y aclaración:** cuando la CCB sube dos PDF distintos del mismo
+  radicado (por ejemplo el laudo y el auto que lo aclara), se conservan como
+  **actuaciones** del mismo laudo, igual que en la SIC: aparecen agrupados y
+  sus archivos llevan la fecha de cada uno (`LA_CCB_142529_2025_20250610.pdf`
+  y `LA_CCB_142529_2025_20250813.pdf`). El mismo PDF subido dos veces entra
+  una sola vez.
+- **Fechas — importante:** la CCB sube los laudos con mucho retraso (a veces
+  años) y por tandas. Por eso la corrida va por **fecha de subida a la
+  biblioteca**, no por fecha del laudo: una corrida manual "de marzo de 2025"
+  trae lo que se subió en marzo de 2025, que pueden ser laudos de 2023. La
+  carpeta de cada archivo sí usa la fecha del laudo. Para la carga completa,
+  lanzar la corrida desde el 01/01/2015. Como hay meses enteros sin subidas,
+  el aviso de "fuente que puede estar fallando" espera 120 días.
+- **Detalle técnico:** la biblioteca no permite comprobar barato si un
+  archivo cambió, así que en esta fuente no se detectan republicaciones de un
+  laudo ya guardado. Certificado válido.
+- **Si aparece el error "la búsqueda llegó al tope de 50 páginas":** la
+  biblioteca creció por encima de 5.000 laudos en el rango de la corrida y
+  faltaron los subidos primero. Partir la corrida en rangos más cortos (por
+  ejemplo, un año a la vez) o avisar al equipo de desarrollo para subir el
+  tope. Hoy la biblioteca tiene unos 2.100 laudos, así que no debería pasar.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
