@@ -3,7 +3,7 @@ import re
 from typing import Iterator, List, Optional
 
 import requests
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup, Comment, NavigableString
 
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
@@ -68,10 +68,31 @@ def _dentro_de_enlace(nodo) -> bool:
     return any(p.name == "a" for p in nodo.parents)
 
 
+# Texto que nunca es parte de la descripción de un acuerdo.
+_ETIQUETAS_SIN_TEXTO = {"script", "style", "noscript", "template"}
+# Bloque que contiene el enlace: la descripción solo toma texto de ese bloque.
+_BLOQUES = {"p", "li", "td", "div"}
+
+
+def _bloque(nodo):
+    return next((p for p in nodo.parents if p.name in _BLOQUES), None)
+
+
+def _texto_visible(nodo) -> bool:
+    if isinstance(nodo, Comment):
+        return False
+    return not any(p.name in _ETIQUETAS_SIN_TEXTO for p in nodo.parents)
+
+
 def _enlaces(html: str) -> Iterator[dict]:
     """Enlaces a Drive en orden de documento, con el texto que los sigue hasta
     el próximo enlace. El editor anida a veces el acuerdo siguiente dentro de
-    un <em>, así que se recorre el árbol plano y no los hermanos."""
+    un <em>, así que se recorre el árbol plano y no los hermanos.
+
+    El "resto" (la descripción) solo toma texto visible del mismo bloque del
+    enlace (<p>, <li>, <td> o <div>): sin ese límite, el último acuerdo de la
+    página arrastraba el título del acordeón siguiente, el pie de página y el
+    código de la página (revisión del PR #110)."""
     soup = BeautifulSoup(html, "html.parser")
     actual = None
     for nodo in soup.descendants:
@@ -81,13 +102,19 @@ def _enlaces(html: str) -> Iterator[dict]:
             if m and texto:
                 if actual:
                     yield actual
-                actual = {"drive_id": m.group(1), "texto": texto, "resto": ""}
+                actual = {"drive_id": m.group(1), "texto": texto, "resto": "", "bloque": _bloque(nodo)}
             elif m and actual:
                 # Enlace vacío que deja el editor (<a href="…"><br /></a>):
                 # corta la referencia del anterior.
                 yield actual
                 actual = None
-        elif isinstance(nodo, NavigableString) and actual and not _dentro_de_enlace(nodo):
+        elif (
+            isinstance(nodo, NavigableString)
+            and actual
+            and not _dentro_de_enlace(nodo)
+            and _texto_visible(nodo)
+            and (actual["bloque"] is None or actual["bloque"] in nodo.parents)
+        ):
             actual["resto"] += str(nodo)
     if actual:
         yield actual
