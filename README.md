@@ -75,8 +75,10 @@ demás productos (RedJurista, la BDU, JurIA) y al banco de datos de la entidad.
 Antes de guardar cada archivo, `core/verificacion_archivos.py` comprueba por su
 contenido qué es de verdad. Acepta solo PDF, Word, Excel, RTF, TIFF y ZIP de
 anexos con esos formatos. Rechaza los archivos dañados y los documentos de
-Office con macros. Todavía **no** hay antivirus: es el siguiente paso del plan
-de seguridad.
+Office con macros. Además, cada descarga tiene un tope de tamaño
+(`MAX_DOWNLOAD_MB`, 300 MB por defecto): un archivo más grande se corta a mitad
+de la descarga y el documento queda fallido. Todavía **no** hay antivirus: es
+el siguiente paso del plan de seguridad.
 
 ## Agregar una fuente nueva
 

@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     # earlier in a day the beat job already ran for (or missed entirely) still get
     # picked up on the next run, instead of only ever seeing an empty "today".
     scheduled_run_lookback_days: int = 3
+    # Tope de tamaño de cada archivo descargado de una fuente, en MB. Un archivo
+    # más grande se corta a mitad de la descarga y el documento queda fallido:
+    # así un archivo enorme (error del sitio o malintencionado) no llena el disco.
+    # 300 por los datos de producción (2026-11-05): de 80.037 documentos el 99,9 %
+    # pesa menos de 11 MB; el más pesado legítimo es una sentencia RTF de la Corte
+    # Constitucional de 206,5 MB. Un PDF de 819 MB del Tribunal de Bogotá queda fuera.
+    max_download_mb: int = 300
 
 
 @lru_cache
