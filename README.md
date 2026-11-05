@@ -68,6 +68,16 @@ El repo empezó portando las 10 familias de scraping de `WebScrapping_Fuentes` (
 
 La lista vigente de familias es el import de `core/scrapers/families/__init__.py`; la de fuentes (con su nombre visible) es `core/seed.py`. Qué trae cada fuente está en la sección de fuentes de `docs/guia-despliegue-sistemas.md`.
 
+## Seguridad de los archivos descargados
+
+IURISYNC descarga archivos de sitios ajenos, y la mayoría pasan después a los
+demás productos (RedJurista, la BDU, JurIA) y al banco de datos de la entidad.
+Antes de guardar cada archivo, `core/verificacion_archivos.py` comprueba por su
+contenido qué es de verdad. Acepta solo PDF, Word, Excel, RTF, TIFF y ZIP de
+anexos con esos formatos. Rechaza los archivos dañados y los documentos de
+Office con macros. Todavía **no** hay antivirus: es el siguiente paso del plan
+de seguridad.
+
 ## Agregar una fuente nueva
 
 Ver `docs/guia-integracion-fuentes.md`: flujo completo (investigación del

@@ -79,6 +79,19 @@ describir cada uno con un `RawDocModel` (título, tipo, fecha, enlace de
 descarga, carpeta). La descarga, la detección de duplicados, la
 republicación, el almacenamiento y la interfaz ya están resueltos.
 
+La descarga también **comprueba el tipo real de cada archivo** antes de
+guardarlo (`core/verificacion_archivos.py`). Solo se aceptan PDF, Word
+(DOC/DOCX), Excel (XLS/XLSX), RTF, TIFF y ZIP de anexos que contengan
+únicamente esos formatos. Dentro de un ZIP se ignoran los archivos que
+crea el sistema operativo (`desktop.ini`, `Thumbs.db`, `.DS_Store`,
+`__MACOSX/`). Los RAR se rechazan porque no se pueden revisar por
+dentro. Se rechazan los archivos dañados, por ejemplo
+un PDF cortado o un ZIP ilegible, y los documentos de Office con macros.
+Esto aplica aunque el sitio declare otro tipo o el nombre tenga otra
+extensión. Un archivo rechazado deja el documento como fallido en la
+corrida, con el motivo. Si tu fuente publica otro formato legítimo, hay
+que agregarlo ahí con su prueba; no lo esquives en el scraper.
+
 Términos que vas a ver:
 
 | Término | Qué es |
@@ -369,6 +382,8 @@ No tienes acceso directo al servidor de producción; lo hace el administrador:
 | La segunda corrida vuelve a descargar todo | El enlace o la fecha cambian entre corridas (parámetros como `?t=...`, fechas tipo "Hace 2 días"). |
 | El listado llega vacío desde Python pero en el navegador se ve | Falta una cabecera (idioma, `User-Agent`), una cookie o el sitio carga por JavaScript. |
 | Error de certificado SSL | Cadena incompleta en el sitio: evalúa `verify=False` solo para ese host y documéntalo. |
+| Documentos fallidos con "Tipo de archivo no permitido", "trae macros" o "dañado" | La verificación del tipo real rechazó el archivo (ver sección 1). Revisa qué entrega de verdad el enlace antes de pensar en ampliar los formatos permitidos. |
+| Una prueba de descarga nueva no rechaza un archivo inválido | En las pruebas la verificación está apagada por defecto (`tests/conftest.py`); márcala con `@pytest.mark.verificar_archivos`. |
 | Corridas "pendientes" que no avanzan | Una tarea anterior quedó colgada en el worker local; reinícialo y limpia la cola de Redis. |
 
 ---
