@@ -15,6 +15,17 @@ TEST_S3_BUCKET = os.environ.get("TEST_S3_BUCKET", "iurisync-test")
 
 
 @pytest.fixture(autouse=True)
+def _sin_verificacion_de_archivos(request, monkeypatch):
+    # Muchas pruebas de descarga usan cuerpos falsos (b"contenido",
+    # b"%PDF-1.4 x") que la verificación del tipo real rechazaría con razón.
+    # Se apaga para ellas; las pruebas que la ejercen se marcan con
+    # @pytest.mark.verificar_archivos (ver tests/test_verificacion_archivos.py).
+    if request.node.get_closest_marker("verificar_archivos") is None:
+        monkeypatch.setattr("core.downloader.verificar_archivo", lambda ruta, origen="": None, raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limits():
     from core.rate_limit import reset_rate_limits
 

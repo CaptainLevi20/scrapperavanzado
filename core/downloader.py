@@ -18,6 +18,7 @@ from core.models import RawDocModel
 # descarga pasa verify=False a propósito (ver link["verify"]).
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from core.utils import extract_filename, is_safe_storage_key, storage_path
+from core.verificacion_archivos import verificar_archivo
 
 _VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net[^"]*)"')
 
@@ -244,6 +245,17 @@ class Downloader:
                 last_exc = e
         else:
             raise last_exc
+
+        # El archivo viene de un sitio ajeno y la mayoría pasan después a los
+        # demás productos: antes de devolverlo para guardarlo se comprueba su
+        # tipo REAL (ver core/verificacion_archivos.py). Si no pasa, se borra
+        # aquí mismo y el documento queda fallido con el motivo; no se
+        # reintenta, porque no es un fallo de red.
+        try:
+            verificar_archivo(temp_path, origen=doc.link["url"])
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
 
         return DownloadResult(
             local_path=temp_path,
