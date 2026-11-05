@@ -272,3 +272,30 @@ def test_si_la_consulta_previa_no_es_concluyente_el_laudo_se_incluye():
     _head("LAUDO 4.pdf", status=410)
 
     assert [doc.title for doc in _scrap()] == ["LA_CCAQ_1_2024", "LA_CCAQ_2_2024", "LA_CCAQ_3_2024"]
+
+
+def test_la_corrida_diaria_cubre_toda_la_tabla_desde_2006():
+    # La tabla entera llega en una consulta: la corrida diaria mira desde antes
+    # del piso, sin ventana.
+    dias_desde_el_piso = (datetime.date.today() - datetime.date(_ANIO_MINIMO, 1, 1)).days
+    assert ScrapCcArmenia.scheduled_min_lookback_days > dias_desde_el_piso
+
+
+@responses.activate
+def test_la_consulta_previa_no_espera_mas_de_15_segundos(monkeypatch):
+    # Revisión del PR #110: con 60 s por consulta y ~14 laudos, un sitio lento
+    # podía tener la corrida de esta fuente colgada ~14 minutos.
+    _listado(_AGRO)
+    esperas = []
+    real = requests.Session.head
+
+    def head(self, url, **kw):
+        esperas.append(kw.get("timeout"))
+        return real(self, url, **kw)
+
+    monkeypatch.setattr(requests.Session, "head", head)
+    _heads_ok()
+
+    _scrap()
+
+    assert esperas and all(t <= 15 for t in esperas)

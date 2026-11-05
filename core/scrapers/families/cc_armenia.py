@@ -36,6 +36,9 @@ _MESES = {
 # que core.fecha_es no reconoce.
 _FECHA_RE = re.compile(r"(\d{1,2})\s+(?:de\s+)?([a-zñ]+)\s+(?:de\s+)?(\d{4})", re.I)
 _RADICADO_RE = re.compile(r"^\d+$")
+# Ventana de la corrida diaria: más días que los que hay desde el piso (2006),
+# es decir, toda la tabla (~27 años).
+_TODA_LA_TABLA_DIAS = 10_000
 
 
 def _norm_texto(s: str) -> str:
@@ -134,7 +137,10 @@ def _archivo_no_existe(session, url: str) -> bool:
     si falla, queda como error visible de la corrida en vez de saltarse en
     silencio en todas las corridas (revisión del PR #110)."""
     try:
-        resp = session.head(url, timeout=60, allow_redirects=True)
+        # 15 s: con ~14 laudos y 60 s, un sitio lento dejaba la corrida de
+        # esta fuente colgada ~14 minutos (revisión del PR #110). Un tiempo
+        # agotado no es concluyente: el laudo se incluye igual.
+        resp = session.head(url, timeout=15, allow_redirects=True)
     except requests.RequestException:
         return False
     return resp.status_code in (404, 410)
@@ -143,9 +149,10 @@ def _archivo_no_existe(session, url: str) -> bool:
 @register_family("cc_armenia")
 class ScrapCcArmenia(BaseScrapper):
     # La tabla entera llega en una petición y los laudos se suben con retraso
-    # desconocido (a veces de años): la corrida diaria mira hasta antes del
-    # piso de 2006 (~27 años) y _ANIO_MINIMO recorta lo anterior.
-    scheduled_min_lookback_days = 10_000
+    # desconocido (a veces de años): la corrida diaria revisa TODA la tabla.
+    # _TODA_LA_TABLA_DIAS solo tiene que ser mayor que los días desde el piso
+    # (2006); _ANIO_MINIMO recorta lo anterior.
+    scheduled_min_lookback_days = _TODA_LA_TABLA_DIAS
 
     def __init__(self):
         self.source = _SOURCE
