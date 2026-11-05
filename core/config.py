@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     # pesa menos de 11 MB; el más pesado legítimo es una sentencia RTF de la Corte
     # Constitucional de 206,5 MB. Un PDF de 819 MB del Tribunal de Bogotá queda fuera.
     max_download_mb: int = 300
+    # Antivirus (ClamAV, servicio `clamav` del docker-compose). Cada archivo
+    # descargado se revisa antes de guardarlo; si el antivirus no responde, el
+    # documento NO se guarda. Los infectados van al bucket de cuarentena.
+    antivirus_habilitado: bool = True
+    clamav_host: str = "localhost"
+    clamav_port: int = 3310
+    # Un archivo de 300 MB (el tope) tarda en revisarse; holgado a propósito.
+    clamav_timeout_segundos: float = 300
+    s3_bucket_cuarentena: str = "iurisync-cuarentena"
 
 
 @lru_cache

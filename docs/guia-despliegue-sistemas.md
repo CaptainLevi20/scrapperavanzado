@@ -321,6 +321,49 @@ documentos, puede tardar del orden de una hora. Se puede interrumpir y
 repetir sin riesgo: retoma donde quedó, porque lo que ya tiene huella no se
 vuelve a leer.
 
+### Antivirus (desde noviembre de 2026)
+
+Cada archivo que descarga la herramienta pasa por un antivirus (ClamAV) antes
+de guardarse:
+
+- **Si el antivirus encuentra un virus**, el documento no se crea. El archivo
+  se guarda aparte, en la zona de cuarentena (bucket `iurisync-cuarentena`),
+  que no se muestra ni se entrega a otros productos. El error de la corrida
+  dice qué virus se encontró.
+- **Si el antivirus no responde**, el documento tampoco se guarda. El error de
+  la corrida dice "no se pudo revisar con el antivirus", y la siguiente
+  corrida lo vuelve a intentar.
+
+El antivirus es un servicio más del `docker-compose.prod.yml`, llamado
+`clamav`. Usa cerca de 1,1 GB de memoria y guarda sus firmas de virus en el
+volumen `clamav_db`. Al encender por primera vez descarga unos 300 MB de
+firmas y tarda uno o dos minutos en quedar listo; mientras tanto, las
+descargas fallan con "no se pudo revisar con el antivirus" y se reintentan en
+la siguiente corrida. Las firmas se actualizan solas.
+
+**Al actualizar a la versión que trae el antivirus** hay que reemplazar el
+`docker-compose.prod.yml` del servidor por el nuevo, porque trae el servicio
+`clamav`. Desde la carpeta de la herramienta, en PowerShell:
+
+```
+Copy-Item docker-compose.prod.yml docker-compose.prod.yml.antes
+Invoke-WebRequest "https://raw.githubusercontent.com/CaptainLevi20/scrapperavanzado/master/docker-compose.prod.yml" -OutFile docker-compose.prod.yml
+```
+
+Si el archivo del servidor tenía cambios propios, compáralo con
+`docker-compose.prod.yml.antes` antes de seguir. Luego, `pull`, `up -d` y el
+`alembic upgrade head` de la sección 4, como en cualquier actualización con
+cambios en la base de datos.
+
+Para ver si el antivirus está listo:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail 5 clamav
+```
+
+Debe aparecer una línea con `Self checking every 600 seconds` o
+`Activating the newly loaded database`.
+
 ## 8. Respaldos (copias de seguridad)
 
 Esta herramienta guarda dos cosas que conviene respaldar periódicamente: la

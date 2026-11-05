@@ -167,6 +167,28 @@ class Document(Base):
     bulk_download_id = Column(Integer, ForeignKey("bulk_downloads.id"), nullable=True)
 
 
+class QuarantinedFile(Base):
+    """Archivo descargado que el antivirus marcó como infectado (2026-11-05).
+    No se crea documento: el archivo se guarda aparte, en el bucket de
+    cuarentena (settings.s3_bucket_cuarentena), que no se muestra ni se entrega
+    a los demás productos. Sirve para revisar falsas alarmas o avisar a la
+    entidad que lo publica."""
+
+    __tablename__ = "quarantined_files"
+
+    id = Column(Integer, primary_key=True)
+    source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
+    run_source_id = Column(Integer, ForeignKey("run_sources.id"), nullable=True)
+    title = Column(String, nullable=True)
+    source_url = Column(Text, nullable=True)
+    virus = Column(String, nullable=False)
+    sha256 = Column(String(64), nullable=True, index=True)
+    file_size_bytes = Column(BigInteger, nullable=True)
+    storage_bucket = Column(String, nullable=False)
+    storage_key = Column(Text, nullable=False)
+    quarantined_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
 class DocumentVersion(Base):
     __tablename__ = "document_versions"
 
