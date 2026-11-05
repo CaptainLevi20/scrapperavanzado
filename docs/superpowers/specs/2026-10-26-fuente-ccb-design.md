@@ -112,7 +112,9 @@ PDF está en el bundle **`ORIGINAL`** (los otros: `TEXT` = texto extraído,
   (`"137003Encargo fiduciario"` → `137003`, `"137562\n"` → `137562`).
 - Radicados raros: `SN 125` (sin número, sólo antes de 2015), `1133 V`,
   `4920/5468` (dos procesos acumulados → se toma el primero, `4920`).
-- **Sin radicado legible** → título = `dc.title` limpio (≤120 caracteres) y
+- **Sin radicado legible** → título = `dc.title` limpio (≤120 caracteres) + `_{número del ítem}`
+  (último tramo del handle; revisión del PR #110: sin él, dos títulos iguales se pisaban en el
+  almacenamiento) y
   `title_unverified=True`. No se implementa `resolve_unverified_document` en
   v1 (el PDF no trae el radicado en un lugar fijo).
 - **Mismo radicado y año en dos ítems** (17 casos desde 2015): pueden ser el

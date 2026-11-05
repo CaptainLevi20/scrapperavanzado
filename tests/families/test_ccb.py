@@ -168,9 +168,11 @@ def test_sin_radicado_usa_el_titulo_sin_verificar():
 
     [doc] = _scrap()
 
-    assert doc.title == "TRIBUNAL ARBITRAL DE A-B VS. C"
+    # Lleva el número del ítem en la biblioteca (handle 11520/i1) para que
+    # dos laudos con el mismo título no se pisen.
+    assert doc.title == "TRIBUNAL ARBITRAL DE A-B VS. C_i1"
     assert doc.title_unverified is True
-    assert doc.save_path.endswith("/TRIBUNAL ARBITRAL DE A-B VS. C(extension)")
+    assert doc.save_path.endswith("/TRIBUNAL ARBITRAL DE A-B VS. C_i1(extension)")
     assert not es_familia_con_actuaciones("ccb", doc.title)
 
 
@@ -287,3 +289,22 @@ def test_limit_y_stop_event():
     parar = threading.Event()
     parar.set()
     assert _scrap(stop_event=parar) == []
+
+
+@responses.activate
+def test_dos_laudos_sin_radicado_con_el_mismo_titulo_y_fecha_no_comparten_archivo():
+    # Hallazgo de la revisión del PR #110: sin radicado, el nombre del archivo
+    # era solo el título genérico. Dos laudos distintos con el mismo título y la
+    # misma fecha del laudo caían en la misma clave de almacenamiento y el
+    # segundo sobrescribía al primero.
+    a = _item("a", radicado=None, title="Laudo arbitral")
+    b = _item("b", radicado=None, title="Laudo arbitral")
+    _listado([a, b])
+    _archivos("a", _bitstream("bit-a", "md5-a", nombre="laudo.pdf"))
+    _archivos("b", _bitstream("bit-b", "md5-b", nombre="laudo.pdf"))
+
+    docs = _scrap()
+
+    assert len(docs) == 2
+    assert all(d.title_unverified for d in docs)
+    assert docs[0].save_path != docs[1].save_path

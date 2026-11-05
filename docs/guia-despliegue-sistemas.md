@@ -1004,7 +1004,10 @@ Es seguro repetirlo.
   internacional.
 - **Cómo quedan nombrados:** `LA_CCB_159970_2026` — radicado del Centro y año
   del laudo. Si un laudo no trae radicado legible, queda con el título de la
-  biblioteca y marca de "sin verificar".
+  biblioteca seguido del número del laudo en la biblioteca (por ejemplo
+  `Laudo arbitral_29990`) y marca de "sin verificar". Ese número evita que
+  dos laudos con el mismo título se guarden en el mismo archivo, y sirve
+  para encontrarlo en la biblioteca al corregir el título a mano.
 - **Laudo y aclaración:** cuando la CCB sube dos PDF distintos del mismo
   radicado (por ejemplo el laudo y el auto que lo aclara), se conservan como
   **actuaciones** del mismo laudo, igual que en la SIC: aparecen agrupados y

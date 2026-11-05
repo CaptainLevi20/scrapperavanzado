@@ -77,6 +77,12 @@ def _titulo_respaldo(dc_title: str) -> str:
     return limpio[:_MAX_TITULO].strip(" .") or "laudo"
 
 
+def _id_item(handle: str) -> str:
+    """Número del ítem en la biblioteca: último tramo del handle ("11520/29990"
+    → "29990"); si no hay handle, el uuid."""
+    return _INVALID_PATH_CHARS.sub("-", str(handle or "").rstrip("/").rsplit("/", 1)[-1]) or "sin-id"
+
+
 def _items(session, fini: str, ffin: str, stop_event) -> Iterator[dict]:
     """Ítems subidos (dc.date.accessioned) en [fini, ffin]. El rango sólo
     funciona sobre el campo Solr con sufijo _dt; sin él se ignora."""
@@ -191,7 +197,18 @@ class ScrapCcb(BaseScrapper):
         dc_title = _meta(item, "dc.title") or item.get("name") or ""
         radicado = _radicado(_meta(item, "dc.description.radicado"), dc_title, pdfs[0].get("name") or "")
         verificado = radicado is not None
-        base = _titulo(radicado, laudo.year) if verificado else _titulo_respaldo(dc_title)
+        if verificado:
+            base = _titulo(radicado, laudo.year)
+        else:
+            # Sin radicado, el título de la biblioteca puede repetirse ("Laudo
+            # arbitral"). Como el nombre del archivo sale del título (al subir y
+            # en el renombrado nocturno de core/storage_sync.py), dos laudos
+            # distintos con el mismo título y fecha se pisaban en el mismo
+            # archivo. El número del ítem en la biblioteca (último tramo del
+            # handle, p. ej. 11520/29990 → 29990) lo hace único y sirve para
+            # ubicarlo en el sitio al corregirlo a mano. Hallazgo de la revisión
+            # del PR #110.
+            base = f"{_titulo_respaldo(dc_title)}_{_id_item(handle)}"
         iso_laudo = laudo.isoformat()
         iso_subida = subida.isoformat()
 
