@@ -26,7 +26,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from core.antivirus import AntivirusNoDisponible
+from core.antivirus import AntivirusNoDisponible, RevisionIncompleta
 
 _LIMITES = "Heuristics.Limits.Exceeded"
 
@@ -69,6 +69,12 @@ def revisar(filas, leer, escanear, hilos: int = 1, cada: int | None = None) -> R
         except FileNotFoundError:
             with candado:
                 resultado.no_encontrados.append(fila)
+            return
+        except RevisionIncompleta as exc:
+            # Límite del antivirus (no es virus): se reporta aparte.
+            with candado:
+                resultado.revisados += 1
+                resultado.no_revisados_completos.append(hallazgo(virus=exc.limite))
             return
         except AntivirusNoDisponible as exc:
             with candado:

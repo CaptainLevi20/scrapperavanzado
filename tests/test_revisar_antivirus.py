@@ -7,7 +7,7 @@ decide una persona después.
 
 from types import SimpleNamespace
 
-from core.antivirus import AntivirusNoDisponible
+from core.antivirus import AntivirusNoDisponible, RevisionIncompleta
 from core.revisar_antivirus import revisar
 
 
@@ -38,7 +38,11 @@ def _escanear(veredictos):
 def test_separa_limpios_infectados_y_no_revisados_completos():
     filas = [_fila(1, "a"), _fila(2, "b", fuente="Fuente B"), _fila(3, "c", tipo="version")]
     contenidos = {"a": b"limpio", "b": b"malo", "c": b"zip-enorme"}
-    veredictos = {b"malo": "Win.Test.EICAR_HDB-1", b"zip-enorme": "Heuristics.Limits.Exceeded.MaxScanSize"}
+    # escanear lanza RevisionIncompleta para los límites del antivirus.
+    veredictos = {
+        b"malo": "Win.Test.EICAR_HDB-1",
+        b"zip-enorme": RevisionIncompleta("Heuristics.Limits.Exceeded.MaxScanSize"),
+    }
 
     r = revisar(filas, _leer(contenidos), _escanear(veredictos))
 

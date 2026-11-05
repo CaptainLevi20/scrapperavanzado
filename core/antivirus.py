@@ -41,6 +41,29 @@ class AntivirusNoDisponible(RuntimeError):
     """El antivirus no respondió o devolvió un error: el archivo no se pudo revisar."""
 
 
+_LIMITES = "Heuristics.Limits.Exceeded"
+
+
+class RevisionIncompleta(AntivirusNoDisponible):
+    """El antivirus llegó a uno de sus límites (tiempo, tamaño, profundidad de
+    un comprimido) y no terminó de revisar el archivo. ClamAV lo reporta como
+    "Heuristics.Limits.Exceeded.<límite> FOUND" porque se configuró
+    AlertExceedsMax=yes (sin eso dejaría pasar el archivo sin revisar), pero NO
+    es un virus. Hereda de AntivirusNoDisponible: el documento no se guarda y
+    se reintenta en la siguiente corrida, sin ir a cuarentena.
+
+    Producción, 5-nov-2026: 9 laudos de la CCB legítimos fueron a cuarentena
+    con Heuristics.Limits.Exceeded.MaxScanTime mientras otra fuente grande
+    descargaba a la vez (servidor ocupado)."""
+
+    def __init__(self, limite: str):
+        super().__init__(
+            f"El antivirus no terminó de revisar el archivo ({limite}); "
+            "se reintentará en la siguiente corrida"
+        )
+        self.limite = limite
+
+
 def escanear(
     ruta: Path,
     host: str | None = None,
@@ -93,5 +116,8 @@ def escanear_flujo(
     if texto.endswith(" OK"):
         return None
     if texto.endswith(" FOUND"):
-        return texto.removeprefix("stream:").removesuffix("FOUND").strip()
+        hallazgo = texto.removeprefix("stream:").removesuffix("FOUND").strip()
+        if hallazgo.startswith(_LIMITES):
+            raise RevisionIncompleta(hallazgo)
+        return hallazgo
     raise AntivirusNoDisponible(f"Respuesta inesperada del antivirus: {texto or '(vacía)'}")
