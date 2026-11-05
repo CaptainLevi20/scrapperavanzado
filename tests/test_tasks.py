@@ -2873,3 +2873,32 @@ def test_de_punta_a_punta_con_el_clamav_real_el_archivo_eicar_queda_en_cuarenten
         assert "Eicar" in q.virus
     finally:
         s.close()
+
+
+@responses.activate
+def test_un_limite_del_antivirus_no_manda_el_archivo_a_cuarentena(db_session, test_engine, monkeypatch):
+    # Caso real de producción (5-nov-2026, CCB): el antivirus respondió
+    # Heuristics.Limits.Exceeded.MaxScanTime y los laudos, legítimos, quedaron
+    # en cuarentena como "infectados". Ahora: no se guarda (no quedó revisado),
+    # no va a cuarentena y el error lo dice; la siguiente corrida lo reintenta.
+    from core.antivirus import RevisionIncompleta
+    from core.db.models import QuarantinedFile
+
+    source, run, run_source, factory = _preparar_corrida_un_documento(db_session, test_engine, monkeypatch)
+
+    def _sin_tiempo(ruta):
+        raise RevisionIncompleta("Heuristics.Limits.Exceeded.MaxScanTime")
+
+    monkeypatch.setattr("worker.tasks.escanear", _sin_tiempo)
+
+    scrape_source_task(run_source.id)
+
+    s = factory()
+    try:
+        assert s.scalars(select(Document).where(Document.source_id == source.id)).all() == []
+        assert s.scalars(select(QuarantinedFile)).all() == []
+        [error] = repository.list_run_errors_for_run(s, run.id)
+        assert "no terminó de revisar" in error["message"]
+        assert "infectado" not in error["message"].lower()
+    finally:
+        s.close()

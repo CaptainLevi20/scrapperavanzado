@@ -333,6 +333,12 @@ de guardarse:
 - **Si el antivirus no responde**, el documento tampoco se guarda. El error de
   la corrida dice "no se pudo revisar con el antivirus", y la siguiente
   corrida lo vuelve a intentar.
+- **Si el antivirus no alcanza a terminar de revisar un archivo** (le da hasta
+  5 minutos a cada uno; puede pasar con el servidor muy ocupado), el documento
+  tampoco se guarda ni va a cuarentena: el error dice "el antivirus no terminó
+  de revisar el archivo" y la siguiente corrida lo vuelve a intentar. No es un
+  virus. Antes del 5 de noviembre de 2026 estos casos se mandaban por error a
+  cuarentena como infectados (así quedaron 9 laudos de la CCB ese día).
 
 El antivirus es un servicio más del `docker-compose.prod.yml`, llamado
 `clamav`. Usa cerca de 1,1 GB de memoria y guarda sus firmas de virus en el

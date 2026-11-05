@@ -39,8 +39,10 @@ class Settings(BaseSettings):
     antivirus_habilitado: bool = True
     clamav_host: str = "localhost"
     clamav_port: int = 3310
-    # Un archivo de 300 MB (el tope) tarda en revisarse; holgado a propósito.
-    clamav_timeout_segundos: float = 300
+    # Algo más que el MaxScanTime del antivirus (5 min, ver docker-compose): si
+    # el antivirus agota su tiempo, contesta con su límite en vez de que aquí
+    # se corte la conexión antes.
+    clamav_timeout_segundos: float = 360
     s3_bucket_cuarentena: str = "iurisync-cuarentena"
 
 
