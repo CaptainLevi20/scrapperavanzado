@@ -308,3 +308,22 @@ def test_dos_laudos_sin_radicado_con_el_mismo_titulo_y_fecha_no_comparten_archiv
     assert len(docs) == 2
     assert all(d.title_unverified for d in docs)
     assert docs[0].save_path != docs[1].save_path
+
+
+@responses.activate
+def test_si_la_busqueda_llega_al_tope_de_paginas_lo_reporta_como_error(monkeypatch):
+    # Hallazgo de la revisión del PR #110: la búsqueda paraba en _PAGINA_TOPE
+    # sin decir nada; si la biblioteca creciera, los laudos subidos primero
+    # (orden por fecha de subida descendente) quedarían fuera y la corrida se
+    # vería completa. Ahora queda un error visible en la corrida.
+    import core.scrapers.families.ccb as ccb
+
+    monkeypatch.setattr(ccb, "_PAGINA_TOPE", 1)
+    _listado([_item("i1")], pagina=0, total_paginas=3)
+    _archivos("i1", _bitstream("b1", "md5-1"))
+    mensajes = []
+
+    docs = _scrap(on_progress=mensajes.append)
+
+    assert [d.title for d in docs] == ["LA_CCB_159970_2026"]
+    assert any("Error" in m and "2 páginas" in m for m in mensajes)

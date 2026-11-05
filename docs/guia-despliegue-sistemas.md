@@ -1029,6 +1029,11 @@ Es seguro repetirlo.
 - **Detalle técnico:** la biblioteca no permite comprobar barato si un
   archivo cambió, así que en esta fuente no se detectan republicaciones de un
   laudo ya guardado. Certificado válido.
+- **Si aparece el error "la búsqueda llegó al tope de 50 páginas":** la
+  biblioteca creció por encima de 5.000 laudos en el rango de la corrida y
+  faltaron los subidos primero. Partir la corrida en rangos más cortos (por
+  ejemplo, un año a la vez) o avisar al equipo de desarrollo para subir el
+  tope. Hoy la biblioteca tiene unos 2.100 laudos, así que no debería pasar.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.

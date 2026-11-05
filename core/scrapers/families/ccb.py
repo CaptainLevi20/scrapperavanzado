@@ -83,9 +83,14 @@ def _id_item(handle: str) -> str:
     return _INVALID_PATH_CHARS.sub("-", str(handle or "").rstrip("/").rsplit("/", 1)[-1]) or "sin-id"
 
 
-def _items(session, fini: str, ffin: str, stop_event) -> Iterator[dict]:
+def _items(session, fini: str, ffin: str, stop_event, on_progress=None) -> Iterator[dict]:
     """Ítems subidos (dc.date.accessioned) en [fini, ffin]. El rango sólo
-    funciona sobre el campo Solr con sufijo _dt; sin él se ignora."""
+    funciona sobre el campo Solr con sufijo _dt; sin él se ignora.
+
+    Si se llega a _PAGINA_TOPE y quedan páginas, lo reporta como error de la
+    corrida (el mensaje lleva "Error"): el orden es por fecha de subida
+    descendente, así que lo que faltaría son los laudos subidos primero, y
+    sin el aviso la corrida se vería completa (revisión del PR #110)."""
     params = {
         "scope": _SCOPE_LAUDOS,
         "dsoType": "ITEM",
@@ -103,8 +108,16 @@ def _items(session, fini: str, ffin: str, stop_event) -> Iterator[dict]:
             item = objeto.get("_embedded", {}).get("indexableObject")
             if item:
                 yield item
-        if pagina + 1 >= (resultado.get("page") or {}).get("totalPages", 0):
+        total_paginas = (resultado.get("page") or {}).get("totalPages", 0)
+        if pagina + 1 >= total_paginas:
             return
+    if on_progress:
+        faltan = total_paginas - _PAGINA_TOPE
+        on_progress(
+            f"[{_SOURCE}] Error: la búsqueda llegó al tope de {_PAGINA_TOPE} páginas y quedaron "
+            f"{faltan} páginas sin revisar ({_POR_PAGINA} laudos por página). Hay que subir "
+            f"_PAGINA_TOPE en core/scrapers/families/ccb.py o partir la corrida en rangos más cortos."
+        )
 
 
 def _pdfs(session, item_uuid: str) -> List[dict]:
@@ -150,7 +163,7 @@ class ScrapCcb(BaseScrapper):
         if on_progress:
             on_progress(f"[{_SOURCE}] Procesando {_TIPO}...")
         try:
-            for item in _items(session, fini, ffin, stop_event):
+            for item in _items(session, fini, ffin, stop_event, on_progress):
                 if parar():
                     return docs[:limit]
                 for doc in self._docs_de_item(session, item, md5_vistos, uuid_vistos, on_progress):
