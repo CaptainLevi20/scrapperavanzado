@@ -118,3 +118,18 @@ def test_con_el_clamav_real_detecta_el_archivo_de_prueba_eicar(tmp_path):
 
     assert escanear(_archivo(tmp_path, b"%PDF-1.4 limpio")) is None
     assert "Eicar" in escanear(_archivo(tmp_path, _EICAR))
+
+
+def test_escanear_flujo_acepta_el_contenido_en_trozos(clamd_falso):
+    # La revisión de lo ya guardado manda cada archivo directo desde el
+    # almacenamiento, en trozos, sin copiarlo al disco.
+    from core.antivirus import escanear_flujo
+
+    _ClamdFalso.respuesta = b"stream: Win.Test.EICAR_HDB-1 FOUND\0"
+    host, puerto = clamd_falso.server_address
+
+    virus = escanear_flujo(iter([b"abc", b"", b"def"]), host=host, puerto=puerto)
+
+    assert virus == "Win.Test.EICAR_HDB-1"
+    cuerpo = _ClamdFalso.recibido[len(b"zINSTREAM\0"):]
+    assert cuerpo == (3).to_bytes(4, "big") + b"abc" + (3).to_bytes(4, "big") + b"def" + (0).to_bytes(4, "big")

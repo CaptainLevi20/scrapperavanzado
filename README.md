@@ -84,7 +84,7 @@ para encontrar y rastrear un archivo que resulte malo. Por último, cada archivo
 pasa por el antivirus ClamAV (servicio `clamav` del docker-compose,
 `core/antivirus.py`) antes de guardarse: un infectado va al bucket de
 cuarentena (`quarantined_files`) y no se crea el documento, y si el antivirus
-no responde el documento no se guarda. En desarrollo hay que encenderlo con
+no responde el documento no se guarda. Para revisar con el antivirus lo guardado antes de que existiera (solo lectura, entrega una lista): `python -m core.revisar_antivirus --salida hallazgos.csv`. En desarrollo hay que encenderlo con
 `docker compose up -d clamav`; en las pruebas está apagado por defecto.
 
 ## Agregar una fuente nueva
