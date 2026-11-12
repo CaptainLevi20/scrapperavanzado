@@ -1,12 +1,15 @@
+import hashlib
 import time
 from datetime import date
 
 import pytest
 import responses
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 import worker.tasks as tasks_module
 from core.db import repository
+from core.db.models import Document
 from core.models import RawDocModel
 from tests.conftest import DummyFamilyScraper, TEST_S3_BUCKET
 from worker.celery_app import celery_app
@@ -59,6 +62,11 @@ def test_scrape_source_task_downloads_new_document_and_marks_run_source_complete
         assert refreshed.status == "completed"
         assert refreshed.docs_new == 1
         assert refreshed.docs_errors == 0
+
+        # Huella digital (SHA-256) del contenido descargado, para rastrear el
+        # archivo si después resulta malo.
+        [document] = assertion_session.scalars(select(Document).where(Document.source_id == source.id)).all()
+        assert document.sha256 == hashlib.sha256(b"contenido").hexdigest()
     finally:
         assertion_session.close()
 
@@ -340,6 +348,7 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
         file_size_bytes=9,  # tamaño de "contenido" (el body del test original)
         source_url="https://example.com/doc1",
         review_status="useful",
+        sha256="huella-de-la-version-anterior",
     )
 
     DummyFamilyScraper.docs_to_return = [
@@ -392,6 +401,9 @@ def test_scrape_source_task_replaces_a_republished_document_and_archives_the_old
         [version] = repository.list_document_versions(assertion_session, existing_doc.id)
         assert version.file_size_bytes == 9
         assert version.updated_by_run_source_id == run_source.id
+        # La versión archivada conserva su huella; el documento vigente, la nueva.
+        assert version.sha256 == "huella-de-la-version-anterior"
+        assert updated_document.sha256 == hashlib.sha256(b"contenido mas largo!").hexdigest()
     finally:
         assertion_session.close()
 
@@ -2716,3 +2728,148 @@ def test_build_monthly_report_marks_failed_on_error(db_session, test_engine, mon
         assert "fallo simulado de render" in refreshed.error_message
     finally:
         assertion_session.close()
+
+
+# --- Antivirus y cuarentena (2026-11-05) -------------------------------------
+# Cada archivo descargado se revisa con el antivirus antes de guardarlo. Un
+# infectado va al bucket de cuarentena, queda registrado y NO se crea el
+# documento; si el antivirus no responde, el documento tampoco se guarda.
+
+TEST_S3_BUCKET_CUARENTENA = TEST_S3_BUCKET + "-cuarentena"
+
+
+def _preparar_corrida_un_documento(db_session, test_engine, monkeypatch, cuerpo=b"%PDF-1.4 sospechoso"):
+    from core.config import get_settings
+
+    celery_app.conf.task_always_eager = True
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    source = repository.create_source(db_session, family_key="test-dummy", name="Dummy Source", family_params={})
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=source.id)
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source="Dummy Source",
+            link={"url": "https://example.com/doc1", "method": "GET"},
+            title="Documento 1",
+            tipo="Auto",
+            f_public="2026-01-01",
+        )
+    ]
+    responses.add(
+        responses.GET, "https://example.com/doc1",
+        body=cuerpo, headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+    settings = get_settings()
+    monkeypatch.setattr(settings, "antivirus_habilitado", True)
+    monkeypatch.setattr(settings, "s3_bucket_cuarentena", TEST_S3_BUCKET_CUARENTENA)
+    return source, run, run_source, task_session_factory
+
+
+@responses.activate
+def test_un_archivo_infectado_va_a_cuarentena_y_no_se_crea_el_documento(db_session, test_engine, monkeypatch):
+    from core.db.models import QuarantinedFile
+    from core.storage import object_exists
+
+    source, run, run_source, factory = _preparar_corrida_un_documento(db_session, test_engine, monkeypatch)
+    monkeypatch.setattr("worker.tasks.escanear", lambda ruta: "Win.Test.EICAR_HDB-1")
+
+    scrape_source_task(run_source.id)
+
+    s = factory()
+    try:
+        [rs] = repository.list_run_sources(s, run.id)
+        assert rs.status == "completed"
+        assert rs.docs_new == 0
+        assert rs.docs_errors == 1
+        assert s.scalars(select(Document).where(Document.source_id == source.id)).all() == []
+
+        [q] = s.scalars(select(QuarantinedFile)).all()
+        assert q.virus == "Win.Test.EICAR_HDB-1"
+        assert q.source_id == source.id
+        assert q.run_source_id == run_source.id
+        assert q.title == "Documento 1"
+        assert q.source_url == "https://example.com/doc1"
+        assert q.sha256 == hashlib.sha256(b"%PDF-1.4 sospechoso").hexdigest()
+        assert q.storage_bucket == TEST_S3_BUCKET_CUARENTENA
+        assert object_exists(q.storage_bucket, q.storage_key)
+
+        [error] = repository.list_run_errors_for_run(s, run.id)
+        assert "Win.Test.EICAR_HDB-1" in error["message"]
+        assert "cuarentena" in error["message"]
+    finally:
+        s.close()
+
+
+@responses.activate
+def test_si_el_antivirus_no_responde_el_documento_no_se_guarda(db_session, test_engine, monkeypatch):
+    from core.antivirus import AntivirusNoDisponible
+    from core.db.models import QuarantinedFile
+
+    source, run, run_source, factory = _preparar_corrida_un_documento(db_session, test_engine, monkeypatch)
+
+    def _caido(ruta):
+        raise AntivirusNoDisponible("El antivirus no respondió (clamav:3310)")
+
+    monkeypatch.setattr("worker.tasks.escanear", _caido)
+
+    scrape_source_task(run_source.id)
+
+    s = factory()
+    try:
+        [rs] = repository.list_run_sources(s, run.id)
+        assert rs.docs_new == 0
+        assert rs.docs_errors == 1
+        assert s.scalars(select(Document).where(Document.source_id == source.id)).all() == []
+        assert s.scalars(select(QuarantinedFile)).all() == []
+        [error] = repository.list_run_errors_for_run(s, run.id)
+        assert "antivirus" in error["message"].lower()
+    finally:
+        s.close()
+
+
+@responses.activate
+def test_un_archivo_limpio_se_guarda_normalmente_con_el_antivirus_encendido(db_session, test_engine, monkeypatch):
+    source, run, run_source, factory = _preparar_corrida_un_documento(db_session, test_engine, monkeypatch)
+    revisados = []
+    monkeypatch.setattr("worker.tasks.escanear", lambda ruta: revisados.append(ruta) or None)
+
+    scrape_source_task(run_source.id)
+
+    s = factory()
+    try:
+        [rs] = repository.list_run_sources(s, run.id)
+        assert rs.docs_new == 1
+        assert rs.docs_errors == 0
+        assert len(revisados) == 1
+    finally:
+        s.close()
+
+
+@responses.activate
+def test_de_punta_a_punta_con_el_clamav_real_el_archivo_eicar_queda_en_cuarentena(db_session, test_engine, monkeypatch):
+    import socket
+
+    from core.config import get_settings
+    from core.db.models import QuarantinedFile
+
+    settings = get_settings()
+    try:
+        socket.create_connection((settings.clamav_host, settings.clamav_port), timeout=1).close()
+    except OSError:
+        pytest.skip("ClamAV de desarrollo no está encendido (docker compose up -d clamav)")
+
+    eicar = b"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+    source, run, run_source, factory = _preparar_corrida_un_documento(db_session, test_engine, monkeypatch, cuerpo=eicar)
+
+    scrape_source_task(run_source.id)
+
+    s = factory()
+    try:
+        assert s.scalars(select(Document).where(Document.source_id == source.id)).all() == []
+        [q] = s.scalars(select(QuarantinedFile)).all()
+        assert "Eicar" in q.virus
+    finally:
+        s.close()

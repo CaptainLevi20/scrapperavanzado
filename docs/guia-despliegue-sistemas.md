@@ -294,6 +294,104 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm ap
 
 Es seguro repetirlo aunque ya se haya corrido.
 
+### Huella digital de los documentos ya guardados (una sola vez, noviembre de 2026)
+
+Desde noviembre de 2026 cada documento descargado guarda su **huella
+digital**: un código SHA-256 que identifica su contenido exacto. Sirve para
+encontrar un archivo que resulte malo y rastrear a qué productos llegó, y para
+saber si un archivo cambió. Los documentos guardados antes no la tienen.
+
+Después de actualizar a esa versión, con el `alembic upgrade head` de la
+sección 4 ya corrido, hay que calcularla una vez. Primero en modo simulación,
+que solo cuenta y no cambia nada:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_sha256 --simular
+```
+
+y luego de verdad:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm worker python -m core.backfill_sha256
+```
+
+Lee cada archivo del almacenamiento, sin cambiarlo ni moverlo. En desarrollo,
+2.698 documentos (3,4 GB) tardaron 23 segundos; en producción, con unos 80.000
+documentos, puede tardar del orden de una hora. Se puede interrumpir y
+repetir sin riesgo: retoma donde quedó, porque lo que ya tiene huella no se
+vuelve a leer.
+
+### Antivirus (desde noviembre de 2026)
+
+Cada archivo que descarga la herramienta pasa por un antivirus (ClamAV) antes
+de guardarse:
+
+- **Si el antivirus encuentra un virus**, el documento no se crea. El archivo
+  se guarda aparte, en la zona de cuarentena (bucket `iurisync-cuarentena`),
+  que no se muestra ni se entrega a otros productos. El error de la corrida
+  dice qué virus se encontró.
+- **Si el antivirus no responde**, el documento tampoco se guarda. El error de
+  la corrida dice "no se pudo revisar con el antivirus", y la siguiente
+  corrida lo vuelve a intentar.
+
+El antivirus es un servicio más del `docker-compose.prod.yml`, llamado
+`clamav`. Usa cerca de 1,1 GB de memoria y guarda sus firmas de virus en el
+volumen `clamav_db`. Al encender por primera vez descarga unos 300 MB de
+firmas y tarda uno o dos minutos en quedar listo; mientras tanto, las
+descargas fallan con "no se pudo revisar con el antivirus" y se reintentan en
+la siguiente corrida. Las firmas se actualizan solas.
+
+**Al actualizar a la versión que trae el antivirus** hay que reemplazar el
+`docker-compose.prod.yml` del servidor por el nuevo, porque trae el servicio
+`clamav`. Desde la carpeta de la herramienta, en PowerShell:
+
+```
+Copy-Item docker-compose.prod.yml docker-compose.prod.yml.antes
+Invoke-WebRequest "https://raw.githubusercontent.com/CaptainLevi20/scrapperavanzado/master/docker-compose.prod.yml" -OutFile docker-compose.prod.yml
+```
+
+Si el archivo del servidor tenía cambios propios, compáralo con
+`docker-compose.prod.yml.antes` antes de seguir. Luego, `pull`, `up -d` y el
+`alembic upgrade head` de la sección 4, como en cualquier actualización con
+cambios en la base de datos.
+
+Para ver si el antivirus está listo:
+
+```
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail 5 clamav
+```
+
+Debe aparecer una línea con `Self checking every 600 seconds` o
+`Activating the newly loaded database`.
+
+**Revisar con el antivirus lo que ya estaba guardado (una sola vez).** Los
+documentos guardados antes de noviembre de 2026 no pasaron por el antivirus.
+Esta revisión los lee todos, los pasa por el antivirus y entrega una lista de
+lo que encuentra. **No cambia, mueve ni borra nada**: qué hacer con los
+hallazgos se decide después. Con unos 80.000 documentos tarda del orden de 5
+horas, así que conviene dejarla corriendo de noche, en segundo plano:
+
+```
+mkdir revision
+docker compose --env-file .env.production -f docker-compose.prod.yml run -d --name revision-antivirus -v "${PWD}/revision:/revision" worker python -m core.revisar_antivirus --salida /revision/antivirus.csv
+```
+
+Para ver cómo va (cada 1.000 archivos muestra una línea, con el último
+documento revisado):
+
+```
+docker logs --tail 5 revision-antivirus
+```
+
+Al terminar, `docker logs revision-antivirus` muestra el resumen
+(infectados, no revisados completos, errores, no encontrados) y la lista
+completa queda en `revision/antivirus.csv`. Después se borra el contenedor
+con `docker rm revision-antivirus`.
+
+Si se corta a mitad de camino, se puede retomar con `--desde-id` y un número
+un poco menor que el último documento que mostró el avance (revisa varios a
+la vez, así que unos pocos anteriores pueden no haber terminado).
+
 ## 8. Respaldos (copias de seguridad)
 
 Esta herramienta guarda dos cosas que conviene respaldar periódicamente: la
@@ -834,6 +932,8 @@ Es seguro repetirlo.
   boletín, así que un acto publicado meses después de expedido entra igual en
   la corrida diaria del día en que sale. Los actos anteriores a 2025 que el
   boletín vuelve a publicar se descartan.
+  Si un acto de 2025 en adelante ya guardado vuelve a salir en un boletín
+  posterior, se reconoce como el mismo documento y no se guarda dos veces.
 - **Detalle técnico:** el servidor de Corantioquia entrega su certificado sin
   la cadena completa, así que la conexión a ese sitio se hace sin verificar
   el certificado (son documentos públicos). Sus PDF llegan marcados como
@@ -886,6 +986,9 @@ Es seguro repetirlo.
   corrida y no se guardan: la del radicado 20220624 enlaza a una circular del
   Ministerio de Justicia en lugar del laudo, y la del 20221111 enlaza a un
   archivo que ya no existe. No es una falla de IURISYNC.
+  Solo se descarta un laudo cuando el sitio dice que su archivo no existe;
+  si el sitio está lento o no contesta, el laudo se intenta descargar igual
+  y, si falla, aparece como error de la corrida.
 - **Aviso de salud:** el último laudo es de enero de 2025, así que esta
   fuente aparecerá casi siempre en "fuentes que pueden estar fallando" (sin
   documentos en más de un año). Es esperado.
@@ -906,7 +1009,10 @@ Es seguro repetirlo.
   internacional.
 - **Cómo quedan nombrados:** `LA_CCB_159970_2026` — radicado del Centro y año
   del laudo. Si un laudo no trae radicado legible, queda con el título de la
-  biblioteca y marca de "sin verificar".
+  biblioteca seguido del número del laudo en la biblioteca (por ejemplo
+  `Laudo arbitral_29990`) y marca de "sin verificar". Ese número evita que
+  dos laudos con el mismo título se guarden en el mismo archivo, y sirve
+  para encontrarlo en la biblioteca al corregir el título a mano.
 - **Laudo y aclaración:** cuando la CCB sube dos PDF distintos del mismo
   radicado (por ejemplo el laudo y el auto que lo aclara), se conservan como
   **actuaciones** del mismo laudo, igual que en la SIC: aparecen agrupados y
@@ -923,6 +1029,11 @@ Es seguro repetirlo.
 - **Detalle técnico:** la biblioteca no permite comprobar barato si un
   archivo cambió, así que en esta fuente no se detectan republicaciones de un
   laudo ya guardado. Certificado válido.
+- **Si aparece el error "la búsqueda llegó al tope de 50 páginas":** la
+  biblioteca creció por encima de 5.000 laudos en el rango de la corrida y
+  faltaron los subidos primero. Partir la corrida en rangos más cortos (por
+  ejemplo, un año a la vez) o avisar al equipo de desarrollo para subir el
+  tope. Hoy la biblioteca tiene unos 2.100 laudos, así que no debería pasar.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
@@ -1074,6 +1185,21 @@ Es seguro repetirlo.
 - **Lo que sigue con el texto original:** anexos listados como filas sueltas
   ("ANEXO No 01 MCIT - Licencia Previa"), "Reglamento (UE) …" y "Proyecto ley
   turismo". Se pueden corregir a mano editando el título en la aplicación.
+
+### Ministerio de Educación Nacional (`mineducacion`)
+
+- **Resoluciones que se saltaban (corregido en octubre de 2026):** desde
+  agosto de 2026 el Ministerio escribe algunos títulos con la tilde de
+  "Resolución" guardada de otra forma. Se ve igual en pantalla, pero el
+  sistema no reconocía la palabra y descartaba la fila sin avisar. Así se
+  quedaron fuera las resoluciones 021580 y 021581 (6 de agosto) y 026789
+  (2 de octubre). Ya se reconocen.
+- **Recuperar lo que faltó:** después de actualizar, lanzar una corrida
+  manual de Educación desde el **1 de agosto de 2026** hasta hoy. Lo que ya
+  estaba guardado no se vuelve a descargar.
+- **Lo que sigue fuera:** filas sin fecha en el título (por ejemplo
+  "CIRCULAR 002 - Útiles Escolares" de 2026); salen como aviso en la
+  pantalla de la corrida.
 
 ### Fuentes que publican con retraso (ventana de la corrida diaria)
 

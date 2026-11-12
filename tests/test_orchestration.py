@@ -165,3 +165,27 @@ def test_retry_failed_run_sources_task_reruns_only_the_given_sources_and_recompu
         assert repository.get_run(assertion_session, run.id).status == "completed"
     finally:
         assertion_session.close()
+
+
+def test_orchestrate_run_incluye_todas_las_fuentes_activas_aunque_pasen_de_100(db_session, test_engine, monkeypatch):
+    # Regresión (revisión del PR #110): orchestrate_run pedía las fuentes activas
+    # con el tamaño de página por defecto de list_sources (100). Al pasar de
+    # 100 fuentes activas, la corrida diaria dejaba fuera las de id más alto,
+    # sin ningún aviso.
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+
+    repository.create_source_family(db_session, key="test-dummy", display_name="Dummy")
+    fuentes = [
+        repository.create_source(db_session, family_key="test-dummy", name=f"Fuente {i}", family_params={})
+        for i in range(105)
+    ]
+    DummyFamilyScraper.docs_to_return = []
+    run = repository.create_run(db_session, triggered_by="scheduled", fini=None, ffin=None)
+
+    orchestrate_run(run.id)
+
+    run_sources = repository.list_run_sources(db_session, run.id)
+    assert {rs.source_id for rs in run_sources} == {f.id for f in fuentes}

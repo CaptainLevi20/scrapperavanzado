@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 
 import requests
 
+from core.antivirus import AntivirusNoDisponible, ArchivoInfectado, escanear
+from core.config import get_settings
 from core.db import repository
 from core.db.session import SessionLocal
 from core.downloader import Downloader, check_remote_content_length, convert_to_pdf_via_libreoffice
@@ -24,7 +26,7 @@ from core.reporting_pdf import render_monthly_report_pdf
 from core.scrapers import families  # noqa: F401 — ensures registry is populated
 from core.scrapers.registry import resolve_scraper
 from core.storage import download_file, upload_file
-from core.utils import compute_doc_id, is_safe_storage_key, rekey_filename
+from core.utils import compute_doc_id, is_safe_storage_key, rekey_filename, storage_path
 from worker.celery_app import celery_app
 from worker.storage_sync_tasks import reconcile_document_task, reconcile_title_group_task
 
@@ -150,6 +152,20 @@ def _download_and_upload_one(
     downloader = Downloader()
     try:
         result = downloader.download(doc, tmp_path, stop_event=stop_event)
+        # Antivirus ANTES de abrir el archivo para nada más (p. ej. leer el PDF
+        # para corregir el título, abajo) y antes de guardarlo. Si no responde,
+        # AntivirusNoDisponible sube como error del documento: no se guarda.
+        settings = get_settings()
+        if settings.antivirus_habilitado:
+            virus = escanear(result.local_path)
+            if virus:
+                clave = storage_path(
+                    doc.source, _default_date_str(None), f"{result.sha256}{result.local_path.suffix}"
+                )
+                bucket, key = upload_file(
+                    result.local_path, clave, bucket=settings.s3_bucket_cuarentena, content_type=result.content_type
+                )
+                raise ArchivoInfectado(virus, bucket, key, result.sha256, result.file_size_bytes)
         if doc.title_unverified and scraper is not None:
             # doc.title (and possibly doc.tipo) get corrected in place from the
             # file's own content — see e.g. ScrapCorteSuprema for the "doc"/"(3)"
@@ -179,6 +195,7 @@ def _download_and_upload_one(
             "content_type": result.content_type,
             "file_extension": Path(storage_key).suffix,
             "file_size_bytes": result.file_size_bytes,
+            "sha256": result.sha256,
             "converted_format": result.converted_format,
         }, None
     except Exception as exc:
@@ -498,8 +515,29 @@ def scrape_source_task(run_source_id: int):
                                         logger.info("Documento no disponible aún: %s", exc)
                                         continue
                                     docs_errors += 1
+                                    if isinstance(exc, ArchivoInfectado):
+                                        logger.warning("Archivo infectado (%s) en cuarentena: %s", exc.virus, doc.link.get("url"))
+                                        try:
+                                            repository.add_quarantined_file(
+                                                db,
+                                                source_id=source.id,
+                                                run_source_id=run_source_id,
+                                                title=doc.title,
+                                                source_url=doc.link.get("url"),
+                                                virus=exc.virus,
+                                                sha256=exc.sha256,
+                                                file_size_bytes=exc.file_size_bytes,
+                                                storage_bucket=exc.storage_bucket,
+                                                storage_key=exc.storage_key,
+                                            )
+                                        except Exception as db_exc:  # noqa: BLE001 — el error de la corrida se registra igual
+                                            db.rollback()
+                                            logger.error("No se pudo registrar la cuarentena: %s", db_exc)
+                                    mensaje = str(exc)
+                                    if isinstance(exc, AntivirusNoDisponible):
+                                        mensaje = f"Documento no guardado: no se pudo revisar con el antivirus. {exc}"
                                     repository.add_run_error(
-                                        db, run_source_id, str(exc), context={"title": doc.title, "url": doc.link.get("url")}
+                                        db, run_source_id, mensaje, context={"title": doc.title, "url": doc.link.get("url")}
                                     )
                                     continue
 
@@ -622,7 +660,10 @@ def orchestrate_run(run_id: int, source_ids: list[int] | None = None):
     db = SessionLocal()
     try:
         repository.set_run_status(db, run_id, "running", started_at=datetime.now(timezone.utc))
-        sources = repository.list_sources(db, active=True)
+        # limit=None: TODAS las fuentes activas. Con el tamaño de página por
+        # defecto (100), al pasar de 100 fuentes la corrida dejaba fuera las de
+        # id más alto sin avisar (revisión del PR #110).
+        sources = repository.list_sources(db, active=True, limit=None)
         if source_ids:
             wanted = set(source_ids)
             sources = [s for s in sources if s.id in wanted]

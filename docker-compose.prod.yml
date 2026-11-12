@@ -58,7 +58,11 @@ services:
   worker:
     image: ghcr.io/captainlevi20/scrapperavanzado-worker:latest
     env_file: .env.production
+    environment:
+      CLAMAV_HOST: clamav
     depends_on:
+      clamav:
+        condition: service_started
       postgres:
         condition: service_healthy
       redis:
@@ -67,6 +71,28 @@ services:
         condition: service_started
     volumes:
       - "${CALI_DESCARGAS_DIR:-./descargas}:/descargas"
+    restart: unless-stopped
+
+  clamav:
+    # Antivirus: cada archivo descargado se revisa aquí antes de guardarlo (ver
+    # core/antivirus.py). La imagen oficial se configura con variables
+    # CLAMD_CONF_*: por defecto solo revisa 25 MB por la red (StreamMaxLength) y
+    # deja pasar sin aviso lo más grande, así que se sube por encima del tope de
+    # descargas (MAX_DOWNLOAD_MB=300). ConcurrentDatabaseReload=no evita que la
+    # memoria se duplique (~2 GB) al actualizar firmas: pausa la revisión unos
+    # segundos en su lugar. Medido 2026-11-05: ~1,1 GB en uso normal.
+    # El volumen guarda las firmas: sin él, cada reinicio las vuelve a bajar
+    # (~300 MB) y el servidor de firmas bloquea descargas repetidas.
+    image: clamav/clamav:stable
+    environment:
+      CLAMD_CONF_StreamMaxLength: 310M
+      CLAMD_CONF_MaxFileSize: 310M
+      CLAMD_CONF_MaxScanSize: 1000M
+      CLAMD_CONF_ConcurrentDatabaseReload: "no"
+      CLAMD_CONF_AlertExceedsMax: "yes"
+    volumes:
+      - clamav_db:/var/lib/clamav
+    mem_limit: 2500m
     restart: unless-stopped
 
   beat:
@@ -104,3 +130,4 @@ volumes:
   postgres_data:
   minio_data:
   caddy_data:
+  clamav_db:

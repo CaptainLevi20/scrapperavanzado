@@ -30,6 +30,10 @@ _PAGINA_TOPE = 50
 _MAX_TITULO = 120
 
 _RADICADO_RE = re.compile(r"^\s*(\d+)")
+# Respaldo (dc.title, nombre del PDF): sólo un número de 5-6 dígitos, el largo
+# del radicado del Centro. Así un año ("2019 Laudo…") o una numeración ("1.
+# Laudo…") no se toman por radicado (revisión del PR #110).
+_RADICADO_RESPALDO_RE = re.compile(r"^\s*(\d{5,6})(?!\d)")
 _ISSUED_RE = re.compile(r"^(\d{4})-(\d{2})(?:-(\d{2}))?")
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
 
@@ -57,12 +61,16 @@ def _fecha_accessioned(texto: str) -> Optional[datetime.date]:
         return None
 
 
-def _radicado(*candidatos: str) -> Optional[str]:
-    """Dígitos iniciales del primer candidato que los tenga: metadato radicado,
-    luego dc.title ("157594: …"), luego el nombre del PDF ("151064 ….pdf").
-    "137003Encargo fiduciario" → 137003; "4920/5468" → 4920."""
-    for texto in candidatos:
-        m = _RADICADO_RE.match(texto or "")
+def _radicado(metadato: str, *respaldos: str) -> Optional[str]:
+    """Radicado del Centro: dígitos iniciales del metadato propio
+    (dc.description.radicado: "137003Encargo fiduciario" → 137003, "4920/5468"
+    → 4920, "1133 V" → 1133); si no los tiene, un número inicial de 5-6
+    dígitos de dc.title ("157594: …") o del nombre del PDF ("151064 ….pdf")."""
+    m = _RADICADO_RE.match(metadato or "")
+    if m:
+        return str(int(m.group(1)))
+    for texto in respaldos:
+        m = _RADICADO_RESPALDO_RE.match(texto or "")
         if m:
             return str(int(m.group(1)))
     return None
@@ -77,9 +85,20 @@ def _titulo_respaldo(dc_title: str) -> str:
     return limpio[:_MAX_TITULO].strip(" .") or "laudo"
 
 
-def _items(session, fini: str, ffin: str, stop_event) -> Iterator[dict]:
+def _id_item(handle: str) -> str:
+    """Número del ítem en la biblioteca: último tramo del handle ("11520/29990"
+    → "29990"); si no hay handle, el uuid."""
+    return _INVALID_PATH_CHARS.sub("-", str(handle or "").rstrip("/").rsplit("/", 1)[-1]) or "sin-id"
+
+
+def _items(session, fini: str, ffin: str, stop_event, on_progress=None) -> Iterator[dict]:
     """Ítems subidos (dc.date.accessioned) en [fini, ffin]. El rango sólo
-    funciona sobre el campo Solr con sufijo _dt; sin él se ignora."""
+    funciona sobre el campo Solr con sufijo _dt; sin él se ignora.
+
+    Si se llega a _PAGINA_TOPE y quedan páginas, lo reporta como error de la
+    corrida (el mensaje lleva "Error"): el orden es por fecha de subida
+    descendente, así que lo que faltaría son los laudos subidos primero, y
+    sin el aviso la corrida se vería completa (revisión del PR #110)."""
     params = {
         "scope": _SCOPE_LAUDOS,
         "dsoType": "ITEM",
@@ -97,8 +116,16 @@ def _items(session, fini: str, ffin: str, stop_event) -> Iterator[dict]:
             item = objeto.get("_embedded", {}).get("indexableObject")
             if item:
                 yield item
-        if pagina + 1 >= (resultado.get("page") or {}).get("totalPages", 0):
+        total_paginas = (resultado.get("page") or {}).get("totalPages", 0)
+        if pagina + 1 >= total_paginas:
             return
+    if on_progress:
+        faltan = total_paginas - _PAGINA_TOPE
+        on_progress(
+            f"[{_SOURCE}] Error: la búsqueda llegó al tope de {_PAGINA_TOPE} páginas y quedaron "
+            f"{faltan} páginas sin revisar ({_POR_PAGINA} laudos por página). Hay que subir "
+            f"_PAGINA_TOPE en core/scrapers/families/ccb.py o partir la corrida en rangos más cortos."
+        )
 
 
 def _pdfs(session, item_uuid: str) -> List[dict]:
@@ -123,6 +150,10 @@ class ScrapCcb(BaseScrapper):
     # HEAD sobre /bitstreams/{uuid}/content responde JSON con Content-Length 1:
     # el chequeo de republicación por tamaño volvería a bajar todo.
     checks_for_republication = False
+    # La identidad sale del MD5 del PDF (ver link.body.path en _docs_de_item),
+    # no de la fecha de subida: dos copias subidas en fechas distintas son el
+    # mismo documento.
+    doc_id_uses_publication_date = False
     # Margen por si el índice de búsqueda tarda en reflejar un ítem archivado.
     scheduled_min_lookback_days = 7
     # Sube por tandas, con meses enteros sin nada.
@@ -144,7 +175,7 @@ class ScrapCcb(BaseScrapper):
         if on_progress:
             on_progress(f"[{_SOURCE}] Procesando {_TIPO}...")
         try:
-            for item in _items(session, fini, ffin, stop_event):
+            for item in _items(session, fini, ffin, stop_event, on_progress):
                 if parar():
                     return docs[:limit]
                 for doc in self._docs_de_item(session, item, md5_vistos, uuid_vistos, on_progress):
@@ -191,7 +222,18 @@ class ScrapCcb(BaseScrapper):
         dc_title = _meta(item, "dc.title") or item.get("name") or ""
         radicado = _radicado(_meta(item, "dc.description.radicado"), dc_title, pdfs[0].get("name") or "")
         verificado = radicado is not None
-        base = _titulo(radicado, laudo.year) if verificado else _titulo_respaldo(dc_title)
+        if verificado:
+            base = _titulo(radicado, laudo.year)
+        else:
+            # Sin radicado, el título de la biblioteca puede repetirse ("Laudo
+            # arbitral"). Como el nombre del archivo sale del título (al subir y
+            # en el renombrado nocturno de core/storage_sync.py), dos laudos
+            # distintos con el mismo título y fecha se pisaban en el mismo
+            # archivo. El número del ítem en la biblioteca (último tramo del
+            # handle, p. ej. 11520/29990 → 29990) lo hace único y sirve para
+            # ubicarlo en el sitio al corregirlo a mano. Hallazgo de la revisión
+            # del PR #110.
+            base = f"{_titulo_respaldo(dc_title)}_{_id_item(handle)}"
         iso_laudo = laudo.isoformat()
         iso_subida = subida.isoformat()
 
@@ -219,9 +261,15 @@ class ScrapCcb(BaseScrapper):
                 nombre_archivo = f"{title}_h{h}"
             else:
                 nombre_archivo = title
+            # Identidad del documento (link.body.path, como en constitucional o
+            # rama_judicial): el MD5 del PDF. El mismo PDF subido dos veces
+            # (ítems distintos, URL distinta) se reconoce como ya guardado
+            # aunque llegue en otra corrida; md5_vistos solo cubre la misma
+            # corrida (revisión del PR #110). Sin MD5, el id del archivo.
+            identidad = f"ccb-md5:{md5}" if md5 else f"ccb-bitstream:{bit_uuid}"
             docs.append(RawDocModel(
                 source=_SOURCE,
-                link={"url": url, "method": "GET"},
+                link={"url": url, "method": "GET", "body": {"path": identidad}},
                 title=title,
                 tipo=_TIPO,
                 f_public=iso_subida,

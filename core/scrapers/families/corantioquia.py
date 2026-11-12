@@ -1,11 +1,13 @@
 import datetime
 import re
+import unicodedata
 from typing import Iterator, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 import requests
 import urllib3
 
+from core.fecha_es import parse_fecha_providencia_es
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
@@ -31,18 +33,24 @@ _POR_PAGINA = 15
 _PAGINA_TOPE = 30
 
 # tipo.nombre del boletín → (tipo asignado, prefijo). Autos ("Acto
-# administrativo"), edictos y notificaciones por aviso no entran.
+# administrativo"), edictos y notificaciones por aviso no entran. Las claves van
+# sin tildes y en minúsculas: se comparan con _clave_tipo (ver abajo).
 _TIPOS = {
-    "Resolución": ("Resolución", "R"),
-    "Acuerdo": ("Acuerdo", "A"),
+    "resolucion": ("Resolución", "R"),
+    "acuerdo": ("Acuerdo", "A"),
 }
 
-_MESES = {
-    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
-    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
-    "noviembre": 11, "diciembre": 12,
-}
-_FECHA_RE = re.compile(r"(\d{1,2})\s+de\s+([a-zñ]+)\s+de\s+(\d{4})", re.I)
+
+def _clave_tipo(texto: str) -> str:
+    """Nombre del tipo sin tildes, en minúsculas y sin espacios sobrantes.
+    "Resolución" puede llegar con la tilde descompuesta ("o" + U+0301, se ve
+    igual en pantalla) o en mayúsculas; una comparación letra por letra la
+    descartaba sin aviso (revisión del PR #110; mismo error que MinEducación,
+    PR #104)."""
+    descompuesto = unicodedata.normalize("NFKD", texto or "")
+    sin_tildes = "".join(c for c in descompuesto if not unicodedata.combining(c))
+    return " ".join(sin_tildes.lower().split())
+
 # <dependencia>[<oficina>]-<TIPO><AAMM>-<consecutivo>: 040-RES2610-3892,
 # 160TH-RES2501-80. El consecutivo es anual por tipo, común a todas las
 # dependencias, así que la dependencia no va en el título.
@@ -50,19 +58,10 @@ _RADICADO_RE = re.compile(r"^\d{3}[A-Z]{0,4}-(RES|ACU)(\d{2})(\d{2})-(\d+)$")
 _NO_SEGURO_RE = re.compile(r"[^A-Za-z0-9-]+")
 
 
-def _fecha(texto: str) -> Optional[datetime.date]:
-    """"09 de Octubre de 2026" (fechaRadicacion) o el nombre del boletín
-    "2876 de 14 de octubre de 2026"."""
-    m = _FECHA_RE.search(texto or "")
-    if not m:
-        return None
-    mes = _MESES.get(m.group(2).lower())
-    if mes is None:
-        return None
-    try:
-        return datetime.date(int(m.group(3)), mes, int(m.group(1)))
-    except ValueError:
-        return None
+# Fechas en español: el lector común del proyecto (core/fecha_es.py), que
+# entiende todos los formatos de esta fuente. Antes había una copia propia aquí
+# (revisión del PR #110).
+_fecha = parse_fecha_providencia_es
 
 
 def _titulo(pref: str, radicado: str) -> Tuple[str, bool]:
@@ -77,6 +76,15 @@ def _titulo(pref: str, radicado: str) -> Tuple[str, bool]:
 
 def _id_descarga(link: str) -> str:
     return (parse_qs(urlparse(link or "").query).get("doc") or [link])[0]
+
+
+def _enlace_canonico(link: str) -> str:
+    """El mismo acto siempre con el mismo enlace (de él sale su identidad,
+    ver doc_id_uses_publication_date): sólo el id del documento, en un orden
+    fijo. Si el enlace no trae `doc=`, se deja como llegó."""
+    if "doc" not in parse_qs(urlparse(link or "").query):
+        return link
+    return f"{_URL}?ctrlAction=D&doc={_id_descarga(link)}"
 
 
 def _boletines(session, fini: datetime.date, ffin: datetime.date, on_progress) -> List[Tuple[datetime.date, int]]:
@@ -117,10 +125,10 @@ def _documentos(session, numero: int, stop_event) -> Iterator[dict]:
 
 
 def _doc(documento: dict, publicacion: datetime.date, on_progress) -> Optional[RawDocModel]:
-    tipo_sitio = ((documento.get("tipo") or {}).get("nombre") or "").strip()
-    if tipo_sitio not in _TIPOS:
+    clave = _clave_tipo((documento.get("tipo") or {}).get("nombre"))
+    if clave not in _TIPOS:
         return None
-    tipo, pref = _TIPOS[tipo_sitio]
+    tipo, pref = _TIPOS[clave]
     radicado = (documento.get("sirenaRadicado") or "").strip()
     fecha = _fecha(documento.get("fechaRadicacion"))
     if fecha is None:
@@ -130,7 +138,7 @@ def _doc(documento: dict, publicacion: datetime.date, on_progress) -> Optional[R
     # El boletín republica actos viejos (resoluciones de 2000-2015 en 2026).
     if fecha.year < _ANIO_MINIMO:
         return None
-    link = (documento.get("linkDescarga") or "").strip()
+    link = _enlace_canonico((documento.get("linkDescarga") or "").strip())
     if not link:
         if on_progress:
             on_progress(f"[{_SOURCE}] Aviso: {tipo} {radicado} sin enlace de descarga, se omite")
@@ -162,6 +170,11 @@ class ScrapCorantioquia(BaseScrapper):
     # sean de meses atrás: se filtra por la fecha del boletín y la corrida
     # diaria no necesita mirar más atrás.
     filters_by_publication_date = True
+    # La identidad del documento sale sólo del enlace (doc= del acto), no de la
+    # fecha del boletín: el boletín republica actos ya publicados, y con la
+    # fecha en la identidad el mismo acto se guardaba otra vez en cada boletín
+    # que lo repetía (revisión del PR #110). Igual que SAMAI o Procuraduría.
+    doc_id_uses_publication_date = False
 
     def __init__(self):
         self.source = _SOURCE

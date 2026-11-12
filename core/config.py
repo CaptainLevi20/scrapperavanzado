@@ -26,6 +26,22 @@ class Settings(BaseSettings):
     # earlier in a day the beat job already ran for (or missed entirely) still get
     # picked up on the next run, instead of only ever seeing an empty "today".
     scheduled_run_lookback_days: int = 3
+    # Tope de tamaño de cada archivo descargado de una fuente, en MB. Un archivo
+    # más grande se corta a mitad de la descarga y el documento queda fallido:
+    # así un archivo enorme (error del sitio o malintencionado) no llena el disco.
+    # 300 por los datos de producción (2026-11-05): de 80.037 documentos el 99,9 %
+    # pesa menos de 11 MB; el más pesado legítimo es una sentencia RTF de la Corte
+    # Constitucional de 206,5 MB. Un PDF de 819 MB del Tribunal de Bogotá queda fuera.
+    max_download_mb: int = 300
+    # Antivirus (ClamAV, servicio `clamav` del docker-compose). Cada archivo
+    # descargado se revisa antes de guardarlo; si el antivirus no responde, el
+    # documento NO se guarda. Los infectados van al bucket de cuarentena.
+    antivirus_habilitado: bool = True
+    clamav_host: str = "localhost"
+    clamav_port: int = 3310
+    # Un archivo de 300 MB (el tope) tarda en revisarse; holgado a propósito.
+    clamav_timeout_segundos: float = 300
+    s3_bucket_cuarentena: str = "iurisync-cuarentena"
 
 
 @lru_cache

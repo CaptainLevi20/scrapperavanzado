@@ -2,6 +2,7 @@ import datetime
 import re
 import threading
 
+import requests
 import responses
 
 from core.scrapers.families.cc_armenia import (
@@ -165,7 +166,7 @@ def test_pdf_que_no_responde_se_descarta():
     docs = _scrap(on_progress=avisos.append)
 
     assert [d.title for d in docs] == ["LA_CCAQ_20230515_2024"]
-    assert any("LA_CCAQ_20221111_2024" in a and "no responde" in a for a in avisos)
+    assert any("LA_CCAQ_20221111_2024" in a and "no existe" in a for a in avisos)
 
 
 @responses.activate
@@ -236,3 +237,65 @@ def test_error_de_la_pagina():
 def test_corrida_diaria_mira_hasta_el_piso():
     desde = datetime.date.today() - datetime.timedelta(days=ScrapCcArmenia.scheduled_min_lookback_days)
     assert desde <= datetime.date(_ANIO_MINIMO, 1, 1)
+
+
+@responses.activate
+def test_enlace_relativo_se_completa_con_el_dominio():
+    # Hallazgo de la revisión del PR #110: un href relativo (lo que guarda
+    # WordPress si el editor pega una ruta) se usaba tal cual; la consulta
+    # previa fallaba y el laudo se saltaba en silencio.
+    relativo = _fila("20230515", "AGROPECUARIA", "ROJAS", "18 DE DICIEMBRE DE 2024", "LAUDO ARBITRAL AGRO.pdf")
+    relativo = relativo.replace(_DOCS, "/DocumentosCamara/Laudos/")
+    _listado(relativo)
+    _heads_ok()
+
+    [doc] = _scrap()
+
+    assert doc.link["url"] == _DOCS + "LAUDO ARBITRAL AGRO.pdf"
+
+
+@responses.activate
+def test_si_la_consulta_previa_no_es_concluyente_el_laudo_se_incluye():
+    # Hallazgo de la revisión del PR #110: cualquier respuesta distinta de 200
+    # (405 si el servidor no acepta HEAD, 403 de un firewall, 5xx, un corte de
+    # red) descartaba el laudo con un simple aviso, en todas las corridas.
+    # Solo "no existe" (404/410) lo descarta; en los demás casos se incluye y
+    # la descarga decide: si falla, queda como error visible de la corrida.
+    a = _fila("1", "A", "B", "01 DE ENERO DE 2024", "LAUDO 1.pdf")
+    b = _fila("2", "A", "B", "01 DE ENERO DE 2024", "LAUDO 2.pdf")
+    c = _fila("3", "A", "B", "01 DE ENERO DE 2024", "LAUDO 3.pdf")
+    d = _fila("4", "A", "B", "01 DE ENERO DE 2024", "LAUDO 4.pdf")
+    _listado(a, b, c, d)
+    _head("LAUDO 1.pdf", status=405)
+    _head("LAUDO 2.pdf", status=503)
+    responses.add(responses.HEAD, _DOCS + "LAUDO 3.pdf", body=requests.exceptions.ConnectionError("corte"))
+    _head("LAUDO 4.pdf", status=410)
+
+    assert [doc.title for doc in _scrap()] == ["LA_CCAQ_1_2024", "LA_CCAQ_2_2024", "LA_CCAQ_3_2024"]
+
+
+def test_la_corrida_diaria_cubre_toda_la_tabla_desde_2006():
+    # La tabla entera llega en una consulta: la corrida diaria mira desde antes
+    # del piso, sin ventana.
+    dias_desde_el_piso = (datetime.date.today() - datetime.date(_ANIO_MINIMO, 1, 1)).days
+    assert ScrapCcArmenia.scheduled_min_lookback_days > dias_desde_el_piso
+
+
+@responses.activate
+def test_la_consulta_previa_no_espera_mas_de_15_segundos(monkeypatch):
+    # Revisión del PR #110: con 60 s por consulta y ~14 laudos, un sitio lento
+    # podía tener la corrida de esta fuente colgada ~14 minutos.
+    _listado(_AGRO)
+    esperas = []
+    real = requests.Session.head
+
+    def head(self, url, **kw):
+        esperas.append(kw.get("timeout"))
+        return real(self, url, **kw)
+
+    monkeypatch.setattr(requests.Session, "head", head)
+    _heads_ok()
+
+    _scrap()
+
+    assert esperas and all(t <= 15 for t in esperas)

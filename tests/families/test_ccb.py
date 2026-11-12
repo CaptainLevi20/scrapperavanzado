@@ -128,7 +128,9 @@ def test_item_a_documento():
     assert doc.tipo == "Laudo arbitral"
     assert doc.f_providencia == "2026-05-29"
     assert doc.f_public == "2026-10-01"
-    assert doc.link == {"url": f"{_API}/core/bitstreams/b1/content", "method": "GET"}
+    assert doc.link == {
+        "url": f"{_API}/core/bitstreams/b1/content", "method": "GET", "body": {"path": "ccb-md5:md5-1"},
+    }
     assert doc.detalle == "159970: MANUFACTURAS TERPIEL SAS VS. MOLASASA COL SAS"
     assert doc.title_unverified is False
     assert doc.save_path.startswith(f"{_SOURCE}/2026-05-29/Laudo arbitral/LA_CCB_159970_2026_h")
@@ -168,9 +170,11 @@ def test_sin_radicado_usa_el_titulo_sin_verificar():
 
     [doc] = _scrap()
 
-    assert doc.title == "TRIBUNAL ARBITRAL DE A-B VS. C"
+    # Lleva el número del ítem en la biblioteca (handle 11520/i1) para que
+    # dos laudos con el mismo título no se pisen.
+    assert doc.title == "TRIBUNAL ARBITRAL DE A-B VS. C_i1"
     assert doc.title_unverified is True
-    assert doc.save_path.endswith("/TRIBUNAL ARBITRAL DE A-B VS. C(extension)")
+    assert doc.save_path.endswith("/TRIBUNAL ARBITRAL DE A-B VS. C_i1(extension)")
     assert not es_familia_con_actuaciones("ccb", doc.title)
 
 
@@ -287,3 +291,99 @@ def test_limit_y_stop_event():
     parar = threading.Event()
     parar.set()
     assert _scrap(stop_event=parar) == []
+
+
+@responses.activate
+def test_dos_laudos_sin_radicado_con_el_mismo_titulo_y_fecha_no_comparten_archivo():
+    # Hallazgo de la revisión del PR #110: sin radicado, el nombre del archivo
+    # era solo el título genérico. Dos laudos distintos con el mismo título y la
+    # misma fecha del laudo caían en la misma clave de almacenamiento y el
+    # segundo sobrescribía al primero.
+    a = _item("a", radicado=None, title="Laudo arbitral")
+    b = _item("b", radicado=None, title="Laudo arbitral")
+    _listado([a, b])
+    _archivos("a", _bitstream("bit-a", "md5-a", nombre="laudo.pdf"))
+    _archivos("b", _bitstream("bit-b", "md5-b", nombre="laudo.pdf"))
+
+    docs = _scrap()
+
+    assert len(docs) == 2
+    assert all(d.title_unverified for d in docs)
+    assert docs[0].save_path != docs[1].save_path
+
+
+@responses.activate
+def test_si_la_busqueda_llega_al_tope_de_paginas_lo_reporta_como_error(monkeypatch):
+    # Hallazgo de la revisión del PR #110: la búsqueda paraba en _PAGINA_TOPE
+    # sin decir nada; si la biblioteca creciera, los laudos subidos primero
+    # (orden por fecha de subida descendente) quedarían fuera y la corrida se
+    # vería completa. Ahora queda un error visible en la corrida.
+    import core.scrapers.families.ccb as ccb
+
+    monkeypatch.setattr(ccb, "_PAGINA_TOPE", 1)
+    _listado([_item("i1")], pagina=0, total_paginas=3)
+    _archivos("i1", _bitstream("b1", "md5-1"))
+    mensajes = []
+
+    docs = _scrap(on_progress=mensajes.append)
+
+    assert [d.title for d in docs] == ["LA_CCB_159970_2026"]
+    assert any("Error" in m and "2 páginas" in m for m in mensajes)
+
+
+def test_del_titulo_o_del_pdf_solo_vale_un_numero_de_5_o_6_digitos():
+    # Hallazgo de la revisión del PR #110: del título o del nombre del PDF se
+    # tomaba cualquier número inicial. "2019 Laudo…" o "1. Laudo…" daban
+    # LA_CCB_2019_2019 / LA_CCB_1_2020 como verificados y, como la CCB agrupa
+    # por radicado, juntaban laudos que no tienen nada que ver. El radicado del
+    # Centro tiene 5-6 dígitos (spec); el metadato propio se sigue aceptando
+    # como antes (allí vienen los raros de 4 dígitos, como 4920/5468).
+    assert _radicado("", "2019 Laudo arbitral X VS. Y") is None
+    assert _radicado("", "1. Laudo arbitral", "1 laudo.pdf") is None
+    assert _radicado("", "Laudo", "2020-laudo final.pdf") is None
+    assert _radicado("", "1234567 X") is None
+    # Lo válido sigue igual.
+    assert _radicado("", "157594: X VS. Y") == "157594"
+    assert _radicado("", "TRIBUNAL", "151064 ESTEFANIA.pdf") == "151064"
+    assert _radicado("", "15759 X") == "15759"
+    assert _radicado("4920/5468") == "4920"
+    assert _radicado("1133 V") == "1133"
+
+
+@responses.activate
+def test_el_mismo_pdf_subido_dos_veces_en_corridas_distintas_tiene_la_misma_identidad():
+    # Hallazgo de la revisión del PR #110: el descarte por MD5 solo funcionaba
+    # dentro de una corrida (md5_vistos es local a scrap()). Si las dos copias
+    # del mismo PDF (ítems 11520/29990 y 11520/29987 del diseño) se suben en
+    # días distintos, cada una llega en otra corrida, con otra URL y otro
+    # doc_id, y se guardaba dos veces. La identidad del documento sale ahora
+    # del MD5 del PDF: la segunda copia se reconoce como ya guardada.
+    from core.utils import compute_doc_id
+
+    _listado([_item("i1", accessioned="2026-03-01T10:00:00Z")], fini="2026-03-01", ffin="2026-03-31")
+    _listado([_item("i2", accessioned="2026-04-15T10:00:00Z")], fini="2026-04-01", ffin="2026-04-30")
+    _archivos("i1", _bitstream("b1", "ABC123"))
+    _archivos("i2", _bitstream("b2", "abc123"))
+
+    [primero] = _scrap("2026-03-01", "2026-03-31")
+    [segundo] = _scrap("2026-04-01", "2026-04-30")
+
+    usa_fecha = ScrapCcb.doc_id_uses_publication_date
+    assert primero.link["url"] != segundo.link["url"]
+    assert compute_doc_id(primero, usa_fecha) == compute_doc_id(segundo, usa_fecha)
+
+
+@responses.activate
+def test_pdfs_distintos_tienen_identidades_distintas_y_sin_md5_se_usa_el_archivo():
+    from core.utils import compute_doc_id
+
+    _listado([_item("i1"), _item("i2"), _item("i3"), _item("i4")])
+    _archivos("i1", _bitstream("b1", "md5-1"))
+    _archivos("i2", _bitstream("b2", "md5-2"))
+    _archivos("i3", _bitstream("b3", ""))
+    _archivos("i4", _bitstream("b4", ""))
+
+    docs = _scrap()
+
+    usa_fecha = ScrapCcb.doc_id_uses_publication_date
+    assert len({compute_doc_id(d, usa_fecha) for d in docs}) == 4

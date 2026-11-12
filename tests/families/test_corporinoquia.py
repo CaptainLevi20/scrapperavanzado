@@ -200,3 +200,23 @@ def test_error_de_la_pagina():
 
     assert _scrap(on_progress=avisos.append) == []
     assert any("Error consultando" in a for a in avisos)
+
+
+def test_la_descripcion_no_arrastra_el_resto_de_la_pagina():
+    # Hallazgo de la revisión del PR #110: la descripción era todo el texto
+    # entre un enlace y el siguiente. En el último acuerdo de la página (o en
+    # uno sin fecha-hora de publicación) arrastraba el título del acordeón
+    # siguiente, el pie de página y hasta el código de la página.
+    html = _pagina(
+        ("2025", "<p>" + _a("ULTIMO", "ACUERDO 200.3-2-25-009 DE 10 DE DICIEMBRE DE 2025")
+         + ' "POR MEDIO DEL CUAL SE APRUEBA EL PRESUPUESTO"</p>'),
+        ("2024", "<p>Sin acuerdos publicados</p>"),
+    ).decode("utf-8").replace(
+        "</body>",
+        "<script>var sppbVersion = '5.0';</script><!-- comentario -->"
+        "<footer><p>Corporinoquia · Yopal, Casanare · Todos los derechos reservados</p></footer></body>",
+    )
+
+    [enlace] = list(_enlaces(html))
+
+    assert _referencia(enlace["resto"]) == "POR MEDIO DEL CUAL SE APRUEBA EL PRESUPUESTO"

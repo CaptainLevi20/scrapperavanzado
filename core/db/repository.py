@@ -7,7 +7,7 @@ from sqlalchemy import and_, cast, delete, exists, func, or_, select, tuple_, up
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
-from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
+from core.db.models import BulkDownload, CaseLink, CaseLinkSeparation, CaseLinkStage, Document, DocumentVersion, MonthlyReport, QuarantinedFile, Run, RunError, RunSource, Source, SourceFamily, User, UserSession
 from core.naming import es_anexo_title, es_familia_con_actuaciones, titulo_padre_de_anexo
 from core.utils import CCB_CANONICAL_TITLE_PATTERN, MIN_MATCH_DIGITS, RADICADO_TITLE_PATTERN, SAMAI_CASE_TITLE_PATTERN, SAMAI_CASE_TITLE_RAW_PATTERN, SIC_CANONICAL_TITLE_PATTERN, matching_prefix_length
 
@@ -84,9 +84,11 @@ def list_sources(
     family_key: Optional[str] = None,
     active: Optional[bool] = None,
     has_documents: Optional[bool] = None,
-    limit: int = 100,
+    limit: Optional[int] = 100,
     offset: int = 0,
 ) -> list[Source]:
+    # limit=None trae todas: lo usan quienes necesitan la lista completa (la
+    # corrida), no una página para mostrar.
     stmt = select(Source)
     if id is not None:
         stmt = stmt.where(Source.id == id)
@@ -97,7 +99,9 @@ def list_sources(
     if has_documents is not None:
         has_docs_clause = exists().where(Document.source_id == Source.id)
         stmt = stmt.where(has_docs_clause if has_documents else ~has_docs_clause)
-    stmt = stmt.order_by(Source.id).limit(limit).offset(offset)
+    stmt = stmt.order_by(Source.id).offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.scalars(stmt).all())
 
 
@@ -255,6 +259,14 @@ def set_run_source_status(db: Session, run_source_id: int, status: str, **fields
     for key, value in fields.items():
         setattr(run_source, key, value)
     db.commit()
+
+
+def add_quarantined_file(db: Session, **fields) -> QuarantinedFile:
+    registro = QuarantinedFile(**fields)
+    db.add(registro)
+    db.commit()
+    db.refresh(registro)
+    return registro
 
 
 def add_run_error(db: Session, run_source_id: int, message: str, context: Optional[dict] = None) -> RunError:
@@ -515,6 +527,7 @@ def archive_and_replace_document(
         content_type=document.content_type,
         file_extension=document.file_extension,
         file_size_bytes=document.file_size_bytes,
+        sha256=document.sha256,
         converted_format=document.converted_format,
         source_url=document.source_url,
         downloaded_at=document.downloaded_at,
