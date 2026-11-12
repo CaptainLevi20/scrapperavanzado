@@ -133,3 +133,21 @@ def test_escanear_flujo_acepta_el_contenido_en_trozos(clamd_falso):
     assert virus == "Win.Test.EICAR_HDB-1"
     cuerpo = _ClamdFalso.recibido[len(b"zINSTREAM\0"):]
     assert cuerpo == (3).to_bytes(4, "big") + b"abc" + (3).to_bytes(4, "big") + b"def" + (0).to_bytes(4, "big")
+
+
+def test_un_limite_del_antivirus_no_es_un_virus(tmp_path, clamd_falso):
+    # Producción, 5-nov-2026: 9 laudos de la CCB fueron a cuarentena con
+    # "Heuristics.Limits.Exceeded.MaxScanTime". Eso no es un virus: el
+    # antivirus no alcanzó a terminar de revisarlos (servidor ocupado). Se
+    # trata como "no se pudo revisar" (el documento no se guarda y se reintenta),
+    # no como infectado.
+    from core.antivirus import RevisionIncompleta
+
+    _ClamdFalso.respuesta = b"stream: Heuristics.Limits.Exceeded.MaxScanTime FOUND\0"
+    host, puerto = clamd_falso.server_address
+
+    with pytest.raises(RevisionIncompleta, match="MaxScanTime") as info:
+        escanear(_archivo(tmp_path), host=host, puerto=puerto)
+
+    assert isinstance(info.value, AntivirusNoDisponible)
+    assert info.value.limite == "Heuristics.Limits.Exceeded.MaxScanTime"

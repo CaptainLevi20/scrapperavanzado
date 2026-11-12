@@ -49,6 +49,9 @@ services:
       CLAMD_CONF_MaxScanSize: 1000M
       CLAMD_CONF_ConcurrentDatabaseReload: "no"
       CLAMD_CONF_AlertExceedsMax: "yes"
+      # 5 min por archivo (por defecto 2): con otra fuente grande descargando a
+      # la vez, 9 laudos de la CCB no alcanzaron a revisarse (5-nov-2026).
+      CLAMD_CONF_MaxScanTime: "300000"
     volumes:
       - clamav_db:/var/lib/clamav
     ports:
