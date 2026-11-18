@@ -8,7 +8,11 @@ from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
 
-_JEP_SEARCHADV_URL = "https://relatoria.jep.gov.co/searchadv"
+# La JEP movió su buscador a gestionrelatoria en noviembre de 2026 (es lo que
+# usa hoy su propia página); la dirección vieja, relatoria.jep.gov.co/searchadv,
+# responde "405 Not Allowed". Mismo cuerpo, mismo JSON y sin credenciales.
+# Los PDF siguen sirviéndose desde relatoria (_JEP_BASE_URL).
+_JEP_SEARCHADV_URL = "https://gestionrelatoria.jep.gov.co/api/searchadv"
 _JEP_BASE_URL = "https://relatoria.jep.gov.co/"
 
 _INVALID_PATH_CHARS = re.compile(r'[\\/*?:"<>|]')
