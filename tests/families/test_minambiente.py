@@ -57,6 +57,16 @@ def test_parse_fecha_solo_anio():
     assert _parse_fecha(" de 2023") == "2023-01-01"
 
 
+def test_parse_fecha_dia_mes_anio_sin_de_antes_del_anio():
+    # Real (sep 2026): "Resolución 1183 de 08 septiembre 2026" — sin "de" antes
+    # del año; antes no se reconocía y la resolución se descartaba.
+    assert _parse_fecha(" de 08 septiembre 2026") == "2026-09-08"
+
+
+def test_parse_fecha_mes_anio_sin_de_antes_del_anio():
+    assert _parse_fecha(" de octubre 2024") == "2024-10-01"
+
+
 def test_parse_fecha_returns_none_when_no_date_found():
     assert _parse_fecha("texto sin fecha reconocible") is None
 
@@ -202,6 +212,54 @@ _BOX_LEY_SOLO_ANIO_HTML = """
   </div>
 </div>
 """
+
+
+# Real (desde ~sep 2026): el ministerio titula "Resolución 1550 de 2026", sólo
+# con el año (y un espacio duro entre "Resolución" y el número). Con el 1 de
+# enero como fecha de filtro, ninguna corrida diaria la traía.
+_BOX_RESOLUCION_SOLO_ANIO_RECIENTE_HTML = """
+<div class="row box-docgd">
+  <div class="col-md-10">
+    <div><a class="documento-normativa" href="https://www.minambiente.gov.co/wp-content/uploads/2026/11/RES-1550.pdf"
+         title="Resolución&nbsp;1550 de 2026">Resolución&nbsp;1550 de 2026</a></div>
+    <div><span class="txt-peque-archivo">Publicado: noviembre 13, 2026</span></div>
+  </div>
+</div>
+"""
+
+
+def test_extraer_normas_year_only_title_filters_by_publicado():
+    scraper = ScrapMinAmbiente()
+    docs = scraper._extraer_normas(
+        _BOX_RESOLUCION_SOLO_ANIO_RECIENTE_HTML, "Resolución", "R", "2026-11-12", "2026-11-18"
+    )
+
+    assert len(docs) == 1
+    assert docs[0].title == "R_MADS_1550_2026"
+    assert docs[0].title_unverified is False
+    assert docs[0].f_public == "2026-11-13"
+    assert docs[0].f_providencia == "2026-01-01"  # sigue siendo sólo el año del título
+
+
+def test_extraer_normas_year_only_title_outside_publicado_range_is_skipped():
+    scraper = ScrapMinAmbiente()
+    docs = scraper._extraer_normas(
+        _BOX_RESOLUCION_SOLO_ANIO_RECIENTE_HTML, "Resolución", "R", "2026-01-01", "2026-01-31"
+    )
+
+    assert docs == []
+
+
+def test_extraer_normas_year_only_title_without_publicado_keeps_january_first_filter():
+    html = _BOX_RESOLUCION_SOLO_ANIO_RECIENTE_HTML.replace(
+        '<div><span class="txt-peque-archivo">Publicado: noviembre 13, 2026</span></div>', ""
+    )
+    scraper = ScrapMinAmbiente()
+
+    assert scraper._extraer_normas(html, "Resolución", "R", "2026-11-12", "2026-11-18") == []
+    docs = scraper._extraer_normas(html, "Resolución", "R", "2026-01-01", "2026-01-31")
+    assert len(docs) == 1
+    assert docs[0].f_public == "2026-01-01"
 
 
 def test_extraer_normas_year_only_falls_back_to_january_first():

@@ -49,11 +49,13 @@ _DIA = r"(?:0?[1-9]|[12]\d|3[01])"
 # casual en texto libre posterior "secuestre" el resultado.
 _FECHA_PATTERN = re.compile(
     r"(?:"
-    rf"(?<!\d)({_DIA})\s+(?:DE\s+)?({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
+    # El "de" antes del año es opcional: desde sep 2026 el ministerio también
+    # titula "Resolución 1183 de 08 septiembre 2026".
+    rf"(?<!\d)({_DIA})\s+(?:DE\s+)?({_MESES_ALT})\s+(?:DEL?\s+)?(\d{{4}})(?!\d)"
     r"|"
     rf"DE\s+({_MESES_ALT})\s+(?<!\d)({_DIA})\s+DEL?\s+(\d{{4}})(?!\d)"
     r"|"
-    rf"DE\s+({_MESES_ALT})\s+DEL?\s+(\d{{4}})(?!\d)"
+    rf"DE\s+({_MESES_ALT})\s+(?:DEL?\s+)?(\d{{4}})(?!\d)"
     r"|"
     r"\bDEL?\s*(\d{4})(?!\d)"
     r")",
@@ -84,6 +86,13 @@ def _resto_tras_numero(titulo: str, numero: str) -> str:
     if idx == -1:
         return titulo
     return titulo[idx + len(numero):]
+
+
+def _titulo_solo_trae_anio(texto: str) -> bool:
+    """True si la única fecha del título es el año ("Resolución 1550 de 2026"):
+    _parse_fecha la convierte en 1 de enero, que no sirve para filtrar."""
+    m = _FECHA_PATTERN.search(texto)
+    return m is not None and m.group(9) is not None
 
 
 def _parse_fecha(texto: str) -> Optional[str]:
@@ -206,6 +215,13 @@ class ScrapMinAmbiente(BaseScrapper):
                 fecha_filtro = f_providencia
             else:
                 fecha_filtro = f_providencia
+                # Título con sólo el año: su "1 de enero" dejaría la norma fuera
+                # de toda corrida diaria (así se perdieron las resoluciones desde
+                # sep 2026). Se filtra por "Publicado:" — que sí trae el día —
+                # cuando el sitio lo da. Un reindexado del CMS que la vuelva a
+                # fechar no la duplica: el doc_id no usa f_public.
+                if f_public is not None and _titulo_solo_trae_anio(resto):
+                    fecha_filtro = f_public
                 if numero is not None:
                     title = _normalize_title(letra, numero, f_providencia[:4])
                     title_unverified = False
