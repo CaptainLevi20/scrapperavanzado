@@ -498,7 +498,7 @@ ejemplo el disco de red `O:`) con el Explorador de Windows o un `robocopy`.
 
 Una fuente puede dejar de traer documentos sin que ninguna corrida marque
 error: por ejemplo, si el sitio oficial deja de publicar en el lugar donde
-IURISYNC busca (le pasó a la Corte Suprema en 2026). Para no depender de que
+IURISYNC busca (le pasó a la Corte Suprema en 2026, que terminó cambiando de buscador). Para no depender de que
 alguien lo note a mano, la herramienta compara cada fuente activa con su
 propia historia del último año y avisa en dos casos:
 
@@ -1080,25 +1080,71 @@ Es seguro repetirlo.
 
 ### Corte Suprema de Justicia (`corte_suprema`)
 
-- **De dónde saca los documentos:** del buscador oficial de providencias de
-  la Corte (consultaprovidencias.cortesuprema.gov.co). Lee las cuatro salas
-  (Tutelas, Laboral, Civil y Penal), de la más nueva a la más vieja.
-- **Fallas pasajeras de la Corte:** el buscador de la Corte a veces responde
-  mal a una consulta suelta (se midió alrededor de 1 de cada 180). La fuente
-  vuelve a intentar hasta 3 veces, con 5 segundos de espera entre intentos,
-  antes de darse por vencida. Solo si los 3 intentos fallan queda un error
-  en la corrida, y esa sala queda incompleta en esa corrida. Si la Corte
-  rechaza la consulta de plano (un error que no es del servidor), no se
-  reintenta y el error aparece de inmediato.
-- **Si la fuente deja de traer documentos:** primero hay que revisar si la
-  Corte está cargando providencias nuevas en su buscador. En octubre de 2026
-  se confirmó que la Corte había dejado de cargarlas: lo último en Tutelas,
-  Laboral y Civil era del 30 de abril de 2026, y en Penal de finales de
-  julio. Desde entonces solo aparecían algunos documentos viejos editados,
-  el último el 15 de septiembre. No era una falla de IURISYNC ni del
-  certificado (válido hasta marzo de 2027). Cuando la Corte se ponga al día,
-  conviene lanzar una corrida manual desde el 30 de abril de 2026, porque la
-  corrida diaria solo mira los últimos 3 días.
+- **De dónde saca los documentos (desde noviembre de 2026):** del buscador
+  nuevo de la Corte, **Ojeador** (ojeador.cortesuprema.gov.co). El buscador
+  anterior (consultaprovidencias) dejó de recibir providencias en abril de
+  2026 y ya no se usa. Lee las salas Civil, Laboral y Penal y, desde este
+  cambio, también la **Sala Plena** (carpeta `CSJ/SPL`). Las tutelas se
+  guardan en la carpeta de la sala que las resolvió, como antes. Todo llega
+  en PDF y entra marcado como "útil".
+- **Retraso de la Corte:** Ojeador publica las providencias entre 2 y 4
+  semanas después de firmadas. Por eso la corrida diaria de la CSJ mira 45
+  días hacia atrás; lo que ya está guardado no se vuelve a bajar.
+- **Fallas pasajeras:** si Ojeador responde mal una consulta, la fuente
+  reintenta hasta 3 veces con 5 segundos de espera. Si la Corte rechaza la
+  consulta de plano (un error que no es del servidor), no se reintenta: ese
+  mes queda con error en la corrida y los demás meses siguen normalmente.
+- **Si la fuente deja de traer documentos:** revisar primero en
+  ojeador.cortesuprema.gov.co si hay providencias recientes. En octubre de
+  2026 la causa fue que la Corte cambió de buscador, no una falla de
+  IURISYNC.
+
+#### Pasos al actualizar a la versión con Ojeador (una sola vez, noviembre de 2026)
+
+1. Actualizar como siempre (`pull` y `up -d`). No hay cambios en la base de
+   datos.
+2. **Antes del paso 4**, confirmar con quien maneja RedJurista, BDU y JurIA
+   que esos productos no reconocen los documentos por su identificador
+   interno: el paso 4 se lo cambia a las providencias de la CSJ que ya
+   estaban guardadas (el archivo, el nombre y la carpeta no cambian).
+3. Simular el reconocimiento de las providencias ya guardadas (no cambia
+   nada):
+
+   ```
+   docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.backfill_csj_ojeador
+   ```
+
+   Al final muestra cuántas reconoce y la lista de "pendientes". Es normal
+   que queden unas pocas: providencias viejas marcadas "EDITADA" sin código,
+   alguna que la Corte cargó con el número mal escrito, y copias que el
+   buscador viejo ya había guardado dos veces (una en PDF y otra en Word).
+   **Antes de seguir, la lista no debe tener pendientes "sin coincidencia"
+   con un código normal** (por ejemplo `AP140-2026(62924)`): volver a
+   simular hasta que desaparezcan, porque el buscador de la Corte a veces no
+   la devuelve a la primera. Si una quedara pendiente, la recuperación la
+   bajaría de nuevo con el mismo nombre de archivo y pisaría el guardado.
+   Las copias guardadas dos veces aparecen como "ambiguas" al aplicar (una
+   de las dos se reconoce); eso es normal y no causa choques.
+4. Aplicar (mismo comando con `--aplicar` al final). Se puede repetir sin
+   problema: lo ya reconocido no se vuelve a tocar.
+5. Comprobar que el servidor tiene espacio: recuperar todo 2026 son unas
+   33.000 providencias, **unos 8 GB**. En PowerShell: `Get-PSDrive C` (mirar
+   la columna "Free").
+6. Recuperar 2026 con **corridas manuales de la CSJ de un mes cada una**,
+   de enero al mes actual, lanzando cada una después de la corrida diaria
+   para no frenar a las demás fuentes. Medido en noviembre de 2026: un mes
+   (~1.800 providencias) tardó unos 7 minutos en pruebas; los meses más
+   grandes (~4.000) pueden tardar 15-20. Al terminar cada mes, **volver a
+   lanzar ese mismo mes** una vez: la Corte frena las descargas cuando van
+   rápido (responde "429, demasiadas solicitudes"). La herramienta espera
+   y reintenta sola, pero si alguna aún queda con error, la segunda pasada
+   baja solo las que faltaron. (En la prueba de octubre, antes de que la
+   herramienta esperara sola, quedaron 188 en la primera pasada y 3 en la
+   segunda; ahora deberían ser muchas menos.) El botón
+   "Reintentar fuentes fallidas" no sirve aquí, porque la corrida termina
+   como "completada". Los pocos errores que queden tras la segunda pasada
+   suelen ser providencias **reservadas** o con el nombre mal cargado en
+   Ojeador, que la Corte no entrega ("404"): no hay nada que hacer.
 
 ### Tribunales Superiores (`rama_judicial`)
 

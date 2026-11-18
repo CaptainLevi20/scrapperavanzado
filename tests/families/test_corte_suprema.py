@@ -1,16 +1,21 @@
 import json
-import re
 from pathlib import Path
 
 import pytest
 import requests
 import responses
+from responses import matchers
 
 import core.scrapers.families.corte_suprema as csj_module
-from core.scrapers.families.corte_suprema import ScrapCorteSuprema
+from core.scrapers.families.corte_suprema import (
+    ScrapCorteSuprema,
+    _clasificar_sala,
+    _doc_desde_resultado,
+    _tipo_desde_ojeador,
+    _tramos_mensuales,
+    _url_descarga,
+)
 from core.scrapers.registry import FAMILY_REGISTRY
-
-_URL = "https://consultaprovidenciasbk.cortesuprema.gov.co/api"
 
 
 @pytest.fixture(autouse=True)
@@ -20,453 +25,10 @@ def _sin_espera_entre_reintentos(monkeypatch):
     monkeypatch.setattr(csj_module, "_ESPERA_REINTENTO_SEG", 0)
 
 
-def _item(
-    title="SC1234-2024.pdf",
-    fecha="2024-02-01T15:00:00Z",  # 10:00 COT — solidly Feb 1 in both UTC and Colombia time
-    auto_sentencia="SENTENCIA",
-    online_path="path/to/file",
-):
-    # typeOfDocument always comes back null from the real API — tipo is
-    # derived from autoSentencia instead (see ScrapCorteSuprema.scrap).
-    return {
-        "typeOfDocument": None,
-        "autoSentencia": auto_sentencia,
-        "title": title,
-        "id": online_path,
-        "onlinePath": online_path,
-        "fechaCreacion": fecha,
-    }
+def test_corte_suprema_is_registered_under_its_family_key():
+    import core.scrapers.families  # noqa: F401
 
-
-def _callback_factory(item_fecha="2024-02-01T15:00:00Z"):
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        if start == 0:
-            payload = {"data": {"getSearchResult": {"searchResults": [_item(fecha=item_fecha)]}}}
-        else:
-            payload = {"data": {"getSearchResult": {"searchResults": []}}}
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    return _callback
-
-
-@responses.activate
-def test_scrap_returns_one_doc_per_tipo_within_range():
-    responses.add_callback(responses.POST, _URL, callback=_callback_factory(), content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    assert len(docs) == 4  # uno por cada tipo: Tutelas, Laboral, Civil, Penal
-    assert {d.tipo for d in docs} == {"Sentencia"}
-    assert {d.f_public for d in docs} == {"2024-02-01"}
-    title_by_bucket = {d.save_path.split("/")[1]: d.title for d in docs}
-    assert title_by_bucket == {
-        "SCT": "SC1234-2024",
-        "SCL": "SC1234-2024",
-        "SCC": "SC1234-2024",
-        "SCP": "SC1234-2024",
-    }
-    assert docs[0].link == {
-        "url": "https://consultaprovidenciasbk.cortesuprema.gov.co/downloadFile/",
-        "body": {"path": "path/to/file"},
-        "method": "POST",
-    }
-
-
-@responses.activate
-def test_scrap_attributes_a_late_evening_colombia_document_to_the_correct_local_day():
-    """Regression test: fechaCreacion comes back as a UTC instant. A document
-    published at 8pm Colombia time (COT, UTC-5) lands after midnight UTC — the
-    old code compared the raw UTC .date() against the requested Colombia
-    calendar day and excluded it, even though a fini=ffin request for exactly
-    that day should have included it."""
-    # 2026-07-28 20:00 COT == 2026-07-29 01:00 UTC
-    responses.add_callback(
-        responses.POST,
-        _URL,
-        callback=_callback_factory(item_fecha="2026-07-29T01:00:00Z"),
-        content_type="application/json",
-    )
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2026-07-28", ffin="2026-07-28")
-
-    assert len(docs) == 4  # uno por cada tipo: Tutelas, Laboral, Civil, Penal
-    assert {d.f_public for d in docs} == {"2026-07-28"}
-
-
-@responses.activate
-def test_scrap_does_not_include_the_previous_colombia_day_via_a_pre_midnight_utc_instant():
-    """The mirror image of the test above: a document published just before
-    midnight UTC on day D+1 is actually still day D in Colombia (UTC-5) — but
-    one published at, say, 11pm UTC on day D+1 is genuinely day D+1 in
-    Colombia too (23:00 UTC - 5h = 18:00 COT, same calendar day). This pins
-    down that the conversion doesn't overcorrect and start including the WRONG
-    extra day instead."""
-    # 2026-07-29 23:00 UTC == 2026-07-29 18:00 COT — genuinely the 29th in Colombia too.
-    responses.add_callback(
-        responses.POST,
-        _URL,
-        callback=_callback_factory(item_fecha="2026-07-29T23:00:00Z"),
-        content_type="application/json",
-    )
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2026-07-28", ffin="2026-07-28")
-
-    assert docs == []
-
-
-@responses.activate
-def test_scrap_limit_is_per_tipo_not_shared_across_all_four():
-    # Regression guard: `limit` used to be checked against the cumulative doc
-    # count across ALL FOUR tipos combined, so once "Tutelas" (processed
-    # first, per self.tipos' iteration order) filled the whole shared budget,
-    # Laboral/Civil/Penal each got stuck with just 1 document apiece no
-    # matter how many were really available — exactly what was observed in
-    # production over a wide date range (1000 Tutelas + 1 each of the rest).
-    tutelas_items = [_item(title=f"STL{i}-2024.pdf", online_path=f"path/stl{i}") for i in range(5)]
-    otros_items = {
-        "Laboral": [_item(title=f"AL{i}-2024.pdf", online_path=f"path/al{i}") for i in range(2)],
-        "Civil": [_item(title=f"AC{i}-2024.pdf", online_path=f"path/ac{i}") for i in range(2)],
-        "Penal": [_item(title=f"SP{i}-2024.pdf", online_path=f"path/sp{i}") for i in range(2)],
-    }
-
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', query).group(1)
-        items = tutelas_items[start : start + 10] if tipo_query == "Tutelas" else (
-            otros_items[tipo_query] if start == 0 else []
-        )
-        payload = {"data": {"getSearchResult": {"searchResults": items}}}
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", limit=3)
-
-    count_by_bucket: dict[str, int] = {}
-    for d in docs:
-        bucket = d.save_path.split("/")[1]
-        count_by_bucket[bucket] = count_by_bucket.get(bucket, 0) + 1
-
-    assert count_by_bucket["SCT"] == 3  # tope de 3 alcanzado (había 5 disponibles)
-    assert count_by_bucket["SCL"] == 2  # los 2 disponibles, no se queda en 1
-    assert count_by_bucket["SCC"] == 2
-    assert count_by_bucket["SCP"] == 2
-
-
-@responses.activate
-def test_scrap_excludes_items_older_than_fini():
-    responses.add_callback(
-        responses.POST,
-        _URL,
-        callback=_callback_factory(item_fecha="2020-01-01T00:00:00Z"),
-        content_type="application/json",
-    )
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    assert docs == []
-    # cada uno de los 4 tipos debe detenerse tras su primera petición (un item más
-    # viejo que fini dispara `stop=True` antes de llegar a pedir "start=10")
-    assert len(responses.calls) == 4
-
-
-@responses.activate
-def test_scrap_derives_tipo_from_auto_sentencia():
-    # typeOfDocument is always null in the real API response, so tipo comes
-    # from autoSentencia ("AUTO"/"SENTENCIA") instead, capitalized; when both
-    # autoSentencia AND the title's own code prefix are unreadable, it falls
-    # back to "Desconocido" (title "25632(...)" starts with a digit, not S/A).
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', query).group(1)
-        if start != 0:
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        auto_sentencia = {"Tutelas": "AUTO", "Laboral": "SENTENCIA", "Civil": None}.get(tipo_query, "SENTENCIA")
-        title = "25632(27-01-10)EDITADA.doc" if tipo_query == "Civil" else _item()["title"]
-        payload = {"data": {"getSearchResult": {"searchResults": [_item(title=title, auto_sentencia=auto_sentencia)]}}}
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    tipo_by_source_tipo = {d.save_path.split("/")[1]: d.tipo for d in docs}
-    assert tipo_by_source_tipo["SCT"] == "Auto"  # Tutelas -> AUTO
-    assert tipo_by_source_tipo["SCL"] == "Sentencia"  # Laboral -> SENTENCIA
-    assert tipo_by_source_tipo["SCC"] == "Desconocido"  # Civil -> null, y el título no empieza en S/A
-
-
-@responses.activate
-def test_scrap_infers_tipo_from_titulo_when_auto_sentencia_is_missing():
-    # Real-world example: autoSentencia comes back null, but the document's own
-    # code makes the type unambiguous — "S..." is always a Sentencia, "A..."
-    # is always an Auto, regardless of sala (SP, STC, AC, ATC, AHC, etc.).
-    titles_by_tipo_query = {
-        "Civil": "AC2794-2026 [2024-00858-00].pdf",
-        "Laboral": "AL10187-2026.docx",
-        "Penal": "SP592-2022(50621)EDITADA.docx",
-        "Tutelas": "STC9010-2026.docx",
-    }
-
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        if start != 0:
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', query).group(1)
-        payload = {
-            "data": {
-                "getSearchResult": {
-                    "searchResults": [_item(title=titles_by_tipo_query[tipo_query], auto_sentencia=None)]
-                }
-            }
-        }
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    tipo_by_source_tipo = {d.save_path.split("/")[1]: d.tipo for d in docs}
-    assert tipo_by_source_tipo["SCC"] == "Auto"  # AC... -> Auto
-    assert tipo_by_source_tipo["SCL"] == "Auto"  # AL... -> Auto
-    assert tipo_by_source_tipo["SCP"] == "Sentencia"  # SP... -> Sentencia
-    assert tipo_by_source_tipo["SCT"] == "Sentencia"  # STC... -> Sentencia
-
-
-@responses.activate
-def test_scrap_infers_concepto_from_cp_prefix():
-    # Real-world example: "CP098-2026(68539)" is a Concepto de extradición
-    # issued by the Sala de Casación Penal — confirmed by downloading a real
-    # one, whose own first page reads "La Sala procede a emitir concepto...".
-    # autoSentencia is null for these, same as Auto/Sentencia when missing.
-    def _callback(request):
-        body = json.loads(request.body)
-        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', body["query"]).group(1)
-        if start != 0 or tipo_query != "Penal":
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        payload = {
-            "data": {
-                "getSearchResult": {
-                    "searchResults": [_item(title="CP098-2026(68539).docx", auto_sentencia=None)]
-                }
-            }
-        }
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    [doc] = [d for d in docs if d.save_path.split("/")[1] == "SCP"]
-    assert doc.tipo == "Concepto"
-    assert doc.title == "CP098-2026(68539)"
-
-
-@responses.activate
-def test_scrap_derives_especialidad_from_online_path():
-    # Tutela wins over the internal sala segment (e.g. ".../TUTELAS/PENAL/...")
-    # since that segment only names who resolved the tutela, not its nature.
-    # Note: since the Tutelas item is resolved by Sala Penal, it now shares its
-    # storage bucket (SCP) with the real "Penal" query item (see _bucket_real) —
-    # so results are looked up by their unique online_path, not by bucket.
-    paths_by_tipo_query = {
-        "Civil": "/var/www/html/Index/CIVIL/2026/Dr. X/Autos/AC1-2026.pdf",
-        "Laboral": "/var/www/html/Index/LABORAL/PERMANENTE/2026/Dr. Y/Autos/AL1-2026.docx",
-        "Penal": "/var/www/html/Index/PENAL/2026/CP1-2026.docx",
-        "Tutelas": "/var/www/html/Index/TUTELAS/PENAL/2026/Reservadas/STP1-2026.docx",
-    }
-    # Distinct titles are required: the Tutelas item is resolved by Sala Penal
-    # and so shares its storage bucket with the real "Penal" item — if they
-    # also shared the same code+date, the docx/pdf dedup would (correctly)
-    # collapse them into one, hiding the real Penal document from this test.
-    titles_by_tipo_query = {
-        "Civil": "AC1-2026.pdf",
-        "Laboral": "AL1-2026.docx",
-        "Penal": "SP1-2026.docx",
-        "Tutelas": "STP1-2026.docx",
-    }
-
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        if start != 0:
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', query).group(1)
-        payload = {
-            "data": {
-                "getSearchResult": {
-                    "searchResults": [
-                        _item(title=titles_by_tipo_query[tipo_query], online_path=paths_by_tipo_query[tipo_query])
-                    ]
-                }
-            }
-        }
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    especialidad_by_path = {d.link["body"]["path"]: d.especialidad for d in docs}
-    assert especialidad_by_path[paths_by_tipo_query["Civil"]] == "Civil"
-    assert especialidad_by_path[paths_by_tipo_query["Laboral"]] == "Laboral"
-    assert especialidad_by_path[paths_by_tipo_query["Penal"]] == "Penal"
-    assert especialidad_by_path[paths_by_tipo_query["Tutelas"]] == "Tutela"  # not Penal, despite same sala
-
-
-@responses.activate
-def test_scrap_derives_seccion_as_the_actual_sala_de_casacion_that_decided_it():
-    # Unlike especialidad, a tutela does NOT get its own bucket here — seccion
-    # names whichever real Sala de Casación resolved it (the segment right
-    # after "TUTELAS/"), since "Tutela" alone isn't an actual sala.
-    paths_by_tipo_query = {
-        "Civil": "/var/www/html/Index/CIVIL/2026/Dr. X/Autos/AC1-2026.pdf",
-        "Laboral": "/var/www/html/Index/LABORAL/PERMANENTE/2026/Dr. Y/Autos/AL1-2026.docx",
-        "Penal": "/var/www/html/Index/PENAL/2026/CP1-2026.docx",
-        "Tutelas": "/var/www/html/Index/TUTELAS/PENAL/2026/Reservadas/STP1-2026.docx",
-    }
-    # Distinct titles are required: the Tutelas item is resolved by Sala Penal
-    # and so shares its storage bucket with the real "Penal" item — if they
-    # also shared the same code+date, the docx/pdf dedup would (correctly)
-    # collapse them into one, hiding the real Penal document from this test.
-    titles_by_tipo_query = {
-        "Civil": "AC1-2026.pdf",
-        "Laboral": "AL1-2026.docx",
-        "Penal": "SP1-2026.docx",
-        "Tutelas": "STP1-2026.docx",
-    }
-
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        if start != 0:
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', query).group(1)
-        payload = {
-            "data": {
-                "getSearchResult": {
-                    "searchResults": [
-                        _item(title=titles_by_tipo_query[tipo_query], online_path=paths_by_tipo_query[tipo_query])
-                    ]
-                }
-            }
-        }
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    seccion_by_path = {d.link["body"]["path"]: d.seccion for d in docs}
-    assert seccion_by_path[paths_by_tipo_query["Civil"]] == "Sala de Casación Civil"
-    assert seccion_by_path[paths_by_tipo_query["Laboral"]] == "Sala de Casación Laboral"
-    assert seccion_by_path[paths_by_tipo_query["Penal"]] == "Sala de Casación Penal"
-    # /TUTELAS/PENAL/... -> resolved by the Sala Penal, not a "Tutela" sala
-    assert seccion_by_path[paths_by_tipo_query["Tutelas"]] == "Sala de Casación Penal"
-
-    # And the tutela's own storage bucket must match that real sala (SCP), not
-    # the generic "SCT" search bucket — see _bucket_real.
-    bucket_by_path = {d.link["body"]["path"]: d.save_path.split("/")[1] for d in docs}
-    assert bucket_by_path[paths_by_tipo_query["Tutelas"]] == "SCP"
-    assert bucket_by_path[paths_by_tipo_query["Penal"]] == "SCP"
-
-
-@responses.activate
-def test_scrap_strips_trailing_junk_from_the_code():
-    # The document's own code is always the start of the title — plain-word
-    # junk trailing it (" - RESERVADO", "EDITADA") is noise from the source
-    # and gets dropped, but NOT a bracketed/parenthesized reference number
-    # right after the code ("(50621)", "[2024-00858-00]") — that's part of
-    # the code itself and must be kept.
-    titles = {
-        "Civil": "ATP346-2021 - RESERVADO.docx",
-        "Laboral": "AC2794-2026 [2024-00858-00].pdf",
-        "Penal": "SP592-2022(50621)EDITADA.docx",
-        "Tutelas": "STL5177-2026.pdf",
-    }
-
-    def _callback(request):
-        body = json.loads(request.body)
-        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
-        if start != 0:
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', body["query"]).group(1)
-        payload = {"data": {"getSearchResult": {"searchResults": [_item(title=titles[tipo_query])]}}}
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    title_by_bucket = {d.save_path.split("/")[1]: d.title for d in docs}
-    assert title_by_bucket["SCC"] == "ATP346-2021"
-    assert title_by_bucket["SCL"] == "AC2794-2026 [2024-00858-00]"
-    assert title_by_bucket["SCP"] == "SP592-2022(50621)"
-    assert title_by_bucket["SCT"] == "STL5177-2026"
-
-
-@responses.activate
-def test_scrap_falls_back_to_raw_title_when_the_code_cannot_be_identified():
-    # Real-world garbage titles ("doc", "(3)") that don't start with a
-    # recognizable code still get the "<relleno>_<año>" shape, even though the
-    # middle part isn't the real code yet — it's flagged via title_unverified
-    # so the worker checks the file's first page later
-    # (see resolve_unverified_document).
-    responses.add_callback(
-        responses.POST,
-        _URL,
-        callback=lambda request: (
-            200,
-            {"Content-Type": "application/json"},
-            json.dumps(
-                {"data": {"getSearchResult": {"searchResults": [_item(title="doc.docx")]}}}
-                if int(re.search(r"start:\s*(\d+)", json.loads(request.body)["query"]).group(1)) == 0
-                else {"data": {"getSearchResult": {"searchResults": []}}}
-            ),
-        ),
-        content_type="application/json",
-    )
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    title_by_bucket = {d.save_path.split("/")[1]: d.title for d in docs}
-    assert title_by_bucket["SCC"] == "doc_2024"
-    unverified_by_bucket = {d.save_path.split("/")[1]: d.title_unverified for d in docs}
-    assert unverified_by_bucket["SCC"] is True
-
-
-@responses.activate
-def test_scrap_does_not_flag_title_unverified_when_the_code_is_identified():
-    responses.add_callback(responses.POST, _URL, callback=_callback_factory(), content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    assert all(not d.title_unverified for d in docs)
+    assert FAMILY_REGISTRY["corte_suprema"] is ScrapCorteSuprema
 
 
 def test_resolve_unverified_document_recovers_the_title_and_tipo_from_the_files_own_text(monkeypatch):
@@ -522,216 +84,351 @@ def test_resolve_unverified_document_is_defensive_about_read_failures(monkeypatc
     assert any("No se pudo leer la primera página" in r.message for r in caplog.records)
 
 
-@responses.activate
-def test_scrap_deduplicates_docx_and_pdf_of_the_same_providencia_preferring_pdf():
-    # Real-world example: CSJ lists "STL4467-2026" twice in the same Tutelas
-    # search — once as .docx, once as .pdf. That's not a later republication,
-    # just two formats of the same submission, so only one document (the
-    # pdf) should survive, not two.
-    def _callback(request):
-        body = json.loads(request.body)
-        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', body["query"]).group(1)
-        if start != 0 or tipo_query != "Tutelas":
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        payload = {
-            "data": {
-                "getSearchResult": {
-                    "searchResults": [
-                        _item(title="STL4467-2026.docx", online_path="path/docx"),
-                        _item(title="STL4467-2026.pdf", online_path="path/pdf"),
-                    ]
-                }
-            }
-        }
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
+# --- Ojeador (buscador nuevo de la Corte, noviembre 2026) -------------------
 
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    tutelas_docs = [d for d in docs if d.save_path.split("/")[1] == "SCT"]
-    assert len(tutelas_docs) == 1
-    assert tutelas_docs[0].title == "STL4467-2026"
-    assert tutelas_docs[0].link["body"] == {"path": "path/pdf"}
+_UBICACION_REAL = (
+    "SALAS/CIVIL/2026/Dr. Fernando Augusto Jiménez Valderrama/11.- Noviembre/Autos/"
+    "AC7263-2026 [2026-03319-00].docx"
+)
 
 
-@responses.activate
-def test_scrap_deduplicates_pdf_and_docx_regardless_of_which_is_seen_first():
-    def _callback(request):
-        body = json.loads(request.body)
-        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
-        tipo_query = re.search(r'typeOfQuery: "(\w+)"', body["query"]).group(1)
-        if start != 0 or tipo_query != "Tutelas":
-            return (200, {}, json.dumps({"data": {"getSearchResult": {"searchResults": []}}}))
-        payload = {
-            "data": {
-                "getSearchResult": {
-                    "searchResults": [
-                        _item(title="STL4467-2026.pdf", online_path="path/pdf"),
-                        _item(title="STL4467-2026.docx", online_path="path/docx"),
-                    ]
-                }
-            }
-        }
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01")
-
-    tutelas_docs = [d for d in docs if d.save_path.split("/")[1] == "SCT"]
-    assert len(tutelas_docs) == 1
-    assert tutelas_docs[0].link["body"] == {"path": "path/pdf"}
+def _resultado(**override):
+    # Resultado real de buscadorjurisprudenciabackend.cortesuprema.gov.co/search/
+    # (2026-11-18), recortado a los campos que usa la familia.
+    item = {
+        "id": "1171961",
+        "Nombre": "AC7263-2026 [2026-03319-00]",
+        "Numerador": "AC7263-2026",
+        "CUI": "11001020300020260331900",
+        "FechaConsolidacionFirma": "2026-11-06",
+        "Especialidad": "CIVIL",
+        "Sala": "CIVIL",
+        "TipoDeProvidencia": "AUTO",
+        "ClaseActuacion": "RECURSO DE REVISIÓN",
+        "Ponente": "DR FERNANDO AUGUSTO JIMÉNEZ VALDERRAMA",
+        "Ubicacion": _UBICACION_REAL,
+    }
+    item.update(override)
+    return item
 
 
-def test_corte_suprema_is_registered_under_its_family_key():
-    import core.scrapers.families  # noqa: F401
-
-    assert FAMILY_REGISTRY["corte_suprema"] is ScrapCorteSuprema
-
-
-@responses.activate
-def test_scrap_skips_malformed_item_without_aborting_the_rest():
-    # A title with no "." separator makes `title.split(".")[-2]` raise
-    # IndexError; that must only skip this one item, not abort the whole
-    # tipo (and lose every other valid item on the page).
-    def _callback(request):
-        body = json.loads(request.body)
-        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
-        if start == 0:
-            malformed = _item(title="Sin puntos aqui")
-            valid = _item(title="SC9999-2024.pdf")
-            payload = {"data": {"getSearchResult": {"searchResults": [malformed, valid]}}}
-        else:
-            payload = {"data": {"getSearchResult": {"searchResults": []}}}
-        return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    progress_messages = []
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
-
-    assert len(docs) == 4  # el item malformado se salta, uno válido por cada uno de los 4 tipos
-    assert {d.title for d in docs} == {"SC9999-2024"}
-    # Regression test: this used to be a bare print(), invisible to the worker —
-    # now it must be reported via on_progress so worker/tasks.py can surface it
-    # as a RunError instead of silently discarding it.
-    assert any("Error" in m and "campo inesperado" in m for m in progress_messages)
+def test_tramos_mensuales_recorta_primer_y_ultimo_mes():
+    assert _tramos_mensuales("2026-01-15", "2026-03-10") == [
+        ("2026-01-15", "2026-01-31"),
+        ("2026-02-01", "2026-02-28"),
+        ("2026-03-01", "2026-03-10"),
+    ]
 
 
-@responses.activate
-def test_scrap_reports_a_server_error_via_on_progress_instead_of_silently_swallowing_it():
-    """Regression test: a 500/502/503/504 mid-pagination used to just print() and
-    quietly stop that tipo, so the worker had no way to know a whole day's worth
-    of documents for that tipo might be missing. It must now report through
-    on_progress, keeping the partial results already collected."""
-
-    def _callback(request):
-        body = json.loads(request.body)
-        start = int(re.search(r"start:\s*(\d+)", body["query"]).group(1))
-        if start == 0:
-            payload = {"data": {"getSearchResult": {"searchResults": [_item()]}}}
-            return (200, {"Content-Type": "application/json"}, json.dumps(payload))
-        return (503, {"Content-Type": "application/json"}, "Service Unavailable")
-
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
-
-    progress_messages = []
-    scraper = ScrapCorteSuprema()
-    docs = scraper.scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
-
-    # The first page's document is still kept even though the second page failed.
-    assert len(docs) == 4
-    error_messages = [m for m in progress_messages if "Error" in m]
-    assert len(error_messages) == 4  # una por cada uno de los 4 tipos
-    assert any("503" in m for m in error_messages)
+def test_tramos_mensuales_un_solo_dia():
+    assert _tramos_mensuales("2026-11-18", "2026-11-18") == [("2026-11-18", "2026-11-18")]
 
 
-def test_corte_suprema_does_not_check_for_republication():
-    # CSJ's download is a POST to a shared endpoint (no direct file URL), so there's
-    # nothing cheap to HEAD — republication checking is out of scope for this family.
-    assert ScrapCorteSuprema().checks_for_republication is False
-
-
-def _callback_con_fallo_transitorio(respuesta_fallida):
-    """Primera consulta de cada tipo en start=0 falla una sola vez con
-    `respuesta_fallida` (status, body) — o lanzando la excepción si es una —
-    y luego responde normal."""
-    fallos_por_tipo = {}
-
-    def _callback(request):
-        body = json.loads(request.body)
-        query = body["query"]
-        start = int(re.search(r"start:\s*(\d+)", query).group(1))
-        tipo = re.search(r'typeOfQuery:\s*"(\w+)"', query).group(1)
-        if start == 0 and tipo not in fallos_por_tipo:
-            fallos_por_tipo[tipo] = True
-            if isinstance(respuesta_fallida, Exception):
-                raise respuesta_fallida
-            return (respuesta_fallida[0], {"Content-Type": "text/html"}, respuesta_fallida[1])
-        return _callback_factory()(request)
-
-    return _callback
+def test_tramos_mensuales_cruza_el_cambio_de_anio():
+    assert _tramos_mensuales("2025-12-20", "2026-01-05") == [
+        ("2025-12-20", "2025-12-31"),
+        ("2026-01-01", "2026-01-05"),
+    ]
 
 
 @pytest.mark.parametrize(
-    "respuesta_fallida",
+    "tipo_providencia, codigo, esperado",
     [
-        (200, "<html>Servicio no disponible</html>"),  # 200 pero sin JSON (visto en vivo)
-        (503, "Service Unavailable"),
-        (500, "Internal Server Error"),
-        (200, json.dumps({"data": None, "errors": [{"message": "timeout"}]})),
-        requests.exceptions.ConnectionError("conexión reiniciada"),
+        ("AUTO", "AC1-2026", "Auto"),
+        ("AUTO TUTELA", "ATP1-2026", "Auto"),
+        ("AUTOHABEAS", "AHP1-2026", "Auto"),
+        ("SENTENCIA", "SC1-2026", "Sentencia"),
+        ("SENTENCIA TUTELA", "STP1-2026", "Sentencia"),
+        ("CONCEPTO", "CP1-2026", "Concepto"),
+        ("CONCEPTO EXTRADICCION", "CP2-2026", "Concepto"),
+        ("OTROS", "SC9-2026", "Sentencia"),
+        ("Otros", None, "Desconocido"),
+        ("", None, "Desconocido"),
     ],
-    ids=["200-sin-json", "503", "500", "data-null", "error-de-conexion"],
 )
-@responses.activate
-def test_scrap_reintenta_una_falla_pasajera_de_la_corte_sin_perder_la_sala(respuesta_fallida):
-    """Regression test: una sola respuesta fallida de la Corte (en vivo se vio
-    ~1 de cada 180 consultas devolver algo que no era JSON) cortaba la sala
-    completa por el resto de la corrida. Ahora se reintenta antes de rendirse,
-    y si el reintento funciona no queda ningún error registrado."""
-    responses.add_callback(
-        responses.POST, _URL, callback=_callback_con_fallo_transitorio(respuesta_fallida),
-        content_type="application/json",
+def test_tipo_desde_ojeador(tipo_providencia, codigo, esperado):
+    assert _tipo_desde_ojeador(tipo_providencia, codigo) == esperado
+
+
+def test_clasificar_sala_tutela_penal_va_a_la_sala_que_la_resolvio():
+    item = _resultado(
+        Sala="PENAL", Especialidad="PENAL", TipoDeProvidencia="SENTENCIA TUTELA",
+        Ubicacion="SALAS/TUTELAS/PENA/2026/Dr. Gerson Chaverra Castro/Sentencia/STP21139-2026.docx",
+    )
+    assert _clasificar_sala(item) == ("Tutela", "Sala de Casación Penal", "SCP")
+
+
+def test_clasificar_sala_plena():
+    item = _resultado(
+        Sala="PLENA", Especialidad="PLENA", TipoDeProvidencia="AUTO",
+        Ubicacion="SALAS/PLENA/2026/Autos/APL6636-2026.docx",
+    )
+    assert _clasificar_sala(item) == ("Plena", "Sala Plena", "SPL")
+
+
+def test_clasificar_sala_civil_y_laboral():
+    assert _clasificar_sala(_resultado()) == ("Civil", "Sala de Casación Civil", "SCC")
+    laboral = _resultado(Sala="LABORAL", Especialidad="LABORAL", Ubicacion="SALAS/LABORAL/2026/x/AL1-2026.docx")
+    assert _clasificar_sala(laboral) == ("Laboral", "Sala de Casación Laboral", "SCL")
+
+
+def test_clasificar_sala_vacia_o_desconocida_no_rompe():
+    sin_sala = _resultado(Sala="", Especialidad="", Ubicacion="SALAS/LABORAL/2026/x.docx")
+    assert _clasificar_sala(sin_sala) == ("Laboral", "Sala de Casación Laboral", "SCL")
+    rara = _resultado(Sala="OTRA", Especialidad="", Ubicacion="raro/x.docx")
+    assert _clasificar_sala(rara) == (None, None, "OTRA")
+
+
+def test_url_descarga_codifica_la_ubicacion():
+    assert _url_descarga(_UBICACION_REAL) == (
+        "https://buscadorjurisprudenciabackend.cortesuprema.gov.co/document/descargar?path="
+        "SALAS%2FCIVIL%2F2026%2FDr.%20Fernando%20Augusto%20Jim%C3%A9nez%20Valderrama%2F11.-%20Noviembre"
+        "%2FAutos%2FAC7263-2026%20%5B2026-03319-00%5D.docx"
     )
 
-    progress_messages = []
-    docs = ScrapCorteSuprema().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
 
-    assert len(docs) == 4  # ninguna sala se perdió
-    assert not [m for m in progress_messages if "Error" in m]
+def test_doc_desde_resultado_completo():
+    doc = _doc_desde_resultado(_resultado())
+    assert doc.title == "AC7263-2026 [2026-03319-00]"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Auto"
+    assert doc.especialidad == "Civil"
+    assert doc.seccion == "Sala de Casación Civil"
+    assert doc.f_public == "2026-11-06"
+    assert doc.f_providencia == "2026-11-06"
+    assert doc.link == {"url": _url_descarga(_UBICACION_REAL), "method": "GET"}
+    assert doc.save_path == "CSJ/SCC/AC7263-2026 [2026-03319-00](extension)"
+    assert doc.source == "CSJ"
+
+
+def test_doc_desde_resultado_sin_codigo_marca_titulo_por_verificar():
+    doc = _doc_desde_resultado(_resultado(Nombre="doc", Numerador=""))
+    assert doc.title == "doc_2026"
+    assert doc.title_unverified is True
+
+
+def test_doc_desde_resultado_usa_numerador_si_el_nombre_no_calza():
+    doc = _doc_desde_resultado(_resultado(Nombre="(3)", Numerador="AL12909-2026"))
+    assert doc.title == "AL12909-2026"
+    assert doc.title_unverified is False
+
+
+def test_doc_desde_resultado_sin_ubicacion_lanza_keyerror():
+    item = _resultado()
+    del item["Ubicacion"]
+    with pytest.raises(KeyError):
+        _doc_desde_resultado(item)
+
+
+# --- scrap() sobre Ojeador ---------------------------------------------------
+
+_SEARCH = "https://buscadorjurisprudenciabackend.cortesuprema.gov.co/search/"
+
+
+def _params(fini, ffin, page):
+    return {
+        "query_text": "", "orden": "recientes", "limit": "100",
+        "page": str(page), "fechaInicio": fini, "fechaFin": ffin,
+    }
+
+
+def _docs(n, fecha="2026-10-15", desde=0):
+    return [
+        _resultado(
+            id=str(desde + k), Nombre=f"AC{desde + k}-2026", Numerador=f"AC{desde + k}-2026",
+            FechaConsolidacionFirma=fecha, Ubicacion=f"SALAS/CIVIL/2026/x/AC{desde + k}-2026.docx",
+        )
+        for k in range(n)
+    ]
+
+
+def _pagina(rsps, fini, ffin, page, docs, num_found, status=200):
+    rsps.add(
+        responses.GET, _SEARCH, status=status,
+        json={"numFound": num_found, "returned": len(docs), "docs": docs},
+        match=[matchers.query_param_matcher(_params(fini, ffin, page))],
+    )
 
 
 @responses.activate
-def test_scrap_se_rinde_tras_agotar_los_reintentos_y_lo_reporta():
-    def _callback(request):
-        return (200, {"Content-Type": "text/html"}, "<html>caído</html>")
+def test_scrap_pagina_hasta_completar_el_mes():
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, _docs(100), 230)
+    _pagina(responses, "2026-10-01", "2026-10-31", 2, _docs(100, desde=100), 230)
+    _pagina(responses, "2026-10-01", "2026-10-31", 3, _docs(30, desde=200), 230)
 
-    responses.add_callback(responses.POST, _URL, callback=_callback, content_type="application/json")
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")
 
-    progress_messages = []
-    docs = ScrapCorteSuprema().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
+    assert len(docs) == 230
+    assert len(responses.calls) == 3
+
+
+@responses.activate
+def test_scrap_para_en_page_por_100_igual_a_numfound():
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, _docs(100), 200)
+    _pagina(responses, "2026-10-01", "2026-10-31", 2, _docs(100, desde=100), 200)
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")
+
+    assert len(docs) == 200
+    assert len(responses.calls) == 2  # no pide una tercera página vacía
+
+
+@responses.activate
+def test_scrap_parte_el_rango_en_meses():
+    _pagina(responses, "2026-01-15", "2026-01-31", 1, _docs(1, fecha="2026-01-20"), 1)
+    _pagina(responses, "2026-02-01", "2026-02-28", 1, _docs(1, fecha="2026-02-20", desde=1), 1)
+    _pagina(responses, "2026-03-01", "2026-03-10", 1, _docs(1, fecha="2026-03-05", desde=2), 1)
+
+    docs = ScrapCorteSuprema().scrap("2026-01-15", "2026-03-10")
+
+    assert [d.f_public for d in docs] == ["2026-01-20", "2026-02-20", "2026-03-05"]
+
+
+@responses.activate
+def test_scrap_mes_con_mas_de_10000_se_parte_por_dias():
+    _pagina(responses, "2026-10-01", "2026-10-02", 1, _docs(100), 12000)
+    _pagina(responses, "2026-10-01", "2026-10-01", 1, _docs(1, fecha="2026-10-01"), 1)
+    _pagina(responses, "2026-10-02", "2026-10-02", 1, _docs(1, fecha="2026-10-02", desde=1), 1)
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-02")
+
+    assert sorted(d.f_public for d in docs) == ["2026-10-01", "2026-10-02"]
+
+
+@responses.activate
+def test_scrap_un_4xx_avisa_y_sigue_con_el_siguiente_mes():
+    _pagina(responses, "2026-01-01", "2026-01-31", 1, [], 0, status=400)
+    _pagina(responses, "2026-02-01", "2026-02-28", 1, _docs(1, fecha="2026-02-10"), 1)
+    avisos = []
+
+    docs = ScrapCorteSuprema().scrap("2026-01-01", "2026-02-28", on_progress=avisos.append)
+
+    assert [d.f_public for d in docs] == ["2026-02-10"]
+    assert any("2026-01-01" in a and "400" in a for a in avisos)
+    assert len(responses.calls) == 2  # el 4xx no se reintenta
+
+
+@responses.activate
+def test_scrap_reintenta_5xx_y_respuesta_que_no_es_json():
+    m = [matchers.query_param_matcher(_params("2026-10-01", "2026-10-31", 1))]
+    responses.add(responses.GET, _SEARCH, status=503, match=m)
+    responses.add(responses.GET, _SEARCH, status=200, body="<html>mantenimiento</html>", match=m)
+    responses.add(responses.GET, _SEARCH, json={"numFound": 1, "returned": 1, "docs": _docs(1)}, match=m)
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")
+
+    assert len(docs) == 1
+
+
+@responses.activate
+def test_scrap_se_rinde_tras_3_intentos_y_lo_avisa():
+    for _ in range(3):
+        _pagina(responses, "2026-10-01", "2026-10-31", 1, [], 0, status=502)
+    avisos = []
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", on_progress=avisos.append)
 
     assert docs == []
-    # 4 tipos × _MAX_INTENTOS consultas cada uno, y un error visible por tipo
-    assert len(responses.calls) == 4 * csj_module._MAX_INTENTOS
-    error_messages = [m for m in progress_messages if "Error" in m]
-    assert len(error_messages) == 4
+    assert len(responses.calls) == 3
+    assert any("3 intentos" in a for a in avisos)
 
 
 @responses.activate
-def test_scrap_no_reintenta_un_error_4xx():
-    # Un 4xx no es una falla pasajera: la Corte rechazó la consulta (p. ej.
-    # cambió su API). Reintentar no lo arregla, solo demora el aviso.
-    responses.add(responses.POST, _URL, status=400, body="Bad Request")
+def test_scrap_descarta_fecha_fuera_de_rango_con_aviso():
+    docs_sitio = _docs(1, fecha="2026-10-15") + _docs(1, fecha="2026-09-30", desde=1)
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, docs_sitio, 2)
+    avisos = []
 
-    progress_messages = []
-    ScrapCorteSuprema().scrap(fini="2024-01-01", ffin="2024-03-01", on_progress=progress_messages.append)
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", on_progress=avisos.append)
 
-    assert len(responses.calls) == 4  # una sola consulta por tipo
-    assert all("400" in m for m in progress_messages if "Error" in m)
+    assert [d.f_public for d in docs] == ["2026-10-15"]
+    assert any("fuera del rango" in a for a in avisos)
+
+
+@responses.activate
+def test_scrap_deduplica_por_id():
+    repetidos = _docs(1) + _docs(1)
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, repetidos, 2)
+
+    assert len(ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")) == 1
+
+
+@responses.activate
+def test_scrap_resultado_sin_ubicacion_se_omite_sin_cortar_la_corrida():
+    malos = _docs(2)
+    del malos[0]["Ubicacion"]
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, malos, 2)
+    avisos = []
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", on_progress=avisos.append)
+
+    assert len(docs) == 1
+    assert any("campo inesperado" in a for a in avisos)
+
+
+@responses.activate
+def test_scrap_respeta_limit():
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, _docs(100), 230)
+
+    assert len(ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", limit=5)) == 5
+
+
+@responses.activate
+def test_scrap_respeta_stop_event():
+    import threading
+
+    parar = threading.Event()
+    parar.set()
+
+    assert ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", stop_event=parar) == []
+    assert len(responses.calls) == 0
+
+
+def test_atributos_de_la_familia():
+    assert ScrapCorteSuprema.scheduled_min_lookback_days == 45
+    assert ScrapCorteSuprema.checks_for_republication is False
+    assert ScrapCorteSuprema.filters_by_publication_date is False
+
+
+@responses.activate
+def test_scrap_deduplica_copias_de_ojeador_con_la_misma_ubicacion():
+    # Real (nov 2026): Ojeador indexa SP754-2026(64046) tres veces, con ids
+    # distintos y la misma Ubicacion (mismo archivo).
+    copias = [
+        _resultado(id=i, Nombre="SP754-2026(64046)", Numerador="SP754-2026", Sala="PENAL",
+                   Especialidad="PENAL", TipoDeProvidencia="SENTENCIA", FechaConsolidacionFirma="2026-10-15",
+                   Ubicacion="SALAS/PENAL/2026/SP754-2026(64046).docx")
+        for i in ("1148912", "1122109", "1128418")
+    ]
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, copias, 3)
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")
+
+    assert [d.title for d in docs] == ["SP754-2026(64046)"]
+
+
+@responses.activate
+def test_scrap_no_emite_dos_documentos_con_la_misma_carpeta_y_titulo():
+    # Revisión final: dos rutas distintas con el mismo Nombre irían al mismo
+    # archivo en el almacenamiento (el segundo pisaría al primero).
+    a = _resultado(id="1", Ubicacion="SALAS/CIVIL/2026/x/AC7263-2026 [2026-03319-00].docx", FechaConsolidacionFirma="2026-10-15")
+    b = _resultado(id="2", Ubicacion="SALAS/CIVIL/2026/y/AC7263-2026 [2026-03319-00].docx", FechaConsolidacionFirma="2026-10-15")
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, [a, b], 2)
+    avisos = []
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", on_progress=avisos.append)
+
+    assert len(docs) == 1
+    assert any("mismo nombre" in m for m in avisos)
+
+
+@responses.activate
+def test_scrap_resultados_sin_id_no_se_descartan_entre_si():
+    # Revisión final: sin id, todos compartían la clave "id:None" y del
+    # segundo en adelante se perdían sin aviso.
+    sin_id = _docs(3)
+    for item in sin_id:
+        del item["id"]
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, sin_id, 3)
+
+    assert len(ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")) == 3

@@ -686,3 +686,81 @@ def test_download_calcula_la_huella_digital_del_archivo(tmp_path):
     result = Downloader().download(_doc(), tmp_path)
 
     assert result.sha256 == hashlib.sha256(b"%PDF-1.4 contenido").hexdigest()
+
+
+# --- 429 Too Many Requests (CSJ/Ojeador, nov 2026: ~10% de las descargas de
+# un mes con 6 descargas en paralelo) --------------------------------------
+
+@responses.activate
+def test_download_espera_y_reintenta_un_429_respetando_retry_after(tmp_path, monkeypatch):
+    import core.downloader as dl
+
+    esperas = []
+    monkeypatch.setattr(dl.time, "sleep", esperas.append)
+    responses.add(responses.GET, "https://example.com/file.pdf", status=429, headers={"Retry-After": "7"})
+    responses.add(responses.GET, "https://example.com/file.pdf", body=b"ok", headers={"Content-Type": "application/pdf"})
+
+    result = Downloader().download(_doc(), tmp_path)
+
+    assert result.local_path.read_bytes() == b"ok"
+    assert esperas == [7]
+
+
+@responses.activate
+def test_download_429_sin_retry_after_espera_un_tiempo_creciente(tmp_path, monkeypatch):
+    import core.downloader as dl
+
+    esperas = []
+    monkeypatch.setattr(dl.time, "sleep", esperas.append)
+    responses.add(responses.GET, "https://example.com/file.pdf", status=429)
+    responses.add(responses.GET, "https://example.com/file.pdf", status=429)
+    responses.add(responses.GET, "https://example.com/file.pdf", body=b"ok", headers={"Content-Type": "application/pdf"})
+
+    Downloader().download(_doc(), tmp_path)
+
+    assert len(esperas) == 2 and esperas[0] > 0 and esperas[1] > esperas[0]
+
+
+@responses.activate
+def test_download_se_rinde_tras_varios_429(tmp_path, monkeypatch):
+    import core.downloader as dl
+
+    monkeypatch.setattr(dl.time, "sleep", lambda _s: None)
+    for _ in range(dl._MAX_ESPERAS_429 + 1):
+        responses.add(responses.GET, "https://example.com/file.pdf", status=429)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        Downloader().download(_doc(), tmp_path)
+    assert len(responses.calls) == dl._MAX_ESPERAS_429 + 1
+
+
+@responses.activate
+def test_download_retry_after_exagerado_se_acota(tmp_path, monkeypatch):
+    import core.downloader as dl
+
+    esperas = []
+    monkeypatch.setattr(dl.time, "sleep", esperas.append)
+    responses.add(responses.GET, "https://example.com/file.pdf", status=429, headers={"Retry-After": "3600"})
+    responses.add(responses.GET, "https://example.com/file.pdf", body=b"ok", headers={"Content-Type": "application/pdf"})
+
+    Downloader().download(_doc(), tmp_path)
+
+    assert esperas == [dl._ESPERA_429_MAX_SEG]
+
+
+@responses.activate
+def test_download_cancelar_durante_una_espera_por_429_corta_de_inmediato(tmp_path, monkeypatch):
+    # Revisión final: time.sleep ignoraba la cancelación; una corrida
+    # cancelada podía quedar hasta ~5 min por documento esperando.
+    import threading
+
+    import core.downloader as dl
+
+    monkeypatch.setattr(dl.time, "sleep", lambda _s: pytest.fail("no debe dormir sin mirar la cancelación"))
+    parar = threading.Event()
+    parar.set()
+    responses.add(responses.GET, "https://example.com/file.pdf", status=429, headers={"Retry-After": "30"})
+
+    with pytest.raises(InterruptedError):
+        Downloader().download(_doc(), tmp_path, stop_event=parar)
+    assert len(responses.calls) == 1
