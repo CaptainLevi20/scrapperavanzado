@@ -4,12 +4,22 @@ from typing import List, Optional, Tuple
 from urllib.parse import unquote, urljoin
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from core.models import RawDocModel
 from core.scrapers.base import BaseScrapper
 from core.scrapers.registry import register_family
 from core.utils import storage_path
+
+# Desde el 2026-10-28 www.supersociedades.gov.co entrega una cadena TLS
+# incompleta: su certificado nuevo lo firma "GeoTrust TLS RSA CA G1", pero el
+# servidor manda otro intermediario ("GeoTrust EV RSA CA G2"). Los navegadores
+# lo completan solos; `certifi` no, y cada consulta fallaba con
+# CERTIFICATE_VERIFY_FAILED. Igual que ssf/constitucional/cndj/snr/supersolidaria,
+# se salta la verificación TLS para este host (sesión aquí + link["verify"] =
+# False para la descarga y la revisión de republicación).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 _BASE = "https://www.supersociedades.gov.co"
 _SOURCE = "Superintendencia de Sociedades"
@@ -199,6 +209,8 @@ class ScrapSupersociedades(BaseScrapper):
 
     def scrap(self, fini, ffin, q="", limit=10000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         session = requests.Session()
+        # Cadena TLS incompleta del sitio; ver nota al inicio del módulo.
+        session.verify = False
         session.headers.update({"User-Agent": _UA})
         docs: List[RawDocModel] = []
 
@@ -282,7 +294,7 @@ class ScrapSupersociedades(BaseScrapper):
                 safe = _safe_title(title)
                 docs.append(RawDocModel(
                     source=_SOURCE,
-                    link={"url": url_pdf, "method": "GET"},
+                    link={"url": url_pdf, "method": "GET", "verify": False},
                     title=title,
                     tipo=tipo,
                     f_public=fecha,
