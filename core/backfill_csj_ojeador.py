@@ -53,6 +53,13 @@ def _codigo(titulo: str) -> Optional[str]:
     return _codigo_from_titulo(_SUFIJO_VERSION.sub("", (titulo or "").strip()))
 
 
+def _numerador(codigo: str) -> str:
+    """"AP4596-2026(73475)" / "AC2794-2026 [2024-00858-00]" -> "AP4596-2026":
+    el Numerador de Ojeador, sin la referencia entre paréntesis o corchetes
+    (con ella la búsqueda no encuentra nada)."""
+    return re.split(r"[\s\[\(]", codigo, maxsplit=1)[0].upper()
+
+
 def elegir_coincidencia(titulo: str, resultados: list[dict]) -> Union[dict, None, str]:
     """El resultado de Ojeador que corresponde a `titulo`: el de Numerador
     exacto; si hay varios, el de Nombre igual al título. None = no hay;
@@ -62,8 +69,14 @@ def elegir_coincidencia(titulo: str, resultados: list[dict]) -> Union[dict, None
     if not codigo:
         return None
     sin_version = _SUFIJO_VERSION.sub("", titulo.strip())
-    numerador = codigo.split()[0].split("(")[0].upper()
+    numerador = _numerador(codigo)
     candidatos = [r for r in resultados if (r.get("Numerador") or "").strip().upper() == numerador]
+    # Varias copias de la misma providencia (misma Ubicacion = mismo archivo)
+    # cuentan como una sola.
+    por_ruta = {}
+    for r in candidatos:
+        por_ruta.setdefault(r.get("Ubicacion"), r)
+    candidatos = list(por_ruta.values())
     if len(candidatos) > 1:
         candidatos = [r for r in candidatos if (r.get("Nombre") or "").strip() == sin_version]
         if len(candidatos) != 1:
@@ -84,7 +97,7 @@ def backfill(db, aplicar: bool = False) -> dict:
 
         codigo = _codigo(documento.title)
         try:
-            hits = buscar_en_ojeador(codigo.split()[0]) if codigo else []
+            hits = buscar_en_ojeador(_numerador(codigo)) if codigo else []
         except Exception as e:
             logger.warning("No se pudo buscar %s en Ojeador: %s", documento.title, e)
             hits = []

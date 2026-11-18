@@ -47,8 +47,9 @@ def test_elegir_coincidencia_desempata_por_nombre():
 
 
 def test_elegir_coincidencia_ambigua():
+    # Dos archivos distintos (otra Ubicacion) con el mismo código.
     a = _hit(nombre="AC2794-2026 [2024-00858-00]", id_="1")
-    b = _hit(nombre="AC2794-2026 [2024-00858-00]", id_="2")
+    b = dict(_hit(nombre="AC2794-2026 [2024-00858-00]", id_="2"), Ubicacion="SALAS/CIVIL/2026/otra/AC2794-2026.docx")
     assert elegir_coincidencia("AC2794-2026", [a, b]) == "ambiguo"
 
 
@@ -153,3 +154,26 @@ def test_backfill_segunda_corrida_no_cambia_nada(db_session):
 
     assert resultado["actualizados"] == 0
     assert resultado["ya_migrados"] == 1
+
+
+@responses.activate
+def test_backfill_busca_por_el_numerador_sin_la_referencia_entre_parentesis(db_session):
+    # Real (dev, nov 2026): 156 de 176 quedaban "sin coincidencia" porque se
+    # buscaba "AP4596-2026(73475)" en vez de "AP4596-2026".
+    source = _fuente_csj(db_session)
+    _doc_viejo(db_session, source, title="AP4596-2026(73475)")
+    hit = _hit(numerador="AP4596-2026", nombre="AP4596-2026(73475)")
+    _busqueda(responses, "AP4596-2026", [hit])
+
+    resultado = backfill(db_session, aplicar=False)
+
+    assert resultado["actualizados"] == 1
+    assert resultado["sin_coincidencia"] == 0
+
+
+def test_elegir_coincidencia_copias_del_mismo_archivo_no_son_ambiguas():
+    # Ojeador indexa a veces la misma providencia varias veces (ids distintos,
+    # misma Ubicacion): es un solo documento.
+    a = _hit(numerador="SP754-2026", nombre="SP754-2026(64046)", id_="1")
+    b = _hit(numerador="SP754-2026", nombre="SP754-2026(64046)", id_="2")
+    assert elegir_coincidencia("SP754-2026(64046)", [a, b]) is a

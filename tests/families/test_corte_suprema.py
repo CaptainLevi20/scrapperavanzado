@@ -388,3 +388,20 @@ def test_atributos_de_la_familia():
     assert ScrapCorteSuprema.scheduled_min_lookback_days == 45
     assert ScrapCorteSuprema.checks_for_republication is False
     assert ScrapCorteSuprema.filters_by_publication_date is False
+
+
+@responses.activate
+def test_scrap_deduplica_copias_de_ojeador_con_la_misma_ubicacion():
+    # Real (nov 2026): Ojeador indexa SP754-2026(64046) tres veces, con ids
+    # distintos y la misma Ubicacion (mismo archivo).
+    copias = [
+        _resultado(id=i, Nombre="SP754-2026(64046)", Numerador="SP754-2026", Sala="PENAL",
+                   Especialidad="PENAL", TipoDeProvidencia="SENTENCIA", FechaConsolidacionFirma="2026-10-15",
+                   Ubicacion="SALAS/PENAL/2026/SP754-2026(64046).docx")
+        for i in ("1148912", "1122109", "1128418")
+    ]
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, copias, 3)
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")
+
+    assert [d.title for d in docs] == ["SP754-2026(64046)"]

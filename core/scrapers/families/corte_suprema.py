@@ -299,10 +299,12 @@ class ScrapCorteSuprema(BaseScrapper):
 
                     resultados = datos.get("docs") or []
                     for item in resultados:
-                        clave = str(item.get("id") or item.get("Ubicacion"))
-                        if clave in vistos:
+                        # Ojeador a veces indexa la misma providencia varias
+                        # veces (ids distintos, misma Ubicacion = mismo archivo).
+                        claves = {f"id:{item.get('id')}", f"ruta:{item.get('Ubicacion')}"}
+                        if claves & vistos:
                             continue
-                        vistos.add(clave)
+                        vistos |= claves
                         try:
                             doc = _doc_desde_resultado(item)
                         except (KeyError, TypeError) as e:
