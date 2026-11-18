@@ -1,3 +1,4 @@
+import requests
 from core.scrapers.families.supersociedades import (
     _TIPO_CONTABLE,
     _TIPO_JURIDICO,
@@ -320,8 +321,13 @@ def test_scrap_arma_un_doc_por_boletin_en_ambas_secciones():
     assert j.f_public == "2026-08-01" and j.f_providencia == "2026-08-01"
     # I1: la query "?t=<mtime>" NO se guarda (cambia en cada republicación y
     # arrastraría el doc_id), pero el segmento <uuid> de la ruta sí se conserva
-    assert j.link == {"url": "https://www.supersociedades.gov.co/documents/20122/9476810/Boletin_agosto_2026.pdf/uuid", "method": "GET"}
-    assert "verify" not in j.link
+    # verify=False: desde el 2026-10-28 el sitio entrega una cadena TLS
+    # incompleta (ver nota del módulo); la descarga también lo necesita.
+    assert j.link == {
+        "url": "https://www.supersociedades.gov.co/documents/20122/9476810/Boletin_agosto_2026.pdf/uuid",
+        "method": "GET",
+        "verify": False,
+    }
     assert j.detalle == "Boletín Jurídico Agosto 2026"
     assert j.save_path == "Superintendencia de Sociedades/2026-08-01/Boletín Jurídico/BOL_SS_AGO_2026(extension)"
     c = porss["BOL_SS_SI_2026"]
@@ -528,3 +534,22 @@ def test_la_corrida_diaria_mira_lo_bastante_atras_para_boletines_publicados_tard
     from core.scrapers.families.supersociedades import ScrapSupersociedades
 
     assert ScrapSupersociedades.scheduled_min_lookback_days >= 120
+
+
+def test_scrap_consulta_el_sitio_sin_verificar_tls(monkeypatch):
+    # Regresión (2026-10-28): el sitio renovó su certificado y entrega un
+    # intermediario equivocado; con verificación TLS cada consulta falla con
+    # CERTIFICATE_VERIFY_FAILED y la fuente devuelve 0 boletines sin error.
+    import core.scrapers.families.supersociedades as mod
+
+    vistos = []
+
+    class _Sesion(requests.Session):
+        def get(self, url, **kw):
+            vistos.append(kw.get("verify", self.verify))
+            raise requests.ConnectionError("sin red en pruebas")
+
+    monkeypatch.setattr(mod.requests, "Session", _Sesion)
+    ScrapSupersociedades().scrap(fini="2026-01-01", ffin="2026-12-31")
+
+    assert vistos and all(v is False for v in vistos)
