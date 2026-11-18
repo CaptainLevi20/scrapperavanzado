@@ -3,6 +3,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+from urllib.parse import quote
 
 import requests
 
@@ -116,6 +117,93 @@ def _seccion_from_online_path(online_path: str) -> Optional[str]:
     if "PENAL" in path:
         return "Sala de Casación Penal"
     return None
+
+
+# --- Ojeador (buscador nuevo de la Corte, noviembre 2026) -------------------
+# ojeador.cortesuprema.gov.co consulta este servicio público (sin credenciales,
+# TLS válido). Ver docs/superpowers/specs/2026-11-18-csj-ojeador-design.md.
+_BASE = "https://buscadorjurisprudenciabackend.cortesuprema.gov.co"
+_SOURCE = "CSJ"
+
+# Sala (campo `Sala`/`Especialidad` de Ojeador) -> (especialidad, seccion, carpeta).
+_SALAS = {
+    "CIVIL": ("Civil", "Sala de Casación Civil", "SCC"),
+    "LABORAL": ("Laboral", "Sala de Casación Laboral", "SCL"),
+    "PENAL": ("Penal", "Sala de Casación Penal", "SCP"),
+    "PLENA": ("Plena", "Sala Plena", "SPL"),
+}
+# Cómo aparece cada sala dentro de `Ubicacion` (las tutelas penales van en
+# "SALAS/TUTELAS/PENA/..."), para cuando `Sala` viene vacía.
+_SALA_EN_RUTA = (("CIVIL", "CIVIL"), ("LABORAL", "LABORAL"), ("PENA", "PENAL"), ("PLENA", "PLENA"))
+
+
+def _tramos_mensuales(fini: str, ffin: str) -> list[tuple[str, str]]:
+    """Parte [fini, ffin] en meses calendario (el primero y el último
+    recortados al rango): Ojeador no deja recorrer más de 10.000 resultados
+    por búsqueda y un mes completo de todas las salas ronda los 2.000-4.000."""
+    inicio = datetime.fromisoformat(fini).date()
+    fin = datetime.fromisoformat(ffin).date()
+    tramos = []
+    while inicio <= fin:
+        siguiente_mes = (inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+        cierre = min(siguiente_mes - timedelta(days=1), fin)
+        tramos.append((inicio.isoformat(), cierre.isoformat()))
+        inicio = siguiente_mes
+    return tramos
+
+
+def _tipo_desde_ojeador(tipo_providencia: str, codigo: Optional[str]) -> str:
+    tipo = (tipo_providencia or "").strip().upper()
+    if tipo.startswith("AUTO"):
+        return "Auto"
+    if tipo.startswith("SENTENCIA"):
+        return "Sentencia"
+    if tipo.startswith("CONCEPTO"):
+        return "Concepto"
+    return (_tipo_from_titulo(codigo) if codigo else None) or "Desconocido"
+
+
+def _clasificar_sala(item: dict) -> tuple[Optional[str], Optional[str], str]:
+    """(especialidad, seccion, carpeta). Una tutela conserva la sala que la
+    resolvió como carpeta (como antes) pero su especialidad es "Tutela"."""
+    ubicacion = (item.get("Ubicacion") or "").upper()
+    sala = (item.get("Sala") or item.get("Especialidad") or "").strip().upper()
+    if not sala:
+        sala = next((nombre for marca, nombre in _SALA_EN_RUTA if marca in ubicacion), "")
+    if sala not in _SALAS:
+        return None, None, sala or _SOURCE
+    especialidad, seccion, carpeta = _SALAS[sala]
+    if "TUTELA" in (item.get("TipoDeProvidencia") or "").upper() or "/TUTELAS/" in ubicacion:
+        especialidad = "Tutela"
+    return especialidad, seccion, carpeta
+
+
+def _url_descarga(ubicacion: str) -> str:
+    return f"{_BASE}/document/descargar?path={quote(ubicacion, safe='')}"
+
+
+def _doc_desde_resultado(item: dict) -> RawDocModel:
+    """Arma el documento de un resultado de Ojeador. Lanza KeyError si falta
+    `Ubicacion` o `FechaConsolidacionFirma` (resultado inservible)."""
+    ubicacion = item["Ubicacion"]
+    fecha = item["FechaConsolidacionFirma"][:10]
+    nombre = (item.get("Nombre") or "").strip()
+    codigo = _codigo_from_titulo(nombre) or _codigo_from_titulo((item.get("Numerador") or "").strip())
+    titulo = codigo or f"{_INVALID_PATH_CHARS.sub('-', nombre or 'doc')}_{fecha[:4]}"
+    especialidad, seccion, carpeta = _clasificar_sala(item)
+    safe_titulo = _INVALID_PATH_CHARS.sub("-", titulo)
+    return RawDocModel(
+        source=_SOURCE,
+        link={"url": _url_descarga(ubicacion), "method": "GET"},
+        title=titulo,
+        title_unverified=codigo is None,
+        tipo=_tipo_desde_ojeador(item.get("TipoDeProvidencia") or "", codigo),
+        especialidad=especialidad,
+        seccion=seccion,
+        f_public=fecha,
+        f_providencia=fecha,
+        save_path=storage_path(_SOURCE, carpeta, f"{safe_titulo}(extension)"),
+    )
 
 
 _BUCKET_POR_SECCION = {

@@ -735,3 +735,147 @@ def test_scrap_no_reintenta_un_error_4xx():
 
     assert len(responses.calls) == 4  # una sola consulta por tipo
     assert all("400" in m for m in progress_messages if "Error" in m)
+
+
+# --- Ojeador (buscador nuevo de la Corte, noviembre 2026) -------------------
+
+from core.scrapers.families.corte_suprema import (  # noqa: E402
+    _clasificar_sala,
+    _doc_desde_resultado,
+    _tipo_desde_ojeador,
+    _tramos_mensuales,
+    _url_descarga,
+)
+
+_UBICACION_REAL = (
+    "SALAS/CIVIL/2026/Dr. Fernando Augusto Jiménez Valderrama/11.- Noviembre/Autos/"
+    "AC7263-2026 [2026-03319-00].docx"
+)
+
+
+def _resultado(**override):
+    # Resultado real de buscadorjurisprudenciabackend.cortesuprema.gov.co/search/
+    # (2026-11-18), recortado a los campos que usa la familia.
+    item = {
+        "id": "1171961",
+        "Nombre": "AC7263-2026 [2026-03319-00]",
+        "Numerador": "AC7263-2026",
+        "CUI": "11001020300020260331900",
+        "FechaConsolidacionFirma": "2026-11-06",
+        "Especialidad": "CIVIL",
+        "Sala": "CIVIL",
+        "TipoDeProvidencia": "AUTO",
+        "ClaseActuacion": "RECURSO DE REVISIÓN",
+        "Ponente": "DR FERNANDO AUGUSTO JIMÉNEZ VALDERRAMA",
+        "Ubicacion": _UBICACION_REAL,
+    }
+    item.update(override)
+    return item
+
+
+def test_tramos_mensuales_recorta_primer_y_ultimo_mes():
+    assert _tramos_mensuales("2026-01-15", "2026-03-10") == [
+        ("2026-01-15", "2026-01-31"),
+        ("2026-02-01", "2026-02-28"),
+        ("2026-03-01", "2026-03-10"),
+    ]
+
+
+def test_tramos_mensuales_un_solo_dia():
+    assert _tramos_mensuales("2026-11-18", "2026-11-18") == [("2026-11-18", "2026-11-18")]
+
+
+def test_tramos_mensuales_cruza_el_cambio_de_anio():
+    assert _tramos_mensuales("2025-12-20", "2026-01-05") == [
+        ("2025-12-20", "2025-12-31"),
+        ("2026-01-01", "2026-01-05"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "tipo_providencia, codigo, esperado",
+    [
+        ("AUTO", "AC1-2026", "Auto"),
+        ("AUTO TUTELA", "ATP1-2026", "Auto"),
+        ("AUTOHABEAS", "AHP1-2026", "Auto"),
+        ("SENTENCIA", "SC1-2026", "Sentencia"),
+        ("SENTENCIA TUTELA", "STP1-2026", "Sentencia"),
+        ("CONCEPTO", "CP1-2026", "Concepto"),
+        ("CONCEPTO EXTRADICCION", "CP2-2026", "Concepto"),
+        ("OTROS", "SC9-2026", "Sentencia"),
+        ("Otros", None, "Desconocido"),
+        ("", None, "Desconocido"),
+    ],
+)
+def test_tipo_desde_ojeador(tipo_providencia, codigo, esperado):
+    assert _tipo_desde_ojeador(tipo_providencia, codigo) == esperado
+
+
+def test_clasificar_sala_tutela_penal_va_a_la_sala_que_la_resolvio():
+    item = _resultado(
+        Sala="PENAL", Especialidad="PENAL", TipoDeProvidencia="SENTENCIA TUTELA",
+        Ubicacion="SALAS/TUTELAS/PENA/2026/Dr. Gerson Chaverra Castro/Sentencia/STP21139-2026.docx",
+    )
+    assert _clasificar_sala(item) == ("Tutela", "Sala de Casación Penal", "SCP")
+
+
+def test_clasificar_sala_plena():
+    item = _resultado(
+        Sala="PLENA", Especialidad="PLENA", TipoDeProvidencia="AUTO",
+        Ubicacion="SALAS/PLENA/2026/Autos/APL6636-2026.docx",
+    )
+    assert _clasificar_sala(item) == ("Plena", "Sala Plena", "SPL")
+
+
+def test_clasificar_sala_civil_y_laboral():
+    assert _clasificar_sala(_resultado()) == ("Civil", "Sala de Casación Civil", "SCC")
+    laboral = _resultado(Sala="LABORAL", Especialidad="LABORAL", Ubicacion="SALAS/LABORAL/2026/x/AL1-2026.docx")
+    assert _clasificar_sala(laboral) == ("Laboral", "Sala de Casación Laboral", "SCL")
+
+
+def test_clasificar_sala_vacia_o_desconocida_no_rompe():
+    sin_sala = _resultado(Sala="", Especialidad="", Ubicacion="SALAS/LABORAL/2026/x.docx")
+    assert _clasificar_sala(sin_sala) == ("Laboral", "Sala de Casación Laboral", "SCL")
+    rara = _resultado(Sala="OTRA", Especialidad="", Ubicacion="raro/x.docx")
+    assert _clasificar_sala(rara) == (None, None, "OTRA")
+
+
+def test_url_descarga_codifica_la_ubicacion():
+    assert _url_descarga(_UBICACION_REAL) == (
+        "https://buscadorjurisprudenciabackend.cortesuprema.gov.co/document/descargar?path="
+        "SALAS%2FCIVIL%2F2026%2FDr.%20Fernando%20Augusto%20Jim%C3%A9nez%20Valderrama%2F11.-%20Noviembre"
+        "%2FAutos%2FAC7263-2026%20%5B2026-03319-00%5D.docx"
+    )
+
+
+def test_doc_desde_resultado_completo():
+    doc = _doc_desde_resultado(_resultado())
+    assert doc.title == "AC7263-2026 [2026-03319-00]"
+    assert doc.title_unverified is False
+    assert doc.tipo == "Auto"
+    assert doc.especialidad == "Civil"
+    assert doc.seccion == "Sala de Casación Civil"
+    assert doc.f_public == "2026-11-06"
+    assert doc.f_providencia == "2026-11-06"
+    assert doc.link == {"url": _url_descarga(_UBICACION_REAL), "method": "GET"}
+    assert doc.save_path == "CSJ/SCC/AC7263-2026 [2026-03319-00](extension)"
+    assert doc.source == "CSJ"
+
+
+def test_doc_desde_resultado_sin_codigo_marca_titulo_por_verificar():
+    doc = _doc_desde_resultado(_resultado(Nombre="doc", Numerador=""))
+    assert doc.title == "doc_2026"
+    assert doc.title_unverified is True
+
+
+def test_doc_desde_resultado_usa_numerador_si_el_nombre_no_calza():
+    doc = _doc_desde_resultado(_resultado(Nombre="(3)", Numerador="AL12909-2026"))
+    assert doc.title == "AL12909-2026"
+    assert doc.title_unverified is False
+
+
+def test_doc_desde_resultado_sin_ubicacion_lanza_keyerror():
+    item = _resultado()
+    del item["Ubicacion"]
+    with pytest.raises(KeyError):
+        _doc_desde_resultado(item)
