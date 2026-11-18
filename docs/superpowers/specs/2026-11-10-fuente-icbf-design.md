@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano de Bienestar Familiar (`icbf`, sigla `ICBF`)
-**Estado:** pendiente de aprobación del administrador — **no implementar todavía**
+**Estado:** aprobado por el administrador (2026-11-18) — listo para implementar
 
 > El enlace que dio el usuario (`https://www.icbf.gov.co/concepto`) es el
 > listado real: una vista de Drupal (`views-exposed-form-normograma-page-3`)
@@ -205,10 +205,12 @@ Se corren dirigidas: `pytest tests/families/test_icbf.py tests/test_seed.py`.
 3. **Piso:** 2015.
 4. **Familia propia** `icbf`, separada del ICA.
 
-## Preguntas abiertas
+## Decisiones de la revisión (2026-11-18)
 
-- **Sigla** `ICBF` y prefijo `CTO` (el mismo de Procuraduría y SSF). Se
-  proponen así; confirmar.
+5. **Sigla y prefijo:** se aprueban `ICBF` y `CTO` → `CTO_ICBF_{número}_{año}`
+   (mismo esquema que Procuraduría y SSF).
+6. **Aviso de salud de fuentes:** se acepta que esta fuente nunca lo dispare
+   (una sola fecha por año).
 
 ## Plan de implementación (cuando se apruebe)
 

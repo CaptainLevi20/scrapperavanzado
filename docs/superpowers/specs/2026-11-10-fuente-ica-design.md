@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano Agropecuario (`ica`, sigla `ICA`)
-**Estado:** pendiente de aprobación del administrador — **no implementar todavía**
+**Estado:** aprobado con correcciones del administrador (2026-11-18) — listo para implementar
 
 > Los dos enlaces que dio el usuario son los listados reales, dentro de
 > "Normativa › Normas ICA" del sitio (Kentico CMS, ASP.NET). Ojo con los
@@ -87,9 +87,19 @@ Los enlaces dentro de "Observación" apuntan a **otras** resoluciones
   El ICA usa un consecutivo único para todo el instituto, así que la `S` sólo
   marca la sección, como pidió el usuario.
 - El año del título es el del texto del enlace. Si no coincide con el año de
-  expedición se avisa por `on_progress` y se deja el del texto (8 casos, todos
-  errores de carga del sitio, p. ej. "Resolución 899 de 2021" expedida el
-  31-01-2022 con archivo `2022R889`).
+  expedición hay un error de carga del sitio (8 casos hoy, p. ej.
+  "Resolución 899 de 2021" expedida el 31-01-2022 con archivo `2022R889`):
+  en esos casos **el número también puede estar mal**, no sólo el año.
+- **Cruce con el nombre del archivo:** el último tramo del enlace
+  (`/getattachment/<guid>/2026R000019595.aspx`) trae el año y el número
+  (`^(\d{4})R0*(\d+)\.aspx$`, sin ceros a la izquierda). Se compara con el
+  número y el año del texto:
+  - coinciden → título normal, `title_unverified=False`;
+  - no coinciden (número o año), o el año del texto no es el de expedición →
+    se deja el título del texto, **`title_unverified=True`** y aviso
+    `on_progress` con los dos valores (texto y archivo), para revisarlo a mano;
+  - el nombre del archivo no sigue el patrón → no se cruza (sólo cuenta la
+    regla del año de expedición).
 - Texto que no cumple la regex (0 casos hoy) → título `R_ICA_[S]<texto saneado>`,
   `title_unverified=True` y aviso.
 - `detalle` = epígrafe; si hay observación, se agrega después de " — ". En
@@ -106,6 +116,10 @@ resoluciones (el archivo es `…R…` y el texto empieza "Por la cual…"):
 ## Fechas y filtro
 
 - `f_public` = Publicación; `f_providencia` = Expedición.
+- Las fechas se leen con el lector común `core/fecha_es.py`
+  (`parse_fecha_providencia_es`), no con un lector propio: se parte la línea
+  por `|` y se lee cada mitad ("Publicación: …" y "Expedición: …") por
+  separado.
 - **`filters_by_publication_date = True`**: entra la resolución cuya fecha de
   **publicación** cae en `[fini, ffin]`. Motivo: el ICA publica con retraso
   (desde 2020: mediana 4-6 días, p99 133-210 días, máximo 1.964 días), y si
@@ -113,17 +127,16 @@ resoluciones (el archivo es `…R…` y el texto empieza "Por la cual…"):
 - **Piso:** se descarta lo **expedido** antes de 2015-01-01
   (`_ANIO_MINIMO = 2015`). Ej.: las ~200 normas viejas (1970-2008) que el ICA
   cargó en las nacionales en 2009-2010 no entran.
-- **Hasta dónde se pagina:** como el listado va por expedición descendente,
-  se recorren páginas hasta que la última fila de una página tenga expedición
-  anterior a `max(2015-01-01, fini − 730 días)`, o hasta la última página.
-  Los 730 días de margen cubren todo lo publicado desde 2015 salvo un caso
-  (Resolución nacional 93858 de 2021, expedida 26-03-2021 y publicada
-  11-08-2026). Ese tipo de caso sólo lo trae una corrida manual completa.
-  Ver "Preguntas abiertas".
-- Corrida diaria con ese margen: ~10 páginas de seccionales + ~20 de
-  nacionales ≈ 20 s. Corrida completa desde 2015: ~55 + ~92 páginas ≈ 1,5 min.
-- No hace falta `scheduled_min_lookback_days` (la corrida ya mira dos años
-  atrás por expedición y filtra por publicación).
+- **Hasta dónde se pagina:** **siempre se recorren todas las páginas** de las
+  dos secciones, de la 1 a la que marca `aria-label="Ultima"`, y el filtro por
+  publicación se aplica fila por fila. Así ninguna resolución publicada tarde
+  se pierde, por vieja que sea su expedición (p. ej. la nacional 93858 de
+  2021, expedida 26-03-2021 y publicada 11-08-2026). Decisión del
+  administrador (2026-11-18): no hay corte por fecha ni margen de días.
+- Costo: ~59 + ~155 ≈ 215 páginas por corrida, diaria o completa,
+  ≈ 2-3 min (0,4-0,9 s por página). El sitio no tiene WAF ni límite visible.
+- No hace falta `scheduled_min_lookback_days`: la corrida siempre ve el
+  listado entero y filtra por publicación.
 - Fecha ilegible (0 casos hoy) → fila descartada con aviso.
 - Hay una fila con publicación 3 días **antes** que la expedición (30392 de
   2018): error del sitio, se deja tal cual.
@@ -201,11 +214,15 @@ sin internet:
 3. Texto fuera de la regex → título saneado, `title_unverified=True`, aviso.
 4. Fechas en español ("02 de octubre de 2026") → `f_public` y
    `f_providencia`.
-5. Año del texto distinto del de expedición → se deja el del texto y se avisa.
+5. Año del texto distinto del de expedición → se deja el del texto,
+   `title_unverified=True` y aviso. Número o año del texto distinto del nombre
+   del archivo (`2022R889` frente a "Resolución 899 de 2021") → igual.
+   Archivo que no sigue el patrón `AAAAR…` → sin cruce, título verificado.
 6. `detalle` con epígrafe + observación (+ Diario Oficial en nacionales).
 7. Última página leída de `aria-label="Ultima"`; no se pide más allá.
-8. Corte de paginación: página cuya última fila es anterior a
-   `fini − 730 días` → no se pide la siguiente.
+8. Paginación completa: con `fini`/`ffin` de un solo día se piden igual todas
+   las páginas hasta la "Ultima" (y ninguna más), y una resolución expedida
+   años antes pero publicada en el rango entra.
 9. Filtro por publicación: expedida en rango pero publicada fuera → no entra;
    expedida meses antes y publicada en rango → entra.
 10. Piso: expedida en 2014 y publicada en 2015 → descartada.
@@ -220,11 +237,12 @@ Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 ## Riesgos y notas
 
 - **Publicación tardía:** casi todo sale en días, pero hay resoluciones
-  publicadas meses o años después. La corrida diaria mira dos años de
-  expedición; lo que salga más tarde sólo entra con una corrida manual.
-- **Errores de carga del sitio:** años del título que no cuadran con la
-  expedición, un duplicado, `tiponorma` mal puesto. Se documentan; no se
-  corrigen.
+  publicadas meses o años después. Como la corrida recorre siempre el listado
+  entero, entran el día en que el ICA las publica.
+- **Errores de carga del sitio:** años o números del título que no cuadran
+  con la expedición o con el nombre del archivo, un duplicado, `tiponorma` mal
+  puesto. No se corrigen solos: los dudosos quedan marcados
+  `title_unverified=True` para revisión manual.
 - Las URL de descarga llevan un GUID de Kentico; si el ICA reemplaza el
   archivo con otro GUID, el sistema lo verá como documento nuevo con el mismo
   título.
@@ -242,18 +260,20 @@ Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 3. **Piso:** 2015, por año de expedición.
 4. **Familia propia** `ica`, separada del ICBF, con las dos secciones.
 
-## Preguntas abiertas
+## Decisiones de la revisión (2026-11-18)
 
-1. **¿`tipo` distinto para seccionales?** Se propone `Resolución` en las dos
-   (la `S` del título ya las separa). Alternativa: `Resolución Seccional`,
-   para poder filtrarlas aparte en el frontend.
-2. **Margen de paginación de la corrida diaria:** se proponen 730 días
-   (~30 páginas, ~20 s). Alternativa: recorrer siempre las ~215 páginas
-   (~2-3 min, no se pierde ni el caso de 5 años de retraso).
+5. **`tipo`:** `Resolución` en las dos secciones; la `S` del título ya separa
+   las seccionales.
+6. **Paginación:** se recorre siempre el listado entero (~215 páginas,
+   2-3 min), sin margen de 730 días, para no perder publicaciones tardías.
+7. **Cruce con el nombre del archivo:** número y año del texto se comparan con
+   el `AAAAR<número>` del enlace; si no cuadran, `title_unverified=True`.
+8. **Fechas:** lector común `core/fecha_es.py`.
 
 ## Plan de implementación (cuando se apruebe)
 
-1. Prueba + función de texto → número, año y título (casos 1-3, 5).
+1. Prueba + función de texto → número, año y título, con el cruce contra el
+   nombre del archivo (casos 1-3, 5).
 2. Prueba + parseo de una fila y de la paginación con HTML real (casos 4, 6, 7).
 3. Prueba + `scrap()` con el sitio simulado (casos 8-14).
 4. Import en `families/__init__.py`, seed y `tests/test_seed.py`.
