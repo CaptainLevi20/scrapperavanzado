@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,22 @@ from core.config import get_settings
 from core.verificacion_archivos import ArchivoNoPermitido, verificar_archivo
 
 _VIEWER_JSON_URL_RE = re.compile(r'"url":"(https://[^"]*blob\.core\.windows\.net[^"]*)"')
+
+# "429 Too Many Requests": el sitio pide bajar el ritmo (la Corte Suprema en
+# Ojeador lo hace con ~10% de las descargas de un mes a 6 en paralelo). No es
+# una falla del documento: se espera lo que diga Retry-After (acotado) o un
+# tiempo creciente, y se reintenta. Aparte de los 3 intentos por errores de red.
+_MAX_ESPERAS_429 = 5
+_ESPERA_429_BASE_SEG = 5
+_ESPERA_429_MAX_SEG = 60
+
+
+def _espera_429(response, n_espera: int) -> float:
+    try:
+        pedida = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        pedida = _ESPERA_429_BASE_SEG * (n_espera + 1)
+    return min(max(pedida, 0), _ESPERA_429_MAX_SEG)
 
 # La Superintendencia Financiera (loader.php) sirve TODOS los archivos con
 # `Content-Type: application/octet-stream`, sea PDF, DOCX o XLSX. Guardado tal
@@ -201,8 +218,9 @@ class Downloader:
         # `certifi` no puede validar; su scraper marca link["verify"] = False.
         verify = doc.link.get("verify", True)
 
-        last_exc = None
-        for _attempt in range(3):
+        intentos_red = 0
+        esperas_429 = 0
+        while True:
             try:
                 if doc.link["method"] == "POST":
                     headers["Content-Type"] = "application/json"
@@ -212,6 +230,13 @@ class Downloader:
                     response = self._resolve_jwt_indirect(doc.link["url"], headers)
                 else:
                     response = requests.get(doc.link["url"], headers=headers, stream=True, timeout=120, verify=verify)
+
+                if response.status_code == 429 and esperas_429 < _MAX_ESPERAS_429:
+                    espera = _espera_429(response, esperas_429)
+                    response.close()
+                    esperas_429 += 1
+                    time.sleep(espera)
+                    continue
 
                 with response as r:
                     r.raise_for_status()
@@ -277,10 +302,10 @@ class Downloader:
                         temp_path.unlink(missing_ok=True)
                         raise
                 break
-            except _TRANSIENT_ERRORS as e:
-                last_exc = e
-        else:
-            raise last_exc
+            except _TRANSIENT_ERRORS:
+                intentos_red += 1
+                if intentos_red >= 3:
+                    raise
 
         # El archivo viene de un sitio ajeno y la mayoría pasan después a los
         # demás productos: antes de devolverlo para guardarlo se comprueba su
