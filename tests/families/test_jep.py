@@ -5,7 +5,9 @@ import core.scrapers.families.jep as jep_module
 from core.scrapers.families.jep import ScrapJEP
 from core.scrapers.registry import FAMILY_REGISTRY
 
-_URL = "https://relatoria.jep.gov.co/searchadv"
+# La JEP movió su buscador a gestionrelatoria (nov 2026); la dirección vieja
+# (relatoria.jep.gov.co/searchadv) responde 405. Los PDF siguen en relatoria.
+_URL = "https://gestionrelatoria.jep.gov.co/api/searchadv"
 
 
 def _hit(
