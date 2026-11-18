@@ -746,3 +746,21 @@ def test_download_retry_after_exagerado_se_acota(tmp_path, monkeypatch):
     Downloader().download(_doc(), tmp_path)
 
     assert esperas == [dl._ESPERA_429_MAX_SEG]
+
+
+@responses.activate
+def test_download_cancelar_durante_una_espera_por_429_corta_de_inmediato(tmp_path, monkeypatch):
+    # Revisión final: time.sleep ignoraba la cancelación; una corrida
+    # cancelada podía quedar hasta ~5 min por documento esperando.
+    import threading
+
+    import core.downloader as dl
+
+    monkeypatch.setattr(dl.time, "sleep", lambda _s: pytest.fail("no debe dormir sin mirar la cancelación"))
+    parar = threading.Event()
+    parar.set()
+    responses.add(responses.GET, "https://example.com/file.pdf", status=429, headers={"Retry-After": "30"})
+
+    with pytest.raises(InterruptedError):
+        Downloader().download(_doc(), tmp_path, stop_event=parar)
+    assert len(responses.calls) == 1

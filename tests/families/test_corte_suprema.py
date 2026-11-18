@@ -405,3 +405,30 @@ def test_scrap_deduplica_copias_de_ojeador_con_la_misma_ubicacion():
     docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")
 
     assert [d.title for d in docs] == ["SP754-2026(64046)"]
+
+
+@responses.activate
+def test_scrap_no_emite_dos_documentos_con_la_misma_carpeta_y_titulo():
+    # Revisión final: dos rutas distintas con el mismo Nombre irían al mismo
+    # archivo en el almacenamiento (el segundo pisaría al primero).
+    a = _resultado(id="1", Ubicacion="SALAS/CIVIL/2026/x/AC7263-2026 [2026-03319-00].docx", FechaConsolidacionFirma="2026-10-15")
+    b = _resultado(id="2", Ubicacion="SALAS/CIVIL/2026/y/AC7263-2026 [2026-03319-00].docx", FechaConsolidacionFirma="2026-10-15")
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, [a, b], 2)
+    avisos = []
+
+    docs = ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31", on_progress=avisos.append)
+
+    assert len(docs) == 1
+    assert any("mismo nombre" in m for m in avisos)
+
+
+@responses.activate
+def test_scrap_resultados_sin_id_no_se_descartan_entre_si():
+    # Revisión final: sin id, todos compartían la clave "id:None" y del
+    # segundo en adelante se perdían sin aviso.
+    sin_id = _docs(3)
+    for item in sin_id:
+        del item["id"]
+    _pagina(responses, "2026-10-01", "2026-10-31", 1, sin_id, 3)
+
+    assert len(ScrapCorteSuprema().scrap("2026-10-01", "2026-10-31")) == 3

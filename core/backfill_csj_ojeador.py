@@ -60,6 +60,13 @@ def _numerador(codigo: str) -> str:
     return re.split(r"[\s\[\(]", codigo, maxsplit=1)[0].upper()
 
 
+def _titulo_ojeador(resultado: dict) -> Optional[str]:
+    """El título que le pondría el scraper nuevo a este resultado."""
+    return _codigo_from_titulo((resultado.get("Nombre") or "").strip()) or _codigo_from_titulo(
+        (resultado.get("Numerador") or "").strip()
+    )
+
+
 def elegir_coincidencia(titulo: str, resultados: list[dict]) -> Union[dict, None, str]:
     """El resultado de Ojeador que corresponde a `titulo`: el de Numerador
     exacto; si hay varios, el de Nombre igual al título. None = no hay;
@@ -70,7 +77,13 @@ def elegir_coincidencia(titulo: str, resultados: list[dict]) -> Union[dict, None
         return None
     sin_version = _SUFIJO_VERSION.sub("", titulo.strip())
     numerador = _numerador(codigo)
-    candidatos = [r for r in resultados if (r.get("Numerador") or "").strip().upper() == numerador]
+    # Numerador exacto, o el mismo título que le daría el scraper nuevo (la
+    # Corte a veces carga mal el Numerador, p. ej. "AP4145-20261"): con el
+    # mismo título la recuperación lo bajaría encima del archivo guardado.
+    candidatos = [
+        r for r in resultados
+        if (r.get("Numerador") or "").strip().upper() == numerador or _titulo_ojeador(r) == codigo
+    ]
     # Varias copias de la misma providencia (misma Ubicacion = mismo archivo)
     # cuentan como una sola.
     por_ruta = {}
@@ -86,7 +99,10 @@ def elegir_coincidencia(titulo: str, resultados: list[dict]) -> Union[dict, None
 
 def backfill(db, aplicar: bool = False) -> dict:
     documentos = db.scalars(
-        select(Document).join(Source, Source.id == Document.source_id).where(Source.family_key == _FAMILY_KEY)
+        select(Document)
+        .join(Source, Source.id == Document.source_id)
+        .where(Source.family_key == _FAMILY_KEY)
+        .order_by(Document.id)
     ).all()
 
     resultado = {"actualizados": 0, "sin_coincidencia": 0, "ambiguos": 0, "ya_migrados": 0, "detalle_pendientes": []}
@@ -108,7 +124,15 @@ def backfill(db, aplicar: bool = False) -> dict:
             resultado["detalle_pendientes"].append(documento.title)
             continue
 
-        nuevo = _doc_desde_resultado(elegido) if elegido != _AMBIGUO else None
+        try:
+            nuevo = _doc_desde_resultado(elegido) if elegido != _AMBIGUO else None
+        except (KeyError, TypeError, AttributeError) as e:
+            # Resultado de Ojeador sin Ubicacion/fecha: se deja pendiente en
+            # vez de tumbar el script (se caería siempre en el mismo).
+            logger.warning("Resultado de Ojeador inservible para %s: %s", documento.title, e)
+            resultado["sin_coincidencia"] += 1
+            resultado["detalle_pendientes"].append(documento.title)
+            continue
         nuevo_doc_id = compute_doc_id(nuevo) if nuevo else None
         if nuevo is None or db.scalar(select(Document.id).where(Document.doc_id == nuevo_doc_id)) is not None:
             # Varias candidatas, o ya hay otro documento con esa identidad

@@ -272,6 +272,9 @@ class ScrapCorteSuprema(BaseScrapper):
     def scrap(self, fini, ffin, q="", limit=50000, stop_event=None, on_progress=None) -> List[RawDocModel]:
         docs: List[RawDocModel] = []
         vistos: set[str] = set()
+        # El archivo se guarda en CSJ/<carpeta>/<título>: dos resultados con la
+        # misma carpeta y título irían al mismo archivo y uno pisaría al otro.
+        rutas_emitidas: set[str] = set()
 
         for tramo_ini, tramo_fin in _tramos_mensuales(fini, ffin):
             if stop_event is not None and stop_event.is_set():
@@ -301,7 +304,11 @@ class ScrapCorteSuprema(BaseScrapper):
                     for item in resultados:
                         # Ojeador a veces indexa la misma providencia varias
                         # veces (ids distintos, misma Ubicacion = mismo archivo).
-                        claves = {f"id:{item.get('id')}", f"ruta:{item.get('Ubicacion')}"}
+                        claves = {
+                            f"{tipo}:{valor}"
+                            for tipo, valor in (("id", item.get("id")), ("ruta", item.get("Ubicacion")))
+                            if valor
+                        }
                         if claves & vistos:
                             continue
                         vistos |= claves
@@ -320,6 +327,14 @@ class ScrapCorteSuprema(BaseScrapper):
                                     "fuera del rango pedido; se omite"
                                 )
                             continue
+                        if doc.save_path in rutas_emitidas:
+                            if on_progress:
+                                on_progress(
+                                    f"[{self.source}] Aviso: otra providencia con el mismo nombre ({doc.title}) "
+                                    "ya está en esta corrida; se omite para no pisar su archivo"
+                                )
+                            continue
+                        rutas_emitidas.add(doc.save_path)
                         docs.append(doc)
                         if len(docs) >= limit:
                             return docs

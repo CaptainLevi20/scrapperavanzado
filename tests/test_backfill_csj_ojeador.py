@@ -177,3 +177,30 @@ def test_elegir_coincidencia_copias_del_mismo_archivo_no_son_ambiguas():
     a = _hit(numerador="SP754-2026", nombre="SP754-2026(64046)", id_="1")
     b = _hit(numerador="SP754-2026", nombre="SP754-2026(64046)", id_="2")
     assert elegir_coincidencia("SP754-2026(64046)", [a, b]) is a
+
+
+@responses.activate
+def test_backfill_un_resultado_malformado_no_detiene_el_script(db_session):
+    # Revisión final: un resultado sin Ubicacion lanzaba KeyError y el script
+    # se caía siempre en el mismo documento.
+    source = _fuente_csj(db_session)
+    _doc_viejo(db_session, source, title="AC1-2026", doc_id="viejo-1")
+    _doc_viejo(db_session, source, title="AC2794-2026 [2024-00858-00]", doc_id="viejo-2")
+    malo = _hit(numerador="AC1-2026", nombre="AC1-2026")
+    del malo["Ubicacion"]
+    _busqueda(responses, "AC1-2026", [malo])
+    _busqueda(responses, "AC2794-2026", [_hit()])
+
+    resultado = backfill(db_session, aplicar=True)
+
+    assert resultado["actualizados"] == 1
+    assert "AC1-2026" in resultado["detalle_pendientes"]
+
+
+def test_elegir_coincidencia_reconoce_por_el_titulo_que_daria_el_scraper():
+    # Real (nov 2026): Ojeador cargó AP4145-2026 con Numerador "AP4145-20261"
+    # y Nombre "AP4145-2026(67032)1". El scraper nuevo lo titularía
+    # "AP4145-2026(67032)", igual que el guardado: si el script no lo
+    # reconoce, la recuperación lo baja encima del archivo viejo.
+    hit = _hit(numerador="AP4145-20261", nombre="AP4145-2026(67032)1")
+    assert elegir_coincidencia("AP4145-2026(67032)", [hit]) is hit

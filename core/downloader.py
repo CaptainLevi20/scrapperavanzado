@@ -235,7 +235,13 @@ class Downloader:
                     espera = _espera_429(response, esperas_429)
                     response.close()
                     esperas_429 += 1
-                    time.sleep(espera)
+                    # Una corrida cancelada no debe quedar dormida minutos
+                    # esperando al sitio: wait() vuelve apenas se cancela.
+                    if stop_event is not None and hasattr(stop_event, "wait"):
+                        if stop_event.wait(espera):
+                            raise InterruptedError("Descarga cancelada")
+                    else:
+                        time.sleep(espera)
                     continue
 
                 with response as r:

@@ -1118,9 +1118,13 @@ Es seguro repetirlo.
    que queden unas pocas: providencias viejas marcadas "EDITADA" sin código,
    alguna que la Corte cargó con el número mal escrito, y copias que el
    buscador viejo ya había guardado dos veces (una en PDF y otra en Word).
-   Si en la lista aparece alguna con un código normal (por ejemplo
-   `AP140-2026(62924)`), volver a simular: el buscador de la Corte a veces
-   no la devuelve a la primera.
+   **Antes de seguir, la lista no debe tener pendientes "sin coincidencia"
+   con un código normal** (por ejemplo `AP140-2026(62924)`): volver a
+   simular hasta que desaparezcan, porque el buscador de la Corte a veces no
+   la devuelve a la primera. Si una quedara pendiente, la recuperación la
+   bajaría de nuevo con el mismo nombre de archivo y pisaría el guardado.
+   Las copias guardadas dos veces aparecen como "ambiguas" al aplicar (una
+   de las dos se reconoce); eso es normal y no causa choques.
 4. Aplicar (mismo comando con `--aplicar` al final). Se puede repetir sin
    problema: lo ya reconocido no se vuelve a tocar.
 5. Comprobar que el servidor tiene espacio: recuperar todo 2026 son unas
@@ -1132,9 +1136,11 @@ Es seguro repetirlo.
    (~1.800 providencias) tardó unos 7 minutos en pruebas; los meses más
    grandes (~4.000) pueden tardar 15-20. Al terminar cada mes, **volver a
    lanzar ese mismo mes** una vez: la Corte frena las descargas cuando van
-   rápido (responde "429, demasiadas solicitudes") y en la primera pasada
-   algunas quedan con error; en la segunda se bajan solo las que faltaron
-   (en la prueba de octubre: 188 en la primera, 3 en la segunda). El botón
+   rápido (responde "429, demasiadas solicitudes"). La herramienta espera
+   y reintenta sola, pero si alguna aún queda con error, la segunda pasada
+   baja solo las que faltaron. (En la prueba de octubre, antes de que la
+   herramienta esperara sola, quedaron 188 en la primera pasada y 3 en la
+   segunda; ahora deberían ser muchas menos.) El botón
    "Reintentar fuentes fallidas" no sirve aquí, porque la corrida termina
    como "completada". Los pocos errores que queden tras la segunda pasada
    suelen ser providencias **reservadas** o con el nombre mal cargado en
