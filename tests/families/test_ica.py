@@ -213,7 +213,7 @@ def test_texto_fuera_de_patron_queda_sin_verificar():
     _vacia(_NACIONALES_URL)
     avisos = []
     docs = ScrapIca().scrap("2020-01-01", "2020-12-31", on_progress=avisos.append)
-    assert [(d.title, d.title_unverified) for d in docs] == [("R_ICA_SRes_sin_n_mero", True)]
+    assert len(docs) == 1 and docs[0].title.startswith("R_ICA_SRes_sin_n_mero_h") and docs[0].title_unverified
     assert any("texto inesperado" in a for a in avisos)
 
 
@@ -408,3 +408,26 @@ def test_tildes_descompuestas():
     assert d.title_unverified is False
     assert "— Rige." in d.detalle and "Resolución No." in d.detalle
     assert d.detalle == unicodedata.normalize("NFC", d.detalle)
+
+
+@responses.activate
+def test_textos_ilegibles_iguales_no_se_toman_por_repetidos():
+    # Dos resoluciones distintas (archivos distintos) cuyo texto no se puede
+    # leer y coincide: las dos se guardan, cada una con su propio título y
+    # archivo, en vez de descartar la segunda como "repetida".
+    import hashlib
+    filas = [
+        _fila(5, 2020, "2020-03-02", "2020-03-01").replace('class="text-5">Resolución 5 de 2020', 'class="text-5">Res. sin número'),
+        _fila(6, 2020, "2020-03-02", "2020-03-01").replace('class="text-5">Resolución 6 de 2020', 'class="text-5">Res. sin número'),
+    ]
+    _seccion(_SECCIONALES_URL, filas)
+    _vacia(_NACIONALES_URL)
+    avisos = []
+    docs = ScrapIca().scrap("2020-01-01", "2020-12-31", on_progress=avisos.append)
+    assert len(docs) == 2
+    for d in docs:
+        h = hashlib.sha1(d.link["url"].encode()).hexdigest()[:7]
+        assert d.title == f"R_ICA_SRes_sin_n_mero_h{h}"
+        assert d.title_unverified is True
+    assert docs[0].save_path != docs[1].save_path
+    assert not any("repetida" in a for a in avisos)

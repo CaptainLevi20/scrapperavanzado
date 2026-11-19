@@ -100,8 +100,11 @@ Los enlaces dentro de "Observación" apuntan a **otras** resoluciones
     `on_progress` con los dos valores (texto y archivo), para revisarlo a mano;
   - el nombre del archivo no sigue el patrón → no se cruza (sólo cuenta la
     regla del año de expedición).
-- Texto que no cumple la regex (0 casos hoy) → título `R_ICA_[S]<texto saneado>`,
-  `title_unverified=True` y aviso.
+- Texto que no cumple la regex (0 casos hoy) → título
+  `R_ICA_[S]<texto saneado>_h<7 hex del sha1 del enlace>`, `title_unverified=True`
+  y aviso. El sufijo evita que dos resoluciones distintas con el mismo texto
+  ilegible compartan título: se descartaría la segunda como repetida o se
+  pisaría el archivo.
 - `detalle` = epígrafe; si hay observación, se agrega después de " — ". En
   nacionales también "Diario Oficial <n> (<fecha>)".
 
@@ -211,7 +214,9 @@ sin internet:
    `Resolución 20263040030395 de 2026` → número completo.
 2. `Norma 8970 de 2024` y `Acuerdo 97962 de 2021` → `Resolución`,
    `R_ICA_S8970_2024`, `R_ICA_S97962_2021`.
-3. Texto fuera de la regex → título saneado, `title_unverified=True`, aviso.
+3. Texto fuera de la regex → título saneado + `_h<hash del enlace>`,
+   `title_unverified=True`, aviso; dos filas con el mismo texto ilegible y
+   enlaces distintos se guardan las dos.
 4. Fechas en español ("02 de octubre de 2026") → `f_public` y
    `f_providencia`.
 5. Año del texto distinto del de expedición → se deja el del texto,

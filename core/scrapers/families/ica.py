@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import re
 import time
 import unicodedata
@@ -257,6 +258,11 @@ class ScrapIca(BaseScrapper):
 
         sin_verificar = numero is None
         if sin_verificar:
+            # El título sale del texto saneado y dos resoluciones distintas con
+            # el mismo texto ilegible ("Res. sin número") lo compartirían: la
+            # segunda se descartaría como repetida o pisaría el archivo. Un
+            # sufijo estable sacado de su enlace las distingue.
+            title = f"{title}_h{hashlib.sha1(fila['href'].encode()).hexdigest()[:7]}"
             avisar(f"Aviso: texto inesperado '{fila['texto'][:80]}'; título {title} sin verificar")
         else:
             # Errores de carga del sitio: el año del texto no es el de
