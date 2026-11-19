@@ -1366,6 +1366,10 @@ Es seguro repetirlo.
   filtra por **publicación**, porque el ICA a veces publica meses o años
   después de expedir. Como siempre se recorre el listado entero, una
   resolución publicada tarde entra el día en que aparece, por vieja que sea.
+- **Si el sitio falla:** cada página se reintenta hasta 3 veces. Si una sigue
+  fallando, se salta solo esa página (la corrida lo avisa) y se revisa el
+  resto del listado; lo de esa página se recoge en la corrida del día
+  siguiente.
 - **Datos del sitio con errores:** el número y el año del título se cruzan con
   el nombre del archivo (`2026R000019595`) y con el año de expedición. Si no
   cuadran (p. ej. "Resolución 899 de 2021", expedida en 2022 con archivo

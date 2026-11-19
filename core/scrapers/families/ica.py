@@ -1,5 +1,6 @@
 import datetime
 import re
+import time
 from typing import List, Optional, Tuple
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -20,6 +21,10 @@ _SIGLA = "ICA"
 _TIPO = "Resolución"
 _ANIO_MINIMO = 2015
 _PISO = datetime.date(_ANIO_MINIMO, 1, 1)
+# Fallas pasajeras del sitio (5xx, 429, conexión): se reintenta cada página
+# antes de darla por perdida.
+_MAX_INTENTOS = 3
+_ESPERA_REINTENTO_SEG = 5
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-CO,es;q=0.9"}
 
@@ -132,10 +137,24 @@ def _filas(html: str) -> List[dict]:
 
 
 def _pagina(session, url: str, pagina: int) -> str:
+    """HTML de una página del listado. Reintenta las fallas pasajeras; un 4xx
+    (salvo 429) es el sitio rechazando la página y no se reintenta."""
     params = {"page": str(pagina)} if pagina > 1 else None
-    resp = session.get(url, params=params, timeout=60)
-    resp.raise_for_status()
-    return resp.text
+    for intento in range(_MAX_INTENTOS):
+        if intento:
+            time.sleep(_ESPERA_REINTENTO_SEG * intento)
+        try:
+            resp = session.get(url, params=params, timeout=60)
+            resp.raise_for_status()
+            return resp.text
+        except requests.HTTPError as e:
+            codigo = e.response.status_code if e.response is not None else 0
+            if (400 <= codigo < 500 and codigo != 429) or intento == _MAX_INTENTOS - 1:
+                raise
+        except requests.RequestException:
+            if intento == _MAX_INTENTOS - 1:
+                raise
+    raise AssertionError("inalcanzable")
 
 
 @register_family("ica")
@@ -196,11 +215,21 @@ class ScrapIca(BaseScrapper):
                     break
                 if stop_event is not None and stop_event.is_set():
                     return docs[:limit]
-                pagina += 1
-                try:
-                    html = _pagina(session, url, pagina)
-                except requests.RequestException as e:
-                    avisar(f"Error consultando {nombre}, página {pagina}: {e}")
+                # Una página que sigue fallando tras los reintentos se salta y
+                # se sigue con la siguiente: el listado va por expedición y se
+                # filtra por publicación, así que una resolución vieja recién
+                # publicada puede estar en cualquier página; cortar aquí la
+                # dejaría sin revisar mientras siga dentro de la ventana.
+                html = None
+                while html is None and pagina < ultima:
+                    if stop_event is not None and stop_event.is_set():
+                        return docs[:limit]
+                    pagina += 1
+                    try:
+                        html = _pagina(session, url, pagina)
+                    except requests.RequestException as e:
+                        avisar(f"Error consultando {nombre}, página {pagina}: {e}; se salta esa página")
+                if html is None:
                     break
 
         return docs[:limit]

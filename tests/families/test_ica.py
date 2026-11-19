@@ -1,9 +1,11 @@
 import datetime
 import threading
 
+import pytest
 import responses
 from responses import matchers
 
+from core.scrapers.families import ica as ica_module
 from core.scrapers.families.ica import (
     _ANIO_MINIMO,
     _NACIONALES_URL,
@@ -72,6 +74,11 @@ def _seccion(url, *paginas, status=200):
     for p, filas in enumerate(paginas, start=1):
         match = [matchers.query_param_matcher({"page": str(p)} if p > 1 else {})]
         responses.add(responses.GET, url, body=_html(url, filas, ultima), status=status, match=match)
+
+
+@pytest.fixture(autouse=True)
+def _sin_espera(monkeypatch):
+    monkeypatch.setattr(ica_module, "_ESPERA_REINTENTO_SEG", 0)
 
 
 def _vacia(url):
@@ -345,3 +352,39 @@ def test_limit():
     docs = ScrapIca().scrap("2026-11-01", "2026-11-30", limit=2)
     assert [d.title for d in docs] == ["R_ICA_S0003_2026", "R_ICA_S0002_2026"]
     assert not any(c.request.url.startswith(_NACIONALES_URL) for c in responses.calls)
+
+
+@responses.activate
+def test_pagina_que_falla_una_vez_se_reintenta():
+    # Un 502 pasajero en la página 2 no hace perder sus resoluciones.
+    responses.add(responses.GET, _SECCIONALES_URL,
+                  body=_html(_SECCIONALES_URL, [_fila(3, 2026, "2026-11-10", "2026-11-10")], ultima=2),
+                  match=[matchers.query_param_matcher({})])
+    responses.add(responses.GET, _SECCIONALES_URL, status=502, match=[matchers.query_param_matcher({"page": "2"})])
+    responses.add(responses.GET, _SECCIONALES_URL,
+                  body=_html(_SECCIONALES_URL, [_fila(2, 2019, "2026-11-10", "2019-05-05")], ultima=2),
+                  match=[matchers.query_param_matcher({"page": "2"})])
+    _vacia(_NACIONALES_URL)
+    docs = ScrapIca().scrap("2026-11-01", "2026-11-30")
+    assert [d.title for d in docs] == ["R_ICA_S0003_2026", "R_ICA_S0002_2019"]
+
+
+@responses.activate
+def test_pagina_que_sigue_fallando_se_salta_y_sigue_con_las_demas():
+    # La página 2 falla en todos los intentos: se salta sólo esa y se sigue
+    # con la 3, donde está una resolución vieja publicada hace poco.
+    paginas = {
+        1: [_fila(3, 2026, "2026-11-10", "2026-11-10")],
+        3: [_fila(1, 2019, "2026-11-10", "2019-05-05")],
+    }
+    for p, filas in paginas.items():
+        responses.add(responses.GET, _SECCIONALES_URL, body=_html(_SECCIONALES_URL, filas, ultima=3),
+                      match=[matchers.query_param_matcher({"page": str(p)} if p > 1 else {})])
+    responses.add(responses.GET, _SECCIONALES_URL, status=502, match=[matchers.query_param_matcher({"page": "2"})])
+    _vacia(_NACIONALES_URL)
+    avisos = []
+    docs = ScrapIca().scrap("2026-11-01", "2026-11-30", on_progress=avisos.append)
+    assert [d.title for d in docs] == ["R_ICA_S0003_2026", "R_ICA_S0001_2019"]
+    pedidos_p2 = [c for c in responses.calls if "page=2" in c.request.url]
+    assert len(pedidos_p2) == ica_module._MAX_INTENTOS
+    assert any("página 2" in a and "se salta" in a for a in avisos)

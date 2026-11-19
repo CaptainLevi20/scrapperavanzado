@@ -228,8 +228,12 @@ sin internet:
 10. Piso: expedida en 2014 y publicada en 2015 → descartada.
 11. Dedup (28027 de 2018 dos veces) → una sola, con aviso.
 12. `stop_event` → corta y devuelve lo acumulado.
-13. Falla de una página (500) → aviso y se sigue con la otra sección;
-    falla de la página 1 → aviso, sección vacía.
+13. Cada página se reintenta hasta `_MAX_INTENTOS = 3` veces ante fallas
+    pasajeras (5xx, 429, conexión; un 4xx no se reintenta). Si una página
+    sigue fallando → aviso y **se salta sólo esa página** y se sigue con la
+    siguiente (cortar la sección dejaría sin revisar resoluciones viejas
+    recién publicadas que estén más abajo); falla de la página 1 → aviso,
+    sección vacía.
 14. `limit` respetado.
 
 Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
