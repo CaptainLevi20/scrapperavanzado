@@ -66,10 +66,13 @@ año. Como pidió el usuario, se usa el año:
   del año actual (≤ 15 filas) + un detalle por concepto. Los que ya están
   guardados no se vuelven a bajar (el worker deduplica por `doc_id`); un
   concepto nuevo del año aparece el día en que el ICBF lo publica, aunque su
-  fecha quede en el 1 de enero. En enero la corrida diaria cubre también los
-  últimos días de diciembre (el año anterior), así que un concepto subido a
-  finales de año no se pierde.
-- No hace falta `scheduled_min_lookback_days`.
+  fecha quede en el 1 de enero.
+- **`scheduled_min_lookback_days = 45`:** los años a pedir salen de
+  `fini`/`ffin`; sin ampliar la ventana, la corrida diaria (unos pocos días)
+  deja de tocar el año anterior apenas pasan los primeros días de enero, y un
+  concepto de diciembre que el ICBF suba a mediados de enero nunca se pediría.
+  Con 45 días la corrida diaria revisa también el año anterior hasta mediados
+  de febrero (una página de listado más y un detalle por concepto de ese año).
 - **Aviso de salud de fuentes:** con una sola fecha por año, la fuente nunca
   llega a las 6 fechas distintas que pide `core/salud_fuentes.py`, así que no
   dispara alertas de "puede estar fallando". Es aceptable para una fuente de

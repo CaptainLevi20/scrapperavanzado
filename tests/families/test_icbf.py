@@ -231,3 +231,12 @@ def test_limit():
     docs = ScrapIcbf().scrap("2016-01-01", "2016-12-31", limit=2)
     assert [d.title for d in docs] == ["CTO_ICBF_0003_2016", "CTO_ICBF_0002_2016"]
     assert not any("concepto-1-de-2016" in c.request.url for c in responses.calls)
+
+
+def test_corrida_diaria_de_enero_revisa_el_anio_anterior():
+    # Un concepto de 2026 subido a mediados de enero de 2027 tiene que
+    # entrar: la ventana diaria ampliada debe alcanzar todavía 2026.
+    import datetime
+    for hoy in (datetime.date(2027, 1, 15), datetime.date(2027, 1, 31)):
+        fini = hoy - datetime.timedelta(days=ScrapIcbf.scheduled_min_lookback_days)
+        assert 2026 in _anios(fini.isoformat(), hoy.isoformat())

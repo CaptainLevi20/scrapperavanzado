@@ -101,7 +101,12 @@ def _filas_del_anio(session, anio: int, stop_event) -> Iterator[dict]:
 class ScrapIcbf(BaseScrapper):
     # El sitio sólo da el año de cada concepto: se guarda con fecha
     # <año>-01-01 y se filtra por año. La corrida diaria pide el año en curso
-    # completo (una página), así que no necesita mirar más atrás.
+    # completo (una página). Los años salen de fini/ffin, así que sin esto la
+    # ventana diaria (unos pocos días) deja de tocar diciembre apenas pasan
+    # los primeros días de enero, y un concepto del año anterior que el ICBF
+    # suba a mediados de enero nunca se pediría. Con 45 días, la corrida
+    # diaria revisa también el año anterior hasta mediados de febrero.
+    scheduled_min_lookback_days = 45
 
     def __init__(self):
         self.source = _SOURCE

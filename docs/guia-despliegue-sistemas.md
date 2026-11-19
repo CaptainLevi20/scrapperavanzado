@@ -1320,8 +1320,9 @@ Es seguro repetirlo.
   `CTO_ICBF_0003C_2020`, `CTO_ICBF_0142-1_2015`.
 - **Fechas:** el sitio sólo dice el **año** de cada concepto, así que todos
   quedan con fecha 1 de enero de su año. La corrida diaria revisa el año en
-  curso completo (en enero también el anterior), de modo que un concepto
-  nuevo entra el día en que el ICBF lo publica.
+  curso completo (y, hasta mediados de febrero, también el año anterior),
+  de modo que un concepto nuevo entra el día en que el ICBF lo publica, aunque
+  sea de diciembre y lo suban en enero.
 - **Datos del sitio con errores:** el concepto 75 de 2015 no tiene archivo y
   sale como aviso en cada corrida. El 13 de 2015 enlaza al archivo
   "CONCEPTO 14 DE 2014" y se guarda tal cual, con el nombre de su fila. No es
