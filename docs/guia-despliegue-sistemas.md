@@ -1336,6 +1336,10 @@ Es seguro repetirlo.
   páginas que sí cargaron y la corrida avisa "el año queda incompleto"; basta
   con repetir la corrida de ese año más tarde (los ya guardados no se vuelven
   a bajar).
+- **Si el ICBF lista dos conceptos con el mismo número y año:** los dos se
+  guardan, cada uno con una terminación distinta en el nombre del archivo
+  (`_h` y unas letras), y la corrida avisa para revisarlos a mano. Hoy no
+  hay ningún caso así.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.

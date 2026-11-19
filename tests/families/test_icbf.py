@@ -258,3 +258,23 @@ def test_falla_de_una_pagina_conserva_las_anteriores():
     docs = ScrapIcbf().scrap("2016-01-01", "2016-12-31", on_progress=avisos.append)
     assert len(docs) == 100
     assert any("Error consultando la página 2 de los conceptos de 2016" in a and "incompleto" in a for a in avisos)
+
+
+@responses.activate
+def test_numero_repetido_no_pisa_el_archivo():
+    # Dos filas distintas con el mismo número y año: cada una se guarda en su
+    # propio archivo (sufijo estable sacado de su URL), sin importar el orden,
+    # y la corrida avisa para revisarlas a mano.
+    import hashlib
+    _anio(2015, [_fila(10, 2015, slug="concepto-10-de-2015"), _fila(10, 2015, slug="concepto-10-de-2015-0")])
+    _det("concepto-10-de-2015", "A.docx")
+    _det("concepto-10-de-2015-0", "B.docx")
+    avisos = []
+    docs = ScrapIcbf().scrap("2015-01-01", "2015-12-31", on_progress=avisos.append)
+    assert [d.title for d in docs] == ["CTO_ICBF_0010_2015", "CTO_ICBF_0010_2015"]
+    assert all(d.title_unverified for d in docs)
+    for d in docs:
+        h = hashlib.sha1(d.link["url"].encode()).hexdigest()[:7]
+        assert d.save_path == f"{_SOURCE}/2015-01-01/Concepto/CTO_ICBF_0010_2015_h{h}(extension)"
+    assert docs[0].save_path != docs[1].save_path
+    assert any("CTO_ICBF_0010_2015 aparece 2 veces" in a for a in avisos)

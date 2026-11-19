@@ -1,4 +1,6 @@
+import collections
 import datetime
+import hashlib
 import re
 from typing import Iterator, List, Optional, Tuple
 from urllib.parse import urljoin
@@ -144,6 +146,17 @@ class ScrapIcbf(BaseScrapper):
             filas = list(_filas_del_anio(session, anio, stop_event, avisar))
             filas_totales += len(filas)
 
+            # Dos filas distintas con el mismo número y año darían el mismo
+            # nombre de archivo y la segunda pisaría a la primera. Se cuentan
+            # sobre el listado completo del año (cada corrida lo trae entero),
+            # así el sufijo no depende del orden de las filas ni de cuál se
+            # guardó primero.
+            repetidos = collections.Counter(
+                _titulo(f["numero"], int(f["anio"]))[0]
+                for f in filas
+                if f["categoria"].upper() == "CONCEPTO" and f["anio"].isdigit()
+            )
+
             for fila in filas:
                 if stop_event is not None and stop_event.is_set():
                     return docs[:limit]
@@ -176,6 +189,15 @@ class ScrapIcbf(BaseScrapper):
                     continue
                 vistos.add(url)
 
+                nombre_archivo = title
+                if repetidos[title] > 1:
+                    nombre_archivo = f"{title}_h{hashlib.sha1(url.encode()).hexdigest()[:7]}"
+                    sin_verificar = True
+                    avisar(
+                        f"Aviso: {title} aparece {repetidos[title]} veces en el listado; "
+                        f"se guarda como {nombre_archivo} para no pisar al otro, revisar a mano"
+                    )
+
                 fecha = f"{anio_fila}-01-01"
                 docs.append(RawDocModel(
                     source=_SOURCE,
@@ -185,7 +207,7 @@ class ScrapIcbf(BaseScrapper):
                     f_public=fecha,
                     f_providencia=fecha,
                     detalle=fila["epigrafe"] or None,
-                    save_path=storage_path(_SOURCE, fecha, _TIPO, f"{title}(extension)"),
+                    save_path=storage_path(_SOURCE, fecha, _TIPO, f"{nombre_archivo}(extension)"),
                     title_unverified=sin_verificar,
                 ))
                 if len(docs) >= limit:

@@ -116,7 +116,11 @@ detalles.
   el ICBF no publica todos los conceptos. No es un error de la familia.
 - Duplicados: 0 pares `(número, año)` repetidos hoy. Dedup dentro de la
   corrida por la URL del `.docx`; si dos filas apuntan al mismo archivo, se
-  queda la primera y se avisa.
+  queda la primera y se avisa. Si en el futuro aparecen dos filas con el
+  mismo `(número, año)` (contadas sobre el listado completo del año), cada una
+  se guarda como `CTO_ICBF_####_AAAA_h<7 hex del sha1 de su URL>` — estable y
+  sin depender del orden — con `title_unverified` y un aviso, para que la
+  segunda no pise el archivo de la primera.
 
 ## `save_path` / almacenamiento
 
@@ -180,6 +184,8 @@ sin internet:
 7. Paginación: página de 100 → pide la siguiente; menos de 100 → se detiene.
 8. Detalle sin `btn-documento` → omitido con aviso.
 9. Dedup por URL del `.docx`.
+   Número y año repetidos en filas distintas → sufijo `_h<hash>` en el
+   nombre del archivo de cada una, aviso y `title_unverified`.
 10. `stop_event` activado → corta y devuelve lo acumulado.
 11. Falla del listado de un año (500) → aviso y sigue con el siguiente año;
     falla de una página posterior a la primera → conserva las filas de las
