@@ -97,8 +97,10 @@ año. Como pidió el usuario, se usa el año:
 ## Recorrido
 
 1. Para cada año en `[max(fini.año, 2015), ffin.año]`: `GET /concepto?field_anio_value=<año>&page=0, 1, …`
-   hasta una página con menos de 100 filas (tope duro de 5 páginas por año;
-   el año más grande, 2016, tiene 166).
+   mientras el paginador del sitio traiga el enlace `rel="next"` (o la página
+   venga llena con 100 filas); una página vacía siempre corta. Así no depende
+   del tamaño de página del sitio. Tope de 20 páginas por año como freno, con
+   aviso si se alcanza (el año más grande, 2016, tiene 166 en 2 páginas).
 2. Para cada fila con categoría `CONCEPTO`: `GET` del detalle y se toma el
    `href` de `a.btn-documento`.
 3. Se arma el `RawDocModel` con el `.docx`.
@@ -181,7 +183,8 @@ sin internet:
    `f_providencia`, `detalle`, `link`, `save_path`.
 6. Años pedidos: `fini=2010-01-01, ffin=2016-06-30` → sólo 2015 y 2016;
    `fini=ffin=2026-11-10` → sólo 2026.
-7. Paginación: página de 100 → pide la siguiente; menos de 100 → se detiene.
+7. Paginación: sigue mientras haya `rel="next"`; con páginas de 50 recorre
+   las 3; al llegar al tope avisa.
 8. Detalle sin `btn-documento` → omitido con aviso.
 9. Dedup por URL del `.docx`.
    Número y año repetidos en filas distintas → sufijo `_h<hash>` en el

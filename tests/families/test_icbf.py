@@ -34,10 +34,17 @@ def _fila(num, anio, slug=None, epigrafe="Representación legal de niños, niña
     )
 
 
-def _listado(*filas) -> str:
+def _listado(*filas, siguiente=None) -> str:
+    # Copia del paginador real: el enlace "página siguiente" sólo está si hay más.
+    pager = (
+        '<nav class="pager" role="navigation" aria-label="Paginación"><ul class="pagination pager__items">'
+        '<li class="page-item pager__item--next">'
+        f'<a href="?field_anio_value=2016&amp;page={siguiente}" title="Ir a la página siguiente" rel="next" class="page-link">'
+        '<span class="visually-hidden">Siguiente página</span><span aria-hidden="true">››</span></a></li></ul></nav>'
+    ) if siguiente is not None else ""
     return (
         '<html><body><table class="cols-5"><thead><tr><th>Categoría</th><th>Número</th><th>Año</th>'
-        "<th>Temática</th><th></th></tr></thead>\n<tbody>\n" + "".join(filas) + "</tbody></table></body></html>"
+        "<th>Temática</th><th></th></tr></thead>\n<tbody>\n" + "".join(filas) + "</tbody></table>" + pager + "</body></html>"
     )
 
 
@@ -53,8 +60,9 @@ def _detalle(archivo=None) -> str:
 def _anio(anio, *paginas, status=200):
     """Registra las páginas del listado de un año."""
     for p, filas in enumerate(paginas):
+        siguiente = p + 1 if p + 1 < len(paginas) else None
         responses.add(
-            responses.GET, _LISTADO_URL, body=_listado(*filas), status=status,
+            responses.GET, _LISTADO_URL, body=_listado(*filas, siguiente=siguiente), status=status,
             match=[matchers.query_param_matcher({"field_anio_value": str(anio), "page": str(p)})],
         )
 
@@ -278,3 +286,30 @@ def test_numero_repetido_no_pisa_el_archivo():
         assert d.save_path == f"{_SOURCE}/2015-01-01/Concepto/CTO_ICBF_0010_2015_h{h}(extension)"
     assert docs[0].save_path != docs[1].save_path
     assert any("CTO_ICBF_0010_2015 aparece 2 veces" in a for a in avisos)
+
+
+@responses.activate
+def test_paginacion_sigue_al_paginador_no_al_tamano_de_pagina():
+    # Si el sitio pasa a mostrar 50 por página, se siguen pidiendo páginas
+    # mientras el paginador ofrezca "página siguiente".
+    p0 = [_fila(n, 2016) for n in range(166, 116, -1)]
+    p1 = [_fila(n, 2016) for n in range(116, 66, -1)]
+    p2 = [_fila(n, 2016) for n in range(66, 0, -1)]
+    _anio(2016, p0, p1, p2)
+    for n in range(1, 167):
+        _det(f"concepto-{n}-de-2016", _archivo(n, 2016))
+    docs = ScrapIcbf().scrap("2016-01-01", "2016-12-31")
+    assert len(docs) == 166
+
+
+@responses.activate
+def test_tope_de_paginas_avisa(monkeypatch):
+    from core.scrapers.families import icbf as icbf_module
+    monkeypatch.setattr(icbf_module, "_PAGINAS_POR_ANIO_TOPE", 2)
+    _anio(2016, [_fila(3, 2016)], [_fila(2, 2016)], [_fila(1, 2016)])
+    for n in (3, 2, 1):
+        _det(f"concepto-{n}-de-2016", _archivo(n, 2016))
+    avisos = []
+    docs = ScrapIcbf().scrap("2016-01-01", "2016-12-31", on_progress=avisos.append)
+    assert len(docs) == 2
+    assert any("tope de 2 páginas" in a and "2016" in a for a in avisos)

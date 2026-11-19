@@ -23,8 +23,10 @@ _PREFIJO = "CTO"
 _TIPO = "Concepto"
 _ANIO_MINIMO = 2015
 _FILAS_POR_PAGINA = 100
-# El año más grande (2016) tiene 166 conceptos: 2 páginas. 5 es tope de sobra.
-_PAGINAS_POR_ANIO_TOPE = 5
+# El año más grande (2016) tiene 166 conceptos: 2 páginas de 100. El tope es
+# sólo un freno contra un paginador que no termine; deja margen por si el
+# sitio achica las páginas, y si se alcanza la corrida lo avisa.
+_PAGINAS_POR_ANIO_TOPE = 20
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-CO,es;q=0.9"}
 
@@ -85,6 +87,11 @@ def _anios(fini: str, ffin: str) -> range:
     return range(max(int(fini[:4]), _ANIO_MINIMO), int(ffin[:4]) + 1)
 
 
+def _hay_pagina_siguiente(html: str) -> bool:
+    """El paginador de Drupal trae el enlace rel="next" sólo si hay más."""
+    return BeautifulSoup(html, "html.parser").select_one('a[rel="next"]') is not None
+
+
 def _filas_del_anio(session, anio: int, stop_event, avisar) -> Iterator[dict]:
     # Una página que falla corta el año ahí, pero conserva las filas de las
     # páginas que ya cargaron: perder 100 conceptos por un error en la
@@ -108,8 +115,18 @@ def _filas_del_anio(session, anio: int, stop_event, avisar) -> Iterator[dict]:
             return
         filas = _filas(resp.text)
         yield from filas
-        if len(filas) < _FILAS_POR_PAGINA:
+        # Se sigue el paginador del sitio, no un tamaño de página supuesto: si
+        # el ICBF cambia cuántos muestra por página, igual se recorren todas.
+        # Una página llena de 100 sin paginador también sigue (por si el
+        # paginador cambia de forma); una página vacía siempre corta.
+        if not filas:
             return
+        if not _hay_pagina_siguiente(resp.text) and len(filas) < _FILAS_POR_PAGINA:
+            return
+    avisar(
+        f"Aviso: los conceptos de {anio} llegaron al tope de {_PAGINAS_POR_ANIO_TOPE} páginas; "
+        "puede haber más sin revisar"
+    )
 
 
 @register_family("icbf")
