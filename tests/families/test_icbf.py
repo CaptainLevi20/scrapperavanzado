@@ -1,10 +1,16 @@
+import datetime
+import io
+import re
 import threading
+import zipfile
 
 import responses
 from responses import matchers
 
 from core.scrapers.families.icbf import (
     _ANIO_MINIMO,
+    _fecha_del_encabezado,
+    _texto_inicial_docx,
     _LISTADO_URL,
     _SOURCE,
     _anios,
@@ -67,8 +73,36 @@ def _anio(anio, *paginas, status=200):
         )
 
 
-def _det(slug, archivo=None, status=200):
+def _docx(encabezado: str) -> bytes:
+    """Un .docx mínimo como los del ICBF: el encabezado partido en trozos
+    (Word corta palabras y fechas: "CONCEPTO 10 D" + "E 2026"), luego el resto."""
+    mitad = len(encabezado) // 2
+    trozos = [encabezado[:mitad], encabezado[mitad:]]
+    corridas = "".join(f"<w:r><w:t xml:space=\"preserve\">{t}</w:t></w:r>" for t in trozos)
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+        f"<w:p>{corridas}</w:p><w:p><w:r><w:t>INSTITUTO COLOMBIANO DE BIENESTAR FAMILIAR</w:t></w:r></w:p>"
+        "</w:body></w:document>"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", xml)
+    return buf.getvalue()
+
+
+def _encabezado_de(slug: str) -> str:
+    # concepto-10-de-2026 → "CONCEPTO 10 DE 2026 (5 de marzo)"
+    m = re.match(r"concepto-([0-9A-Za-z]+)-de-(\d{4})$", slug)
+    return f"CONCEPTO {m.group(1)} DE {m.group(2)} (5 de marzo)" if m else "SIN ENCABEZADO"
+
+
+def _det(slug, archivo=None, status=200, encabezado=None, status_docx=200):
     responses.add(responses.GET, f"{_SITIO}/normograma/{slug}", body=_detalle(archivo), status=status)
+    if archivo:
+        url = f"{_SITIO}/sites/default/files/normas/{archivo}"
+        if not any(r.url == url for r in responses.registered()):
+            responses.add(responses.GET, url, body=_docx(encabezado or _encabezado_de(slug)), status=status_docx)
 
 
 def _archivo(num, anio):
@@ -130,10 +164,11 @@ def test_documento_completo():
     d = docs[0]
     assert d.title == "CTO_ICBF_0010_2026"
     assert d.tipo == "Concepto"
-    assert d.f_public == d.f_providencia == "2026-01-01"
+    # Fecha leída del encabezado del .docx ("CONCEPTO 10 DE 2026 (5 de marzo)").
+    assert d.f_public == d.f_providencia == "2026-03-05"
     assert d.detalle == "Respuesta Kick Boxing"
     assert d.link == {"url": f"{_SITIO}/sites/default/files/normas/CONCEPTO%2010%20DE%202026.docx", "method": "GET"}
-    assert d.save_path == f"{_SOURCE}/2026-01-01/Concepto/CTO_ICBF_0010_2026(extension)"
+    assert d.save_path == f"{_SOURCE}/2026-03-05/Concepto/CTO_ICBF_0010_2026(extension)"
     assert d.title_unverified is False
 
 
@@ -283,7 +318,7 @@ def test_numero_repetido_no_pisa_el_archivo():
     assert all(d.title_unverified for d in docs)
     for d in docs:
         h = hashlib.sha1(d.link["url"].encode()).hexdigest()[:7]
-        assert d.save_path == f"{_SOURCE}/2015-01-01/Concepto/CTO_ICBF_0010_2015_h{h}(extension)"
+        assert d.save_path == f"{_SOURCE}/{d.f_public}/Concepto/CTO_ICBF_0010_2015_h{h}(extension)"
     assert docs[0].save_path != docs[1].save_path
     assert any("CTO_ICBF_0010_2015 aparece 2 veces" in a for a in avisos)
 
@@ -313,3 +348,65 @@ def test_tope_de_paginas_avisa(monkeypatch):
     docs = ScrapIcbf().scrap("2016-01-01", "2016-12-31", on_progress=avisos.append)
     assert len(docs) == 2
     assert any("tope de 2 páginas" in a and "2016" in a for a in avisos)
+
+
+def test_fecha_del_encabezado_formatos_reales():
+    # Formatos copiados de conceptos reales del sitio (2026-11-19).
+    casos = [
+        ("CONCEPTO 10 DE 2026(30 de julio)INSTITUTO COLOMBIANO", "10", 2026, datetime.date(2026, 7, 30)),
+        ("CONCEPTO No. 4 DE 2026(14 de mayo)Para: ADRIANA", "4", 2026, datetime.date(2026, 5, 14)),
+        ("CONCEPTO 7 DE 2022(mayo 13)INSTITUTO", "7", 2022, datetime.date(2022, 5, 13)),
+        ("CONCEPTO 66 DE 2019(28 de Noviembre)INSTITUTO", "66", 2019, datetime.date(2019, 11, 28)),
+        ("CONCEPTO 117 DE 2016 (septiembre 22) INSTITUTO", "117", 2016, datetime.date(2016, 9, 22)),
+        ("CONCEPTO 3C DE 2020 (2 de marzo) INSTITUTO", "3C", 2020, datetime.date(2020, 3, 2)),
+        ("CONCEPTO 142-1 DE 2015 (1 de abril) INSTITUTO", "142-1", 2015, datetime.date(2015, 4, 1)),
+    ]
+    for texto, numero, anio, esperado in casos:
+        assert _fecha_del_encabezado(texto, numero, anio) == (esperado, ""), texto
+
+
+def test_fecha_del_encabezado_casos_sin_fecha():
+    # Reales: sin fecha en el encabezado (56 de 2019, 50 de 2019 con "()").
+    assert _fecha_del_encabezado("CONCEPTO 56 DE 2019 INSTITUTO COLOMBIANO", "56", 2019)[0] is None
+    assert _fecha_del_encabezado("CONCEPTO 50 DE 2019 () INSTITUTO", "50", 2019)[0] is None
+    # Reales: el archivo es de otro concepto (13 de 2015 abre el 14 de 2014;
+    # 2 de 2026 dice "2 DE 2025"): no se confía en su fecha.
+    fecha, motivo = _fecha_del_encabezado("CONCEPTO 14 DE 2014 (enero 30) INSTITUTO", "13", 2015)
+    assert fecha is None and "concepto 14 de 2014" in motivo
+    assert _fecha_del_encabezado("CONCEPTO No. 2 DE 2025 (20 de abril) INSTITUTO", "2", 2026)[0] is None
+    assert _fecha_del_encabezado("Resolución 5 de 2020", "5", 2020)[0] is None
+    assert _fecha_del_encabezado("CONCEPTO 5 DE 2020 (31 de febrero)", "5", 2020)[0] is None
+    assert _fecha_del_encabezado(None, "5", 2020)[0] is None
+
+
+def test_texto_inicial_docx():
+    assert _texto_inicial_docx(_docx("CONCEPTO 10 DE 2026 (30 de julio)")).startswith(
+        "CONCEPTO 10 DE 2026 (30 de julio) INSTITUTO COLOMBIANO"
+    )
+    assert _texto_inicial_docx(b"no es un zip") is None
+
+
+@responses.activate
+def test_sin_fecha_legible_queda_el_1_de_enero_con_aviso():
+    _anio(2019, [_fila(56, 2019)])
+    _det("concepto-56-de-2019", _archivo(56, 2019), encabezado="CONCEPTO 56 DE 2019 INSTITUTO COLOMBIANO")
+    avisos = []
+    docs = ScrapIcbf().scrap("2019-01-01", "2019-12-31", on_progress=avisos.append)
+    assert docs[0].f_public == docs[0].f_providencia == "2019-01-01"
+    assert any("CTO_ICBF_0056_2019 queda con fecha 2019-01-01" in a for a in avisos)
+
+
+@responses.activate
+def test_si_no_baja_el_docx_se_deja_para_la_proxima_corrida():
+    # Guardarlo con el 1 de enero lo dejaría así para siempre.
+    _anio(2026, [_fila(10, 2026), _fila(7, 2026)])
+    _det("concepto-10-de-2026", _archivo(10, 2026), status_docx=503)
+    _det("concepto-7-de-2026", _archivo(7, 2026))
+    avisos = []
+    docs = ScrapIcbf().scrap("2026-01-01", "2026-12-31", on_progress=avisos.append)
+    assert [d.title for d in docs] == ["CTO_ICBF_0007_2026"]
+    assert any("Error descargando CTO_ICBF_0010_2026" in a and "próxima corrida" in a for a in avisos)
+
+
+def test_identidad_no_depende_de_la_fecha():
+    assert ScrapIcbf.doc_id_uses_publication_date is False

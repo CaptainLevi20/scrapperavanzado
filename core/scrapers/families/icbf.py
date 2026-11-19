@@ -1,7 +1,10 @@
 import collections
 import datetime
 import hashlib
+import io
 import re
+import unicodedata
+import zipfile
 from typing import Iterator, List, Optional, Tuple
 from urllib.parse import urljoin
 
@@ -34,6 +37,28 @@ _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-CO,es;q=0.9"}
 # (letra o "-n") se conserva en mayúscula, sin espacios.
 _NUMERO_RE = re.compile(r"^(\d+)\s*([A-Za-z]|-\d+)?$")
 _NO_TITULO_RE = re.compile(r"[^A-Za-z0-9-]+")
+
+# Fecha del concepto: el sitio sólo da el año, pero cada .docx empieza con
+# "CONCEPTO [No.] <n> DE <año>" y, entre paréntesis, el día y el mes en que se
+# firmó: "(30 de julio)", "(mayo 13)", "(28 de Noviembre)". Verificado sobre
+# los 716 conceptos del sitio (2026-11-19): 711 la traen así; 5 no la traen y
+# 3 abren el documento de otro concepto (número o año del encabezado distinto
+# del de la fila), y en esos 8 se deja el 1 de enero.
+_MESES = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6, "julio": 7,
+    "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+}
+_MES = "|".join(_MESES)
+_ENCABEZADO_RE = re.compile(
+    r"CONCEPTO\s*(?:N[oO°º]\.?\s*)?(\d+)\s*(?:[A-Za-z]\b|-\s*\d+)?\s*DEL?\s*(\d{4})", re.IGNORECASE
+)
+_FECHA_ENCABEZADO_RE = re.compile(
+    rf"^\s*\(\s*(?:(\d{{1,2}})\s*(?:de\s*)?({_MES})|({_MES})\s*(\d{{1,2}}))\b", re.IGNORECASE
+)
+# Topes al abrir el .docx (viene de un sitio ajeno): el archivo y el XML del
+# texto. Los conceptos reales pesan decenas de KB.
+_DOCX_MAX_BYTES = 20 * 1024 * 1024
+_XML_MAX_BYTES = 50 * 1024 * 1024
 
 
 def _norm_texto(s: str) -> str:
@@ -81,6 +106,60 @@ def _url_documento(html: str, url_detalle: str) -> Optional[str]:
     if a is None or not a["href"].strip():
         return None
     return urljoin(url_detalle, a["href"].strip())
+
+
+def _texto_inicial_docx(contenido: bytes, caracteres: int = 400) -> Optional[str]:
+    """Primeros caracteres del texto de un .docx, o None si no se puede leer.
+    Word parte las palabras en trozos (`<w:t>CONCEPTO 10 D</w:t><w:t>E 2026`):
+    se unen sin espacio dentro del párrafo y con espacio entre párrafos."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(contenido)) as z:
+            info = z.getinfo("word/document.xml")
+            if info.file_size > _XML_MAX_BYTES:
+                return None
+            xml = z.read(info).decode("utf-8", "replace")
+    except (zipfile.BadZipFile, KeyError, OSError, ValueError):
+        return None
+    xml = re.sub(r"</w:p>", " ", xml)
+    texto = re.sub(r"<[^>]+>", "", xml).replace("﻿", "")
+    texto = unicodedata.normalize("NFC", texto)
+    return re.sub(r"\s+", " ", texto).strip()[:caracteres]
+
+
+def _fecha_del_encabezado(texto: Optional[str], numero: str, anio: int) -> Tuple[Optional[datetime.date], str]:
+    """(fecha, motivo): la fecha de firma del concepto leída del encabezado del
+    .docx, sólo si el encabezado es el de ESTE concepto (mismo número y año que
+    la fila). Si no, (None, motivo legible para el aviso)."""
+    if not texto:
+        return None, "no se pudo leer el documento"
+    m = _ENCABEZADO_RE.search(texto[:200])
+    if m is None:
+        return None, "el documento no empieza con 'CONCEPTO <número> DE <año>'"
+    num_fila = re.match(r"\d+", _norm_texto(numero))
+    if num_fila is None or int(m.group(1)) != int(num_fila.group(0)) or int(m.group(2)) != anio:
+        return None, f"el documento es el concepto {m.group(1)} de {m.group(2)}, no el {numero} de {anio}"
+    f = _FECHA_ENCABEZADO_RE.match(texto[m.end():m.end() + 40])
+    if f is None:
+        return None, "el encabezado no trae día y mes"
+    dia = int(f.group(1) or f.group(4))
+    mes = _MESES[(f.group(2) or f.group(3)).lower()]
+    try:
+        return datetime.date(anio, mes, dia), ""
+    except ValueError:
+        return None, f"fecha imposible en el encabezado ({dia}/{mes})"
+
+
+def _descargar_docx(session, url: str) -> bytes:
+    """El .docx completo, con tope de tamaño."""
+    with session.get(url, timeout=60, stream=True) as resp:
+        resp.raise_for_status()
+        partes, total = [], 0
+        for trozo in resp.iter_content(64 * 1024):
+            total += len(trozo)
+            if total > _DOCX_MAX_BYTES:
+                raise requests.RequestException(f"archivo de más de {_DOCX_MAX_BYTES // (1024 * 1024)} MB")
+            partes.append(trozo)
+    return b"".join(partes)
 
 
 def _anios(fini: str, ffin: str) -> range:
@@ -131,8 +210,17 @@ def _filas_del_anio(session, anio: int, stop_event, avisar) -> Iterator[dict]:
 
 @register_family("icbf")
 class ScrapIcbf(BaseScrapper):
-    # El sitio sólo da el año de cada concepto: se guarda con fecha
-    # <año>-01-01 y se filtra por año. La corrida diaria pide el año en curso
+    # El listado sólo da el año de cada concepto; la fecha de firma se lee del
+    # encabezado del .docx (ver _fecha_del_encabezado) y, si no se puede, queda
+    # el <año>-01-01. Se filtra por el AÑO de la fila, no por la fecha: un
+    # concepto firmado en julio y subido en agosto tiene que entrar igual.
+    #
+    # Identidad = sólo la URL del archivo: con la fecha dentro del doc_id, una
+    # fecha corregida (o el paso del 1 de enero a la fecha real, ver
+    # core/backfill_icbf_fechas.py) haría ver el mismo concepto como nuevo.
+    doc_id_uses_publication_date = False
+
+    # La corrida diaria pide el año en curso
     # completo (una página). Los años salen de fini/ffin, así que sin esto la
     # ventana diaria (unos pocos días) deja de tocar diciembre apenas pasan
     # los primeros días de enero, y un concepto del año anterior que el ICBF
@@ -215,7 +303,22 @@ class ScrapIcbf(BaseScrapper):
                         f"se guarda como {nombre_archivo} para no pisar al otro, revisar a mano"
                     )
 
-                fecha = f"{anio_fila}-01-01"
+                # La fecha sale del encabezado del propio .docx. Si no se puede
+                # bajar, se deja para la próxima corrida (guardarlo con el 1 de
+                # enero lo dejaría así para siempre: ya guardado, no se revisa).
+                try:
+                    contenido = _descargar_docx(session, url)
+                except requests.RequestException as e:
+                    avisar(f"Error descargando {title} para leer su fecha: {e}; se intentará en la próxima corrida")
+                    vistos.discard(url)
+                    continue
+                fecha_concepto, motivo = _fecha_del_encabezado(_texto_inicial_docx(contenido), fila["numero"], anio_fila)
+                if fecha_concepto is None:
+                    fecha = f"{anio_fila}-01-01"
+                    avisar(f"Aviso: {title} queda con fecha {fecha}: {motivo}")
+                else:
+                    fecha = fecha_concepto.isoformat()
+
                 docs.append(RawDocModel(
                     source=_SOURCE,
                     link={"url": url, "method": "GET"},
