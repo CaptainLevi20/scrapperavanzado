@@ -388,3 +388,23 @@ def test_pagina_que_sigue_fallando_se_salta_y_sigue_con_las_demas():
     pedidos_p2 = [c for c in responses.calls if "page=2" in c.request.url]
     assert len(pedidos_p2) == ica_module._MAX_INTENTOS
     assert any("página 2" in a and "se salta" in a for a in avisos)
+
+
+@responses.activate
+def test_tildes_descompuestas():
+    # Si el sitio manda la "ó" como "o" + tilde suelta (pasó con MinEducación,
+    # PR #104), los rótulos Publicación/Expedición/Observación y la palabra
+    # "Resolución" se tienen que reconocer igual.
+    import unicodedata
+    html = _html(_SECCIONALES_URL, [_fila(19595, 2026, "2026-10-02", "2026-10-01", observacion="Rige.")])
+    html = unicodedata.normalize("NFD", html)
+    assert "Publicací" not in html and "Publicación" in html
+    responses.add(responses.GET, _SECCIONALES_URL, body=html, match=[matchers.query_param_matcher({})])
+    _vacia(_NACIONALES_URL)
+    docs = ScrapIca().scrap("2026-10-01", "2026-10-31")
+    assert [d.title for d in docs] == ["R_ICA_S19595_2026"]
+    d = docs[0]
+    assert d.f_public == "2026-10-02" and d.f_providencia == "2026-10-01"
+    assert d.title_unverified is False
+    assert "— Rige." in d.detalle and "Resolución No." in d.detalle
+    assert d.detalle == unicodedata.normalize("NFC", d.detalle)

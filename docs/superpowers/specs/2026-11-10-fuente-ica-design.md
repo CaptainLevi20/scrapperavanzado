@@ -235,6 +235,10 @@ sin internet:
     recién publicadas que estén más abajo); falla de la página 1 → aviso,
     sección vacía.
 14. `limit` respetado.
+15. Tildes descompuestas (NFD, "o" + tilde suelta): todo el texto pasa por
+    NFC en `_norm_texto`, así que los rótulos Publicación/Expedición/
+    Observación y "Resolución" se reconocen igual (lección de MinEducación,
+    PR #104: sin esto la fuente devolvería 0 documentos).
 
 Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 

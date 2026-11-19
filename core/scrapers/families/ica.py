@@ -1,6 +1,7 @@
 import datetime
 import re
 import time
+import unicodedata
 from typing import List, Optional, Tuple
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -50,7 +51,11 @@ _NO_TITULO_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
 def _norm_texto(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
+    # NFC: si el sitio manda la "ó" descompuesta ("o" + tilde suelta), los
+    # rótulos "Publicación"/"Expedición"/"Observación" y "Resolución" no se
+    # reconocerían y se perdería cada fila (pasó con MinEducación, PR #104).
+    s = unicodedata.normalize("NFC", s or "")
+    return re.sub(r"\s+", " ", s.replace("\xa0", " ")).strip()
 
 
 def _titulo(texto: str, seccional: bool) -> Tuple[str, Optional[int], Optional[int], str]:
