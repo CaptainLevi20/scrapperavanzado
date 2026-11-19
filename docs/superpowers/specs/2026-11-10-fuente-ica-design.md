@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano Agropecuario (`ica`, sigla `ICA`)
-**Estado:** aprobado con correcciones del administrador (2026-11-18) — listo para implementar
+**Estado:** aprobado con correcciones del administrador (2026-11-18) e implementado (2026-11-19)
 
 > Los dos enlaces que dio el usuario son los listados reales, dentro de
 > "Normativa › Normas ICA" del sitio (Kentico CMS, ASP.NET). Ojo con los
@@ -100,8 +100,11 @@ Los enlaces dentro de "Observación" apuntan a **otras** resoluciones
     `on_progress` con los dos valores (texto y archivo), para revisarlo a mano;
   - el nombre del archivo no sigue el patrón → no se cruza (sólo cuenta la
     regla del año de expedición).
-- Texto que no cumple la regex (0 casos hoy) → título `R_ICA_[S]<texto saneado>`,
-  `title_unverified=True` y aviso.
+- Texto que no cumple la regex (0 casos hoy) → título
+  `R_ICA_[S]<texto saneado>_h<7 hex del sha1 del enlace>`, `title_unverified=True`
+  y aviso. El sufijo evita que dos resoluciones distintas con el mismo texto
+  ilegible compartan título: se descartaría la segunda como repetida o se
+  pisaría el archivo.
 - `detalle` = epígrafe; si hay observación, se agrega después de " — ". En
   nacionales también "Diario Oficial <n> (<fecha>)".
 
@@ -133,8 +136,15 @@ resoluciones (el archivo es `…R…` y el texto empieza "Por la cual…"):
   se pierde, por vieja que sea su expedición (p. ej. la nacional 93858 de
   2021, expedida 26-03-2021 y publicada 11-08-2026). Decisión del
   administrador (2026-11-18): no hay corte por fecha ni margen de días.
-- Costo: ~59 + ~155 ≈ 215 páginas por corrida, diaria o completa,
-  ≈ 2-3 min (0,4-0,9 s por página). El sitio no tiene WAF ni límite visible.
+- **Único corte: el piso.** Como el listado va por expedición descendente
+  (0 excepciones en 851 filas), cuando una página **entera** tiene expedición
+  legible anterior a 2015 se deja de leer esa sección: más abajo sólo queda
+  lo que el piso descarta. Una fila suelta mal fechada o una fecha ilegible
+  no corta. Revisión del PR #120, aprobado por el administrador 2026-11-19.
+- Costo: ~59 + ~155 ≈ 214 páginas en total, de las que se leen ~150 (las
+  nacionales cortan al llegar a las normas viejas cargadas en 2009-2010);
+  prueba real 2026-11-19: 588 resoluciones, 150 páginas, ~1 min. El sitio no
+  tiene WAF ni límite visible.
 - No hace falta `scheduled_min_lookback_days`: la corrida siempre ve el
   listado entero y filtra por publicación.
 - Fecha ilegible (0 casos hoy) → fila descartada con aviso.
@@ -211,7 +221,9 @@ sin internet:
    `Resolución 20263040030395 de 2026` → número completo.
 2. `Norma 8970 de 2024` y `Acuerdo 97962 de 2021` → `Resolución`,
    `R_ICA_S8970_2024`, `R_ICA_S97962_2021`.
-3. Texto fuera de la regex → título saneado, `title_unverified=True`, aviso.
+3. Texto fuera de la regex → título saneado + `_h<hash del enlace>`,
+   `title_unverified=True`, aviso; dos filas con el mismo texto ilegible y
+   enlaces distintos se guardan las dos.
 4. Fechas en español ("02 de octubre de 2026") → `f_public` y
    `f_providencia`.
 5. Año del texto distinto del de expedición → se deja el del texto,
@@ -228,9 +240,17 @@ sin internet:
 10. Piso: expedida en 2014 y publicada en 2015 → descartada.
 11. Dedup (28027 de 2018 dos veces) → una sola, con aviso.
 12. `stop_event` → corta y devuelve lo acumulado.
-13. Falla de una página (500) → aviso y se sigue con la otra sección;
-    falla de la página 1 → aviso, sección vacía.
+13. Cada página se reintenta hasta `_MAX_INTENTOS = 3` veces ante fallas
+    pasajeras (5xx, 429, conexión; un 4xx no se reintenta). Si una página
+    sigue fallando → aviso y **se salta sólo esa página** y se sigue con la
+    siguiente (cortar la sección dejaría sin revisar resoluciones viejas
+    recién publicadas que estén más abajo); falla de la página 1 → aviso,
+    sección vacía.
 14. `limit` respetado.
+15. Tildes descompuestas (NFD, "o" + tilde suelta): todo el texto pasa por
+    NFC en `_norm_texto`, así que los rótulos Publicación/Expedición/
+    Observación y "Resolución" se reconocen igual (lección de MinEducación,
+    PR #104: sin esto la fuente devolvería 0 documentos).
 
 Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 
@@ -264,8 +284,9 @@ Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 
 5. **`tipo`:** `Resolución` en las dos secciones; la `S` del título ya separa
    las seccionales.
-6. **Paginación:** se recorre siempre el listado entero (~215 páginas,
-   2-3 min), sin margen de 730 días, para no perder publicaciones tardías.
+6. **Paginación:** se recorre el listado entero, sin margen de 730 días,
+   para no perder publicaciones tardías; sólo se corta al llegar a una página
+   entera anterior al piso de 2015 (ajuste de la revisión del PR #120).
 7. **Cruce con el nombre del archivo:** número y año del texto se comparan con
    el `AAAAR<número>` del enlace; si no cuadran, `title_unverified=True`.
 8. **Fechas:** lector común `core/fecha_es.py`.

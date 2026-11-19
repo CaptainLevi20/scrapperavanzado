@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano de Bienestar Familiar (`icbf`, sigla `ICBF`)
-**Estado:** aprobado por el administrador (2026-11-18) — listo para implementar
+**Estado:** aprobado por el administrador (2026-11-18) e implementado (2026-11-19)
 
 > El enlace que dio el usuario (`https://www.icbf.gov.co/concepto`) es el
 > listado real: una vista de Drupal (`views-exposed-form-normograma-page-3`)
@@ -66,10 +66,13 @@ año. Como pidió el usuario, se usa el año:
   del año actual (≤ 15 filas) + un detalle por concepto. Los que ya están
   guardados no se vuelven a bajar (el worker deduplica por `doc_id`); un
   concepto nuevo del año aparece el día en que el ICBF lo publica, aunque su
-  fecha quede en el 1 de enero. En enero la corrida diaria cubre también los
-  últimos días de diciembre (el año anterior), así que un concepto subido a
-  finales de año no se pierde.
-- No hace falta `scheduled_min_lookback_days`.
+  fecha quede en el 1 de enero.
+- **`scheduled_min_lookback_days = 45`:** los años a pedir salen de
+  `fini`/`ffin`; sin ampliar la ventana, la corrida diaria (unos pocos días)
+  deja de tocar el año anterior apenas pasan los primeros días de enero, y un
+  concepto de diciembre que el ICBF suba a mediados de enero nunca se pediría.
+  Con 45 días la corrida diaria revisa también el año anterior hasta mediados
+  de febrero (una página de listado más y un detalle por concepto de ese año).
 - **Aviso de salud de fuentes:** con una sola fecha por año, la fuente nunca
   llega a las 6 fechas distintas que pide `core/salud_fuentes.py`, así que no
   dispara alertas de "puede estar fallando". Es aceptable para una fuente de
@@ -94,8 +97,10 @@ año. Como pidió el usuario, se usa el año:
 ## Recorrido
 
 1. Para cada año en `[max(fini.año, 2015), ffin.año]`: `GET /concepto?field_anio_value=<año>&page=0, 1, …`
-   hasta una página con menos de 100 filas (tope duro de 5 páginas por año;
-   el año más grande, 2016, tiene 166).
+   mientras el paginador del sitio traiga el enlace `rel="next"` (o la página
+   venga llena con 100 filas); una página vacía siempre corta. Así no depende
+   del tamaño de página del sitio. Tope de 20 páginas por año como freno, con
+   aviso si se alcanza (el año más grande, 2016, tiene 166 en 2 páginas).
 2. Para cada fila con categoría `CONCEPTO`: `GET` del detalle y se toma el
    `href` de `a.btn-documento`.
 3. Se arma el `RawDocModel` con el `.docx`.
@@ -113,7 +118,11 @@ detalles.
   el ICBF no publica todos los conceptos. No es un error de la familia.
 - Duplicados: 0 pares `(número, año)` repetidos hoy. Dedup dentro de la
   corrida por la URL del `.docx`; si dos filas apuntan al mismo archivo, se
-  queda la primera y se avisa.
+  queda la primera y se avisa. Si en el futuro aparecen dos filas con el
+  mismo `(número, año)` (contadas sobre el listado completo del año), cada una
+  se guarda como `CTO_ICBF_####_AAAA_h<7 hex del sha1 de su URL>` — estable y
+  sin depender del orden — con `title_unverified` y un aviso, para que la
+  segunda no pise el archivo de la primera.
 
 ## `save_path` / almacenamiento
 
@@ -174,12 +183,17 @@ sin internet:
    `f_providencia`, `detalle`, `link`, `save_path`.
 6. Años pedidos: `fini=2010-01-01, ffin=2016-06-30` → sólo 2015 y 2016;
    `fini=ffin=2026-11-10` → sólo 2026.
-7. Paginación: página de 100 → pide la siguiente; menos de 100 → se detiene.
+7. Paginación: sigue mientras haya `rel="next"`; con páginas de 50 recorre
+   las 3; al llegar al tope avisa.
 8. Detalle sin `btn-documento` → omitido con aviso.
 9. Dedup por URL del `.docx`.
+   Número y año repetidos en filas distintas → sufijo `_h<hash>` en el
+   nombre del archivo de cada una, aviso y `title_unverified`.
 10. `stop_event` activado → corta y devuelve lo acumulado.
 11. Falla del listado de un año (500) → aviso y sigue con el siguiente año;
-    falla de un detalle → aviso y sigue.
+    falla de una página posterior a la primera → conserva las filas de las
+    páginas ya cargadas y avisa que el año quedó incompleto; falla de un
+    detalle → aviso y sigue.
 12. `limit` respetado.
 
 Se corren dirigidas: `pytest tests/families/test_icbf.py tests/test_seed.py`.
