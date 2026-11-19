@@ -182,7 +182,9 @@ sin internet:
 9. Dedup por URL del `.docx`.
 10. `stop_event` activado → corta y devuelve lo acumulado.
 11. Falla del listado de un año (500) → aviso y sigue con el siguiente año;
-    falla de un detalle → aviso y sigue.
+    falla de una página posterior a la primera → conserva las filas de las
+    páginas ya cargadas y avisa que el año quedó incompleto; falla de un
+    detalle → aviso y sigue.
 12. `limit` respetado.
 
 Se corren dirigidas: `pytest tests/families/test_icbf.py tests/test_seed.py`.

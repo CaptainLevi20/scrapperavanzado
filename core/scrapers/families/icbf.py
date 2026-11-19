@@ -83,14 +83,27 @@ def _anios(fini: str, ffin: str) -> range:
     return range(max(int(fini[:4]), _ANIO_MINIMO), int(ffin[:4]) + 1)
 
 
-def _filas_del_anio(session, anio: int, stop_event) -> Iterator[dict]:
+def _filas_del_anio(session, anio: int, stop_event, avisar) -> Iterator[dict]:
+    # Una página que falla corta el año ahí, pero conserva las filas de las
+    # páginas que ya cargaron: perder 100 conceptos por un error en la
+    # segunda página sería peor que bajar el año incompleto y avisarlo.
     for pagina in range(_PAGINAS_POR_ANIO_TOPE):
         if stop_event is not None and stop_event.is_set():
             return
-        resp = session.get(
-            _LISTADO_URL, params={"field_anio_value": str(anio), "page": str(pagina)}, timeout=60
-        )
-        resp.raise_for_status()
+        try:
+            resp = session.get(
+                _LISTADO_URL, params={"field_anio_value": str(anio), "page": str(pagina)}, timeout=60
+            )
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            if pagina == 0:
+                avisar(f"Error consultando los conceptos de {anio}: {e}")
+            else:
+                avisar(
+                    f"Error consultando la página {pagina + 1} de los conceptos de {anio}: {e}; "
+                    "el año queda incompleto"
+                )
+            return
         filas = _filas(resp.text)
         yield from filas
         if len(filas) < _FILAS_POR_PAGINA:
@@ -128,11 +141,7 @@ class ScrapIcbf(BaseScrapper):
             if stop_event is not None and stop_event.is_set():
                 return docs[:limit]
             avisar(f"Procesando conceptos de {anio}...")
-            try:
-                filas = list(_filas_del_anio(session, anio, stop_event))
-            except requests.RequestException as e:
-                avisar(f"Error consultando los conceptos de {anio}: {e}")
-                continue
+            filas = list(_filas_del_anio(session, anio, stop_event, avisar))
             filas_totales += len(filas)
 
             for fila in filas:

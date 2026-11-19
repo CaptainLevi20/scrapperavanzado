@@ -240,3 +240,21 @@ def test_corrida_diaria_de_enero_revisa_el_anio_anterior():
     for hoy in (datetime.date(2027, 1, 15), datetime.date(2027, 1, 31)):
         fini = hoy - datetime.timedelta(days=ScrapIcbf.scheduled_min_lookback_days)
         assert 2026 in _anios(fini.isoformat(), hoy.isoformat())
+
+
+@responses.activate
+def test_falla_de_una_pagina_conserva_las_anteriores():
+    # 2016 tiene dos páginas: si la segunda falla, los 100 conceptos de la
+    # primera se descargan igual y la corrida avisa que el año quedó a medias.
+    pagina_llena = [_fila(n, 2016) for n in range(200, 100, -1)]  # 100 filas
+    _anio(2016, pagina_llena)
+    responses.add(
+        responses.GET, _LISTADO_URL, status=503,
+        match=[matchers.query_param_matcher({"field_anio_value": "2016", "page": "1"})],
+    )
+    for n in range(101, 201):
+        _det(f"concepto-{n}-de-2016", _archivo(n, 2016))
+    avisos = []
+    docs = ScrapIcbf().scrap("2016-01-01", "2016-12-31", on_progress=avisos.append)
+    assert len(docs) == 100
+    assert any("Error consultando la página 2 de los conceptos de 2016" in a and "incompleto" in a for a in avisos)

@@ -1332,6 +1332,10 @@ Es seguro repetirlo.
 - **Aviso de salud:** como todos los conceptos de un año comparten fecha, esta
   fuente no dispara la alerta de "fuentes que pueden estar fallando". Si el
   listado deja de traer conceptos, la corrida avisa con un error.
+- **Si el sitio falla a mitad de un año:** se descargan los conceptos de las
+  páginas que sí cargaron y la corrida avisa "el año queda incompleto"; basta
+  con repetir la corrida de ese año más tarde (los ya guardados no se vuelven
+  a bajar).
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
