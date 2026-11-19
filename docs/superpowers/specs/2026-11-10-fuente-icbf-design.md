@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano de Bienestar Familiar (`icbf`, sigla `ICBF`)
-**Estado:** aprobado por el administrador (2026-11-18) — listo para implementar
+**Estado:** aprobado por el administrador (2026-11-18) e implementado (2026-11-19)
 
 > El enlace que dio el usuario (`https://www.icbf.gov.co/concepto`) es el
 > listado real: una vista de Drupal (`views-exposed-form-normograma-page-3`)

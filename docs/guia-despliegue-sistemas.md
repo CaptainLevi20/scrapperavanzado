@@ -1304,6 +1304,74 @@ Es seguro repetirlo.
   "CIRCULAR 002 - Útiles Escolares" de 2026); salen como aviso en la
   pantalla de la corrida.
 
+### Instituto Colombiano de Bienestar Familiar (`icbf`)
+
+- **Qué trae:** los **conceptos** del normograma del ICBF
+  (`icbf.gov.co/concepto`), de 2015 en adelante. Cada concepto se descarga en
+  Word (`.docx`), que es como lo publica el ICBF.
+- **Cuánto entrega:** la carga completa (prueba del 19-nov-2026) dio 716
+  conceptos — 129 de 2015, 166 de 2016, 153 de 2017, y desde 2022 apenas unos
+  10 al año. La consulta tarda unos 4 minutos (una página por concepto); la
+  corrida diaria, unos segundos.
+- **Qué no trae:** el resto del normograma (resoluciones, circulares,
+  acuerdos…) ni conceptos anteriores a 2015.
+- **Cómo quedan nombrados:** `CTO_ICBF_0010_2026`. Algunos números traen una
+  letra o un guion que distingue conceptos distintos y se conserva:
+  `CTO_ICBF_0003C_2020`, `CTO_ICBF_0142-1_2015`.
+- **Fechas:** el sitio sólo dice el **año** de cada concepto, así que todos
+  quedan con fecha 1 de enero de su año. La corrida diaria revisa el año en
+  curso completo (en enero también el anterior), de modo que un concepto
+  nuevo entra el día en que el ICBF lo publica.
+- **Datos del sitio con errores:** el concepto 75 de 2015 no tiene archivo y
+  sale como aviso en cada corrida. El 13 de 2015 enlaza al archivo
+  "CONCEPTO 14 DE 2014" y se guarda tal cual, con el nombre de su fila. No es
+  una falla de IURISYNC.
+- **Prueba real (19-nov-2026):** carga completa de 716 conceptos en Word; la
+  segunda corrida no volvió a descargar nada.
+- **Aviso de salud:** como todos los conceptos de un año comparten fecha, esta
+  fuente no dispara la alerta de "fuentes que pueden estar fallando". Si el
+  listado deja de traer conceptos, la corrida avisa con un error.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Instituto Colombiano Agropecuario (`ica`)
+
+- **Qué trae:** dos listados de "Normas ICA", de lo expedido en 2015 en
+  adelante: **resoluciones de las gerencias seccionales** y **resoluciones
+  nacionales MSF y RT** (medidas sanitarias, fitosanitarias y reglamentos
+  técnicos; en el sitio, la página `resoluciones-oficinas-nacionales`).
+- **Cuánto entrega:** la carga completa (prueba del 19-nov-2026) dio 588
+  resoluciones — 220 seccionales y 368 nacionales; unas 5 al mes. Cada
+  corrida, diaria o completa, recorre los dos listados enteros (~215 páginas)
+  y tarda unos 2-3 minutos.
+- **Qué no trae:** acuerdos, conceptos jurídicos, memorandos, normatividad
+  COVID-19, resoluciones de carácter administrativo ni resoluciones OVM; ni
+  nada expedido antes de 2015. El nombre de la seccional (Tolima, Cesar…) no
+  va en el título: el listado no lo dice.
+- **Cómo quedan nombrados:** seccionales con `S`: `R_ICA_S19595_2026`;
+  nacionales sin ella: `R_ICA_22227_2026`. El número va completo aunque sea
+  largo (`R_ICA_20263040030395_2026`). En el detalle van el epígrafe, la
+  observación y, en las nacionales, el Diario Oficial.
+- **Fechas:** se guardan las dos (publicación y expedición) y la corrida
+  filtra por **publicación**, porque el ICA a veces publica meses o años
+  después de expedir. Como siempre se recorre el listado entero, una
+  resolución publicada tarde entra el día en que aparece, por vieja que sea.
+- **Datos del sitio con errores:** el número y el año del título se cruzan con
+  el nombre del archivo (`2026R000019595`) y con el año de expedición. Si no
+  cuadran (p. ej. "Resolución 899 de 2021", expedida en 2022 con archivo
+  `2022R889`), se deja el título que muestra el sitio, queda **por verificar**
+  y sale un aviso en la corrida con los dos valores. En la carga del
+  19-nov-2026 fueron 24 de 588 (11 seccionales y 13 nacionales): conviene
+  revisarlos a mano. La seccional 28027 de 2018 está dos veces (se guarda
+  una). Algunas filas dicen "Norma" o "Acuerdo" pero son resoluciones y se
+  guardan como tales.
+- **Prueba real (19-nov-2026):** 588 PDF descargados sin errores; la segunda
+  corrida no volvió a descargar nada.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Fuentes que publican con retraso (ventana de la corrida diaria)
 
 La corrida automática diaria normalmente mira solo los últimos 3 días. Algunas

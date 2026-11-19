@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano Agropecuario (`ica`, sigla `ICA`)
-**Estado:** aprobado con correcciones del administrador (2026-11-18) — listo para implementar
+**Estado:** aprobado con correcciones del administrador (2026-11-18) e implementado (2026-11-19)
 
 > Los dos enlaces que dio el usuario son los listados reales, dentro de
 > "Normativa › Normas ICA" del sitio (Kentico CMS, ASP.NET). Ojo con los

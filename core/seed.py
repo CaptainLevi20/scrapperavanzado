@@ -151,6 +151,14 @@ _FAMILIES = {
         "Corporación Autónoma Regional de la Orinoquía",
         "Acuerdos del Consejo Directivo de la Corporación Autónoma Regional de la Orinoquía",
     ),
+    "icbf": (
+        "Instituto Colombiano de Bienestar Familiar",
+        "Conceptos del normograma del Instituto Colombiano de Bienestar Familiar",
+    ),
+    "ica": (
+        "Instituto Colombiano Agropecuario",
+        "Resoluciones seccionales y resoluciones nacionales (MSF y RT) del Instituto Colombiano Agropecuario",
+    ),
 }
 
 
@@ -321,6 +329,14 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="corporinoquia", name="Corporación Autónoma Regional de la Orinoquía", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="icbf", name="Instituto Colombiano de Bienestar Familiar", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="ica", name="Instituto Colombiano Agropecuario", family_params={}
     )
 
 
