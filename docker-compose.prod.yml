@@ -1,3 +1,13 @@
+# Tamaño máximo de los registros de actividad (lo que muestra `docker compose
+# logs`). Sin límite, Docker los guarda para siempre y el worker escribe mucho:
+# contribuyó a que el disco del servidor se llenara el 2026-11-19. Con esto
+# cada servicio guarda como máximo 3 archivos de 10 MB.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -13,10 +23,12 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    logging: *logging
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *logging
 
   minio:
     # Docker Hub niega la descarga anónima de minio/minio (verificado
@@ -35,6 +47,7 @@ services:
     volumes:
       - minio_data:/data
     restart: unless-stopped
+    logging: *logging
 
   api:
     image: ghcr.io/captainlevi20/scrapperavanzado-api:latest
@@ -54,6 +67,7 @@ services:
     volumes:
       - "${CALI_DESCARGAS_DIR:-./descargas}:/descargas"
     restart: unless-stopped
+    logging: *logging
 
   worker:
     image: ghcr.io/captainlevi20/scrapperavanzado-worker:latest
@@ -72,6 +86,7 @@ services:
     volumes:
       - "${CALI_DESCARGAS_DIR:-./descargas}:/descargas"
     restart: unless-stopped
+    logging: *logging
 
   clamav:
     # Antivirus: cada archivo descargado se revisa aquí antes de guardarlo (ver
@@ -97,6 +112,7 @@ services:
       - clamav_db:/var/lib/clamav
     mem_limit: 2500m
     restart: unless-stopped
+    logging: *logging
 
   beat:
     image: ghcr.io/captainlevi20/scrapperavanzado-beat:latest
@@ -107,10 +123,12 @@ services:
       redis:
         condition: service_started
     restart: unless-stopped
+    logging: *logging
 
   frontend:
     image: ghcr.io/captainlevi20/scrapperavanzado-frontend:latest
     restart: unless-stopped
+    logging: *logging
 
   caddy:
     image: caddy:2-alpine
@@ -128,6 +146,7 @@ services:
       - api
       - frontend
     restart: unless-stopped
+    logging: *logging
 
 volumes:
   postgres_data:

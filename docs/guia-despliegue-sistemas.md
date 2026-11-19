@@ -280,6 +280,19 @@ docker compose --env-file .env.production -f docker-compose.prod.yml pull
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
+Y al final, siempre, borrar la versión anterior que quedó guardada:
+
+```
+docker image prune -f
+```
+
+Cada `pull` descarga la versión nueva completa (más de 1 GB entre todas las
+piezas) y deja la anterior guardada sin uso. Sin este paso se acumulan: en
+noviembre de 2026 había más de 200 versiones viejas ocupando casi 50 GB, y
+fueron parte de por qué se llenó el disco (ver "Espacio en disco" más abajo).
+Solo borra versiones que ningún contenedor está usando; no toca documentos,
+base de datos ni configuración.
+
 Si la actualización incluye cambios en la base de datos, el equipo de
 desarrollo te lo indicará y habrá que repetir el comando de `alembic upgrade
 head` de la sección 4.
@@ -293,6 +306,44 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm ap
 ```
 
 Es seguro repetirlo aunque ya se haya corrido.
+
+### Espacio en disco
+
+El 19 de noviembre de 2026 la herramienta se cayó porque **el disco C: del
+servidor se llenó** (quedaban 0,3 GB). Sin espacio, Docker deja de responder y
+cualquier comando `docker compose` devuelve un error como
+`500 Internal Server Error ... dockerDesktopLinuxEngine`. Si ves ese error,
+lo primero es revisar el espacio libre:
+
+```
+Get-PSDrive C | Select-Object @{n="LibreGB";e={[math]::Round($_.Free/1GB,1)}}
+```
+
+Conviene tener siempre **más de 20 GB libres**. Si baja de eso:
+
+1. Vaciar la papelera y los temporales de Windows.
+2. Borrar las versiones viejas de la herramienta: `docker image prune -f`
+   (solo funciona con Docker encendido).
+3. Ver qué ocupa espacio dentro de Docker: `docker system df -v`. Los
+   documentos están en el volumen `iurisync_minio_data`; ese crece todos los
+   días y es normal.
+
+**Nunca borres nada dentro de `C:\Users\<usuario>\AppData\Local\Docker`**:
+ahí adentro, en un único archivo grande, viven la base de datos y todos los
+documentos. Ese archivo crece pero no se encoge solo cuando se libera espacio
+por dentro; Docker reutiliza ese espacio, así que limpiar evita que siga
+creciendo aunque el disco C: no muestre más espacio libre.
+
+Desde la versión de noviembre de 2026, la herramienta además:
+
+- limita los registros de actividad de cada pieza a 30 MB (antes crecían sin
+  límite), y
+- al arrancar, borra los archivos temporales que dejó a medias una corrida que
+  murió por una caída (la corrida de la CSJ que se cortó ese día dejó 5,2 GB).
+
+Las corridas de recuperación grandes (por ejemplo, un año completo de una
+fuente) pueden bajar varios GB en menos de una hora: lánzalas por tramos de
+un mes y revisa el espacio libre entre tramo y tramo.
 
 ### Huella digital de los documentos ya guardados (una sola vez, noviembre de 2026)
 
