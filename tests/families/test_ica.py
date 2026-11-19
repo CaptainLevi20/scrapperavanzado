@@ -431,3 +431,37 @@ def test_textos_ilegibles_iguales_no_se_toman_por_repetidos():
         assert d.title_unverified is True
     assert docs[0].save_path != docs[1].save_path
     assert not any("repetida" in a for a in avisos)
+
+
+@responses.activate
+def test_corta_al_llegar_a_una_pagina_entera_anterior_al_piso():
+    # El listado va por expedición descendente: una página donde TODO es
+    # anterior a 2015 significa que ya no queda nada útil más abajo.
+    _seccion(
+        _NACIONALES_URL,
+        [_fila(20, 2016, "2016-02-01", "2016-01-20"), _fila(19, 2015, "2026-08-11", "2015-01-05")],
+        [_fila(18, 2014, "2014-12-01", "2014-11-30"), _fila(17, 2013, "2013-12-01", "2013-11-30")],
+        [_fila(16, 2010, "2010-01-01", "2010-01-01")],
+        [_fila(15, 2009, "2009-01-01", "2009-01-01")],
+    )
+    _vacia(_SECCIONALES_URL)
+    avisos = []
+    docs = ScrapIca().scrap("2015-01-01", "2026-12-31", on_progress=avisos.append)
+    assert [d.title for d in docs] == ["R_ICA_0020_2016", "R_ICA_0019_2015"]
+    pedidas = [c.request.url for c in responses.calls if c.request.url.startswith(_NACIONALES_URL)]
+    assert len(pedidas) == 2
+    assert any("desde la página 2 todo es anterior a 2015" in a for a in avisos)
+
+
+@responses.activate
+def test_una_fila_suelta_anterior_al_piso_no_corta():
+    # Una sola fila mal fechada (anterior a 2015) en medio de una página con
+    # filas válidas no corta la sección: sólo una página entera lo hace.
+    _seccion(
+        _NACIONALES_URL,
+        [_fila(20, 2016, "2016-02-01", "2016-01-20"), _fila(99, 2005, "2016-01-10", "2005-01-01")],
+        [_fila(19, 2015, "2015-06-01", "2015-06-01")],
+    )
+    _vacia(_SECCIONALES_URL)
+    docs = ScrapIca().scrap("2015-01-01", "2026-12-31")
+    assert [d.title for d in docs] == ["R_ICA_0020_2016", "R_ICA_0019_2015"]

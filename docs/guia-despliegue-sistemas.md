@@ -1352,8 +1352,9 @@ Es seguro repetirlo.
   técnicos; en el sitio, la página `resoluciones-oficinas-nacionales`).
 - **Cuánto entrega:** la carga completa (prueba del 19-nov-2026) dio 588
   resoluciones — 220 seccionales y 368 nacionales; unas 5 al mes. Cada
-  corrida, diaria o completa, recorre los dos listados enteros (~215 páginas)
-  y tarda unos 2-3 minutos.
+  corrida, diaria o completa, recorre los dos listados hasta llegar a lo
+  expedido antes de 2015 (unas 150 de sus ~214 páginas) y tarda alrededor de
+  un minuto.
 - **Qué no trae:** acuerdos, conceptos jurídicos, memorandos, normatividad
   COVID-19, resoluciones de carácter administrativo ni resoluciones OVM; ni
   nada expedido antes de 2015. El nombre de la seccional (Tolima, Cesar…) no

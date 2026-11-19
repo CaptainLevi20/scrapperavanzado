@@ -136,8 +136,15 @@ resoluciones (el archivo es `…R…` y el texto empieza "Por la cual…"):
   se pierde, por vieja que sea su expedición (p. ej. la nacional 93858 de
   2021, expedida 26-03-2021 y publicada 11-08-2026). Decisión del
   administrador (2026-11-18): no hay corte por fecha ni margen de días.
-- Costo: ~59 + ~155 ≈ 215 páginas por corrida, diaria o completa,
-  ≈ 2-3 min (0,4-0,9 s por página). El sitio no tiene WAF ni límite visible.
+- **Único corte: el piso.** Como el listado va por expedición descendente
+  (0 excepciones en 851 filas), cuando una página **entera** tiene expedición
+  legible anterior a 2015 se deja de leer esa sección: más abajo sólo queda
+  lo que el piso descarta. Una fila suelta mal fechada o una fecha ilegible
+  no corta. Revisión del PR #120, aprobado por el administrador 2026-11-19.
+- Costo: ~59 + ~155 ≈ 214 páginas en total, de las que se leen ~150 (las
+  nacionales cortan al llegar a las normas viejas cargadas en 2009-2010);
+  prueba real 2026-11-19: 588 resoluciones, 150 páginas, ~1 min. El sitio no
+  tiene WAF ni límite visible.
 - No hace falta `scheduled_min_lookback_days`: la corrida siempre ve el
   listado entero y filtra por publicación.
 - Fecha ilegible (0 casos hoy) → fila descartada con aviso.
@@ -277,8 +284,9 @@ Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 
 5. **`tipo`:** `Resolución` en las dos secciones; la `S` del título ya separa
    las seccionales.
-6. **Paginación:** se recorre siempre el listado entero (~215 páginas,
-   2-3 min), sin margen de 730 días, para no perder publicaciones tardías.
+6. **Paginación:** se recorre el listado entero, sin margen de 730 días,
+   para no perder publicaciones tardías; sólo se corta al llegar a una página
+   entera anterior al piso de 2015 (ajuste de la revisión del PR #120).
 7. **Cruce con el nombre del archivo:** número y año del texto se comparan con
    el `AAAAR<número>` del enlace; si no cuadran, `title_unverified=True`.
 8. **Fechas:** lector común `core/fecha_es.py`.

@@ -163,12 +163,28 @@ def _pagina(session, url: str, pagina: int) -> str:
     raise AssertionError("inalcanzable")
 
 
+def _pagina_entera_antes_del_piso(filas: List[dict]) -> bool:
+    """True si TODAS las filas de la página tienen expedición legible y
+    anterior al piso. Una fila suelta mal fechada, o una fecha ilegible, no
+    basta para cortar: sólo una página completa."""
+    if not filas:
+        return False
+    for fila in filas:
+        expedicion = parse_fecha_providencia_es(fila["expedicion"])
+        if expedicion is None or expedicion >= _PISO:
+            return False
+    return True
+
+
 @register_family("ica")
 class ScrapIca(BaseScrapper):
     # Se filtra por fecha de publicación: el ICA sube resoluciones días,
     # meses o años después de expedirlas. Cada corrida recorre el listado
     # entero (decisión del administrador, 2026-11-18), así que no hace falta
-    # scheduled_min_lookback_days ni hay corte por fecha de expedición.
+    # scheduled_min_lookback_days. El único corte es el piso: el listado va
+    # por expedición descendente, y cuando una página entera es anterior a
+    # 2015 ya no queda nada útil más abajo (revisión del PR #120, aprobado
+    # por el administrador 2026-11-19).
     filters_by_publication_date = True
 
     def __init__(self):
@@ -218,6 +234,10 @@ class ScrapIca(BaseScrapper):
                         return docs[:limit]
 
                 if pagina >= ultima:
+                    break
+                if _pagina_entera_antes_del_piso(filas):
+                    avisar(f"{nombre}: desde la página {pagina} todo es anterior a {_ANIO_MINIMO}; "
+                           "no se leen las páginas restantes")
                     break
                 if stop_event is not None and stop_event.is_set():
                     return docs[:limit]
