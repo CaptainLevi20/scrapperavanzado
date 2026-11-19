@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-10
 **Entidad:** Instituto Colombiano Agropecuario (`ica`, sigla `ICA`)
-**Estado:** pendiente de aprobación del administrador — **no implementar todavía**
+**Estado:** aprobado (2026-11-19) e implementado
 
 > Los dos enlaces que dio el usuario son los listados reales, dentro de
 > "Normativa › Normas ICA" del sitio (Kentico CMS, ASP.NET). Ojo con los
@@ -243,6 +243,8 @@ Se corren dirigidas: `pytest tests/families/test_ica.py tests/test_seed.py`.
 4. **Familia propia** `ica`, separada del ICBF, con las dos secciones.
 
 ## Preguntas abiertas
+
+> Resueltas al aprobarse (2026-11-19): se usa lo propuesto, `tipo` `Resolución` en las dos secciones y margen de 730 días.
 
 1. **¿`tipo` distinto para seccionales?** Se propone `Resolución` en las dos
    (la `S` del título ya las separa). Alternativa: `Resolución Seccional`,

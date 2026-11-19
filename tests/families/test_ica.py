@@ -1,0 +1,280 @@
+import datetime
+import threading
+
+import responses
+from responses import matchers
+
+from core.scrapers.families.ica import (
+    _ANIO_MINIMO,
+    _MARGEN_EXPEDICION_DIAS,
+    _NACIONALES_URL,
+    _SECCIONALES_URL,
+    _SOURCE,
+    _filas,
+    _titulo,
+    _ultima_pagina,
+    ScrapIca,
+)
+from core.scrapers.registry import FAMILY_REGISTRY
+
+_MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+          "septiembre", "octubre", "noviembre", "diciembre"]
+_contador = iter(range(10**6))
+
+
+def _es(fecha: str) -> str:
+    d = datetime.date.fromisoformat(fecha)
+    return f"{d.day:02d} de {_MESES[d.month - 1]} de {d.year}"
+
+
+def _fila(num, anio, pub, exp, palabra="Resolución", guid=None, observacion=None, diario=None,
+          epigrafe="&ldquo;Por la cual se modifican los artículos 4 y 6&rdquo;."):
+    # Copia de una fila real de resoluciones-seccionales / -oficinas-nacionales.
+    guid = guid or f"9b51243d-4f83-420f-894c-{next(_contador):012d}"
+    href = f"/getattachment/{guid}/{anio}R{num:09d}.aspx" if isinstance(num, int) else f"/getattachment/{guid}/x.aspx"
+    texto = f"{palabra} {num} de {anio}"
+    obs = (
+        f'<div><br/>Observación: {observacion} <a href="/getattachment/6e26/2026R00015837.aspx" target="_blank">'
+        "artículo 4 de la Resolución No. 00015837</a>.<br />\n&nbsp;</div>"
+    ) if observacion else ""
+    do = (
+        f'<br/><a href="imprenta.gov.co/diario-oficial" target="_blank">Diario Oficial: {diario[0]}</a> ({diario[1]})'
+    ) if diario else ""
+    return (
+        '<div class="row py-3">\n'
+        '  <div class="col-md-2 text-center pt-2">\n'
+        f'    <a href="{href}" target="_blank" title="Descargar el documento {texto}"><img src="/i-pdf.png" /></a>\n'
+        '    <div class="pt-2 pl-2">302 kb</div>\n'
+        "  </div>\n"
+        '  <div class="col-md-10">\n'
+        f'    <div class="tiponorma">{palabra}</div>\n'
+        f'    <h2 class="mb-0"><a href="{href}" target="_blank" class="text-5">{texto} - <!--StartFragment-->{epigrafe}\n&nbsp;</a></h2>\n'
+        f"    <div>Publicación: {_es(pub)} | Expedición: {_es(exp)}</div>\n"
+        f"    {obs}\n    {do}\n"
+        "  </div>\n"
+        "</div><hr/>"
+    )
+
+
+def _html(url, filas, ultima=1) -> str:
+    pag = (
+        f'<ul class="pagination"><li><a class="page-link next" href="/{url.split(".co/")[1]}?page={ultima}" '
+        'aria-label="Ultima" title="Ir a la última página"><span><i aria-label="Ultima"></i>|</span></a></li></ul>'
+    ) if ultima > 1 else ""
+    return "<html><body><div class='container'>" + "".join(filas) + "</div>" + pag + "</body></html>"
+
+
+def _seccion(url, *paginas, status=200):
+    ultima = len(paginas)
+    for p, filas in enumerate(paginas, start=1):
+        match = [matchers.query_param_matcher({"page": str(p)} if p > 1 else {})]
+        responses.add(responses.GET, url, body=_html(url, filas, ultima), status=status, match=match)
+
+
+def _vacia(url):
+    _seccion(url, [])
+
+
+def test_source_y_registro():
+    assert _SOURCE == "Instituto Colombiano Agropecuario"
+    assert _ANIO_MINIMO == 2015
+    assert _MARGEN_EXPEDICION_DIAS == 730
+    assert FAMILY_REGISTRY["ica"] is ScrapIca
+    assert ScrapIca.filters_by_publication_date is True
+    assert ScrapIca.checks_for_republication is True
+
+
+def test_titulo():
+    assert _titulo("Resolución 19595 de 2026 - “Por la cual…”.", True)[:3] == ("R_ICA_S19595_2026", 19595, 2026)
+    assert _titulo("Resolución 22227 de 2026 - x", False)[0] == "R_ICA_22227_2026"
+    assert _titulo("Resolución 805 de 2025 - x", True)[0] == "R_ICA_S0805_2025"
+    assert _titulo("Resolución 00805 de 2025", True)[0] == "R_ICA_S0805_2025"
+    assert _titulo("Resolución 20263040030395 de 2026 - x", False)[0] == "R_ICA_20263040030395_2026"
+    assert _titulo("Resolucion No. 12 de 2019 - x", False)[0] == "R_ICA_0012_2019"
+    assert _titulo("Resolución 19595 de 2026 - “Por la cual”.", True)[3] == "“Por la cual”."
+
+
+def test_titulo_norma_y_acuerdo():
+    assert _titulo("Norma 8970 de 2024 - Por la cual", True)[0] == "R_ICA_S8970_2024"
+    assert _titulo("Acuerdo 97962 de 2021 - Por la cual", True)[0] == "R_ICA_S97962_2021"
+
+
+def test_titulo_fuera_de_patron():
+    title, numero, anio, _ = _titulo("Res. sin número - Por la cual", True)
+    assert (title, numero, anio) == ("R_ICA_SRes_sin_n_mero", None, None)
+
+
+def test_ultima_pagina():
+    assert _ultima_pagina(_html(_SECCIONALES_URL, [], ultima=59)) == 59
+    assert _ultima_pagina(_html(_SECCIONALES_URL, [])) == 1
+
+
+def test_parseo_fila():
+    filas = _filas(_html(_NACIONALES_URL, [_fila(
+        22227, 2026, "2026-11-10", "2026-11-09", guid="e554",
+        observacion="La presente resolución rige a partir de su publicación.",
+        diario=("53685", "09/11/2026"),
+    )]))
+    assert filas == [{
+        "href": "https://www.ica.gov.co/getattachment/e554/2026R000022227.aspx",
+        "texto": "Resolución 22227 de 2026 - “Por la cual se modifican los artículos 4 y 6”.",
+        "publicacion": "10 de noviembre de 2026",
+        "expedicion": "09 de noviembre de 2026",
+        "observacion": "La presente resolución rige a partir de su publicación. artículo 4 de la Resolución No. 00015837 .",
+        "diario": "Diario Oficial 53685 (09/11/2026)",
+    }]
+
+
+@responses.activate
+def test_documento_completo():
+    _seccion(_SECCIONALES_URL, [_fila(19595, 2026, "2026-10-02", "2026-10-01", guid="9b51", observacion="Rige.")])
+    _seccion(_NACIONALES_URL, [_fila(22227, 2026, "2026-10-10", "2026-10-09", guid="e554", diario=("53685", "09/11/2026"))])
+    docs = ScrapIca().scrap("2026-10-01", "2026-10-31")
+    assert [d.title for d in docs] == ["R_ICA_S19595_2026", "R_ICA_22227_2026"]
+    s, n = docs
+    assert s.tipo == n.tipo == "Resolución"
+    assert s.f_public == "2026-10-02"
+    assert s.f_providencia == "2026-10-01"
+    assert s.link == {"url": "https://www.ica.gov.co/getattachment/9b51/2026R000019595.aspx", "method": "GET"}
+    assert s.save_path == f"{_SOURCE}/2026-10-02/Resolución/R_ICA_S19595_2026(extension)"
+    assert s.detalle.startswith("“Por la cual se modifican los artículos 4 y 6”. — Rige.")
+    assert n.detalle == "“Por la cual se modifican los artículos 4 y 6”. — Diario Oficial 53685 (09/11/2026)"
+    assert s.title_unverified is False
+
+
+@responses.activate
+def test_anio_distinto_de_expedicion_se_avisa():
+    _seccion(_SECCIONALES_URL, [_fila(899, 2021, "2022-02-03", "2022-01-31")])
+    _vacia(_NACIONALES_URL)
+    avisos = []
+    docs = ScrapIca().scrap("2022-01-01", "2022-12-31", on_progress=avisos.append)
+    assert docs[0].title == "R_ICA_S0899_2021"
+    assert any("R_ICA_S0899_2021 fue expedida el 2022-01-31" in a for a in avisos)
+
+
+@responses.activate
+def test_no_pide_mas_alla_de_la_ultima():
+    _seccion(
+        _SECCIONALES_URL,
+        [_fila(4, 2016, "2016-04-01", "2016-04-01")],
+        [_fila(3, 2015, "2015-03-01", "2015-03-01")],
+    )
+    _vacia(_NACIONALES_URL)
+    docs = ScrapIca().scrap("2015-01-01", "2026-12-31")
+    assert [d.title for d in docs] == ["R_ICA_S0004_2016", "R_ICA_S0003_2015"]
+    pedidas = [c.request.url for c in responses.calls if c.request.url.startswith(_SECCIONALES_URL)]
+    assert len(pedidas) == 2
+
+
+@responses.activate
+def test_corte_por_margen_de_expedicion():
+    # fini 2026-11-01 → corte 2024-11-01. La página 2 termina en 2024-06 → no
+    # se pide la 3.
+    _seccion(
+        _SECCIONALES_URL,
+        [_fila(30, 2026, "2026-11-05", "2026-11-04"), _fila(29, 2025, "2025-07-01", "2025-07-01")],
+        [_fila(28, 2025, "2026-11-10", "2025-01-10"), _fila(27, 2024, "2024-06-01", "2024-06-01")],
+        [_fila(26, 2023, "2026-11-11", "2023-01-01")],
+    )
+    _vacia(_NACIONALES_URL)
+    docs = ScrapIca().scrap("2026-11-01", "2026-11-19")
+    assert [d.title for d in docs] == ["R_ICA_S0030_2026", "R_ICA_S0028_2025"]
+    assert not any("page=3" in c.request.url for c in responses.calls)
+
+
+@responses.activate
+def test_filtro_por_publicacion():
+    _seccion(_SECCIONALES_URL, [
+        _fila(3, 2026, "2026-12-01", "2026-11-10"),   # expedida en rango, publicada fuera
+        _fila(2, 2026, "2026-11-12", "2026-06-01"),   # expedida meses antes, publicada en rango
+        _fila(1, 2026, "2026-10-01", "2026-05-01"),   # publicada antes del rango
+    ])
+    _vacia(_NACIONALES_URL)
+    docs = ScrapIca().scrap("2026-11-01", "2026-11-30")
+    assert [d.title for d in docs] == ["R_ICA_S0002_2026"]
+
+
+@responses.activate
+def test_piso_por_expedicion():
+    _seccion(_NACIONALES_URL, [
+        _fila(10, 2015, "2015-02-01", "2015-01-20"),
+        _fila(9, 2014, "2015-01-15", "2014-12-30"),
+    ])
+    _vacia(_SECCIONALES_URL)
+    docs = ScrapIca().scrap("2015-01-01", "2015-12-31")
+    assert [d.title for d in docs] == ["R_ICA_0010_2015"]
+
+
+@responses.activate
+def test_dedup():
+    _seccion(_SECCIONALES_URL, [
+        _fila(28027, 2018, "2018-08-01", "2018-07-30", guid="aaaa"),
+        _fila(28027, 2018, "2018-08-01", "2018-07-30", guid="bbbb"),
+    ])
+    _vacia(_NACIONALES_URL)
+    avisos = []
+    docs = ScrapIca().scrap("2018-01-01", "2018-12-31", on_progress=avisos.append)
+    assert len(docs) == 1
+    assert "aaaa" in docs[0].link["url"]
+    assert any("R_ICA_S28027_2018 aparece repetida" in a for a in avisos)
+
+
+@responses.activate
+def test_fecha_ilegible_se_omite():
+    fila = _fila(5, 2020, "2020-01-01", "2020-01-01").replace("Expedición: 01 de enero de 2020", "Expedición: sin fecha")
+    _seccion(_SECCIONALES_URL, [fila])
+    _vacia(_NACIONALES_URL)
+    avisos = []
+    assert ScrapIca().scrap("2020-01-01", "2020-12-31", on_progress=avisos.append) == []
+    assert any("sin fecha de publicación o expedición legible" in a for a in avisos)
+
+
+@responses.activate
+def test_stop_event():
+    _seccion(_SECCIONALES_URL, [_fila(2, 2026, "2026-11-10", "2026-11-10")])
+    stop = threading.Event()
+
+    def progreso(texto):
+        if "nacionales" in texto:
+            stop.set()
+
+    docs = ScrapIca().scrap("2026-11-01", "2026-11-30", stop_event=stop, on_progress=progreso)
+    assert [d.title for d in docs] == ["R_ICA_S0002_2026"]
+    assert not any(c.request.url.startswith(_NACIONALES_URL) for c in responses.calls)
+
+
+@responses.activate
+def test_falla_de_pagina():
+    # Página 1 de seccionales falla → sección vacía; página 2 de nacionales
+    # falla → se queda con lo de la página 1.
+    _seccion(_SECCIONALES_URL, [], status=500)
+    responses.add(responses.GET, _NACIONALES_URL,
+                  body=_html(_NACIONALES_URL, [_fila(7, 2026, "2026-11-10", "2026-11-10")], ultima=2),
+                  match=[matchers.query_param_matcher({})])
+    responses.add(responses.GET, _NACIONALES_URL, status=500, match=[matchers.query_param_matcher({"page": "2"})])
+    avisos = []
+    docs = ScrapIca().scrap("2015-01-01", "2026-11-30", on_progress=avisos.append)
+    assert [d.title for d in docs] == ["R_ICA_0007_2026"]
+    assert any("Error consultando Resoluciones seccionales" in a for a in avisos)
+    assert any("página 2" in a for a in avisos)
+
+
+@responses.activate
+def test_seccion_sin_filas_avisa_error():
+    _vacia(_SECCIONALES_URL)
+    _vacia(_NACIONALES_URL)
+    avisos = []
+    assert ScrapIca().scrap("2026-11-01", "2026-11-30", on_progress=avisos.append) == []
+    assert any("Error: Resoluciones seccionales no trajo ninguna resolución" in a for a in avisos)
+
+
+@responses.activate
+def test_limit():
+    _seccion(_SECCIONALES_URL, [
+        _fila(3, 2026, "2026-11-10", "2026-11-10"),
+        _fila(2, 2026, "2026-11-09", "2026-11-09"),
+        _fila(1, 2026, "2026-11-08", "2026-11-08"),
+    ])
+    docs = ScrapIca().scrap("2026-11-01", "2026-11-30", limit=2)
+    assert [d.title for d in docs] == ["R_ICA_S0003_2026", "R_ICA_S0002_2026"]
+    assert not any(c.request.url.startswith(_NACIONALES_URL) for c in responses.calls)
