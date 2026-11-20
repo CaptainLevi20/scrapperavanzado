@@ -45,20 +45,30 @@ function numberText(entry: ConceptEntry): string {
 
 function FirstPagePreview({ entry, onClose }: { entry: ConceptEntry; onClose: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const { fileHandle } = entry;
 
+  // Keyed on the file handle, not the entry: entries are rebuilt on every
+  // keystroke, and reloading the PDF would lose the user's zoom and scroll.
   useEffect(() => {
     let objectUrl: string | null = null;
     let cancelled = false;
-    void entry.fileHandle.getFile().then((file) => {
-      if (cancelled) return;
-      objectUrl = URL.createObjectURL(file);
-      setUrl(objectUrl);
-    });
+    setFailed(false);
+    fileHandle
+      .getFile()
+      .then((file) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(file);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [entry]);
+  }, [fileHandle]);
 
   return (
     <div className={`${TABLE_SHELL} space-y-2 p-3`}>
@@ -68,7 +78,8 @@ function FirstPagePreview({ entry, onClose }: { entry: ConceptEntry; onClose: ()
           Cerrar
         </Button>
       </div>
-      {url && (
+      {failed && <p className="text-sm text-muted-foreground">No se pudo abrir el archivo.</p>}
+      {url && !failed && (
         <iframe
           title={`Primera página de ${entry.filename}`}
           src={`${url}#page=1`}

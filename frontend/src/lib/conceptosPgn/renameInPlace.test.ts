@@ -97,6 +97,32 @@ describe("renameConcepts", () => {
     expect(summary.renamedCount).toBe(0);
   });
 
+  it("reports a copy whose original couldn't be deleted instead of calling it skipped", async () => {
+    const { fs, plan } = await setup({ supportsMove: false, failRemoveFor: ["Cto. 1654.pdf"] });
+
+    const summary = await renameConcepts(plan, { now: NOW });
+
+    expect(withoutLog(fs.snapshot())).toEqual({
+      "1991/Tomo 1/Cto. 1654.pdf": "contenido-1654",
+      "1991/Tomo 1/CTO_PGN_0001654_1991(C).pdf": "contenido-1654",
+    });
+    expect(summary.outcomes[0].skipReason).toBe(
+      "Se creó CTO_PGN_0001654_1991(C).pdf pero no se pudo borrar el original; bórralo a mano"
+    );
+    expect(fs.snapshot()[LOG]).toContain(";copiado (original sin borrar)");
+  });
+
+  it("never overwrites an earlier log written in the same minute", async () => {
+    const { fs, plan } = await setup();
+    fs.put(LOG, "registro anterior");
+
+    const summary = await renameConcepts(plan, { now: NOW });
+
+    expect(summary.logName).toBe("registro_renombres_20261120-0905-2.csv");
+    expect(fs.snapshot()[LOG]).toBe("registro anterior");
+    expect(fs.snapshot()["registro_renombres_20261120-0905-2.csv"]).toContain(";renombrado");
+  });
+
   it("keeps going after one file fails", async () => {
     const fs = fakeMutableDirectory(
       "lote",

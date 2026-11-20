@@ -10,6 +10,7 @@ export interface MutableFsOptions {
   failMoveFor?: string[];
   failWriteFor?: string[];
   truncateWriteFor?: string[];
+  failRemoveFor?: string[];
 }
 
 interface FileNode {
@@ -43,7 +44,7 @@ export function fakeMutableDirectory(
   entries: DirectoryEntries,
   options: MutableFsOptions = {}
 ): MutableDirectory {
-  const { supportsMove = true, failMoveFor = [], failWriteFor = [], truncateWriteFor = [] } = options;
+  const { supportsMove = true, failMoveFor = [], failWriteFor = [], truncateWriteFor = [], failRemoveFor = [] } = options;
 
   function build(dirName: string, tree: DirectoryEntries): DirNode {
     const node: DirNode = { kind: "directory", name: dirName, children: new Map() };
@@ -144,6 +145,7 @@ export function fakeMutableDirectory(
         return wrapFile(child, node);
       },
       removeEntry: async (childName: string) => {
+        if (failRemoveFor.includes(childName)) throw new DOMException("Archivo en uso", "NoModificationAllowedError");
         if (!node.children.delete(childName)) throw notFound();
       },
     } as unknown as FileSystemDirectoryHandle;

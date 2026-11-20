@@ -25,6 +25,17 @@ interface LogRow {
 const SKIP_EXISTS = "Ya existe un archivo con ese nombre en la carpeta";
 const SKIP_CASE_ONLY = "Solo cambian mayúsculas; renómbralo a mano";
 const SKIP_INCOMPLETE = "La copia no quedó completa; el original no se tocó";
+const COPIED_NOT_DELETED_PREFIX = "Se creó ";
+
+function copiedNotDeleted(finalName: string): string {
+  return `${COPIED_NOT_DELETED_PREFIX}${finalName} pero no se pudo borrar el original; bórralo a mano`;
+}
+
+function logResult(skipReason: string | null, finalName: string): string {
+  if (skipReason === null) return "renombrado";
+  if (skipReason === copiedNotDeleted(finalName)) return "copiado (original sin borrar)";
+  return `saltado: ${skipReason}`;
+}
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -45,6 +56,21 @@ export function buildLogCsv(rows: LogRow[]): string {
   const lines = ["ruta;nombre_anterior;nombre_nuevo;resultado"];
   for (const row of rows) lines.push([row.path, row.from, row.to, row.result].map(csvField).join(";"));
   return `﻿${lines.join("\r\n")}\r\n`;
+}
+
+// The log is the only way to undo a run: a second run in the same minute must
+// never overwrite the first one's log, so a "-2", "-3"... suffix is added.
+async function uniqueLogName(root: FileSystemDirectoryHandle, base: string): Promise<string> {
+  const stem = base.replace(/\.csv$/, "");
+  for (let attempt = 1; ; attempt += 1) {
+    const candidate = attempt === 1 ? base : `${stem}-${attempt}.csv`;
+    try {
+      await root.getFileHandle(candidate);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") return candidate;
+      throw error;
+    }
+  }
 }
 
 async function writeLog(root: FileSystemDirectoryHandle, name: string, rows: LogRow[]): Promise<void> {
@@ -88,7 +114,13 @@ async function copyVerifyDelete(entry: ConceptEntry, finalName: string): Promise
     if (created) await entry.dirHandle.removeEntry(finalName).catch(() => {});
     return `No se pudo renombrar: ${errorMessage(error)}`;
   }
-  await entry.dirHandle.removeEntry(entry.filename);
+  try {
+    await entry.dirHandle.removeEntry(entry.filename);
+  } catch {
+    // The copy is complete and verified; only the original is stuck (e.g. open
+    // in another program). Say so plainly instead of calling it "skipped".
+    return copiedNotDeleted(finalName);
+  }
   return null;
 }
 
@@ -120,7 +152,7 @@ export async function renameConcepts(
   options: { now?: Date; onProgress?: (done: number, total: number) => void } = {}
 ): Promise<RenameSummary> {
   const targets = plan.entries.filter(isRenamable);
-  const logName = logFileName(options.now ?? new Date());
+  const logName = await uniqueLogName(plan.rootHandle, logFileName(options.now ?? new Date()));
   const rows: LogRow[] = targets.map((entry) => ({
     path: entry.path,
     from: entry.filename,
@@ -144,7 +176,7 @@ export async function renameConcepts(
       renamed: skipReason === null,
       ...(skipReason === null ? {} : { skipReason }),
     });
-    rows[index].result = skipReason === null ? "renombrado" : `saltado: ${skipReason}`;
+    rows[index].result = logResult(skipReason, finalName);
     options.onProgress?.(index + 1, targets.length);
   }
 

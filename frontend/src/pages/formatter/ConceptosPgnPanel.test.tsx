@@ -84,4 +84,16 @@ describe("ConceptosPgnPanel", () => {
       expect(screen.getByTitle("Primera página de Tomo 3 1991-1-14.pdf")).toHaveAttribute("src", "blob:x#page=1")
     );
   });
+
+  it("typing while the preview is open does not reload the PDF", async () => {
+    const createObjectURL = vi.fn(() => "blob:x");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const user = await openBatch(lote());
+
+    await user.click(screen.getByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByTitle("Primera página de Tomo 3 1991-1-14.pdf")).toBeInTheDocument());
+    await user.type(screen.getByLabelText(`Número de ${TOMO}`), "1661");
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
 });
