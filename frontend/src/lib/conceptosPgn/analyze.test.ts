@@ -103,6 +103,15 @@ describe("analyzeConceptBatch", () => {
     expect(isRenamable(plan.entries[0])).toBe(false);
   });
 
+  it("does not send an already-renamed year-mismatch file back to review", async () => {
+    const fs = fakeMutableDirectory("lote", { "2009": { "Tomo 3": { "CTO_PGN_0004734_2008(C).pdf": "x" } } });
+
+    const plan = await analyzeConceptBatch(fs.handle);
+
+    expect(isAlreadyFinal(plan.entries[0])).toBe(true);
+    expect(plan.entries[0].reason).toBeNull();
+  });
+
   it("throws ConceptPgnError when the folder holds no documents", async () => {
     const fs = fakeMutableDirectory("lote", { "2006": { "TOMO 10": { "a.jpg": "x" } } });
 

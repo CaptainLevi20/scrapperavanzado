@@ -63,7 +63,11 @@ function baseReason(entry: Pick<ConceptEntry, "folderYear" | "year" | "number">)
 function withNaming(entry: ConceptEntry, year: number | null, number: ConceptNumber | null): ConceptEntry {
   const finalName =
     year !== null && number !== null ? buildConceptName(number, year, fileExtension(entry.filename)) : null;
-  return { ...entry, year, number, finalName, reason: baseReason({ folderYear: entry.folderYear, year, number }) };
+  const reason = baseReason({ folderYear: entry.folderYear, year, number });
+  // A year mismatch was already decided once the file carries its final name
+  // (a second pass must not ask about it again).
+  const settled = reason === "year-mismatch" && finalName === entry.filename;
+  return { ...entry, year, number, finalName, reason: settled ? null : reason };
 }
 
 // Two files of the SAME folder ending with the same name (compared like
