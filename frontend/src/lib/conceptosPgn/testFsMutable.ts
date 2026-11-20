@@ -31,7 +31,8 @@ export interface MutableDirectory {
 }
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+// ignoreBOM keeps a leading BOM in snapshots, so tests can assert it's written.
+const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 function notFound(): DOMException {
   return new DOMException("Not found", "NotFoundError");
