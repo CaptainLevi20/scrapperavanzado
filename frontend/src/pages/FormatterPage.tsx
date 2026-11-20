@@ -3,19 +3,22 @@ import { Wand2 } from "lucide-react";
 import { RenamePanel } from "./formatter/RenamePanel";
 import { ReorganizePanel } from "./formatter/ReorganizePanel";
 import { CaliDecretosPanel } from "./formatter/CaliDecretosPanel";
+import { ConceptosPgnPanel } from "./formatter/ConceptosPgnPanel";
 
-type Tab = "rename" | "reorganize" | "cali-decretos";
+type Tab = "rename" | "reorganize" | "cali-decretos" | "conceptos-pgn";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "rename", label: "Renombrado" },
   { id: "reorganize", label: "Reorganización" },
   { id: "cali-decretos", label: "Decretos Cali" },
+  { id: "conceptos-pgn", label: "Conceptos PGN" },
 ];
 
 function PanelActivo({ tab }: { tab: Tab }) {
   if (tab === "rename") return <RenamePanel />;
   if (tab === "reorganize") return <ReorganizePanel />;
-  return <CaliDecretosPanel />;
+  if (tab === "cali-decretos") return <CaliDecretosPanel />;
+  return <ConceptosPgnPanel />;
 }
 
 export function FormatterPage() {

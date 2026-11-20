@@ -70,7 +70,7 @@ export function fakeMutableDirectory(
       get name() {
         return node.name;
       },
-      isSameEntry: async (other: FileSystemHandle) => other === handle,
+      isSameEntry: async (other: FileSystemHandle) => (other as unknown) === handle,
       getFile: async () => new File([node.content.slice()], node.name),
       createWritable: async () => {
         let pending = new Uint8Array(0);
