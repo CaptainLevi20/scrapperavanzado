@@ -1318,20 +1318,28 @@ Es seguro repetirlo.
 - **Cómo quedan nombrados:** `CTO_ICBF_0010_2026`. Algunos números traen una
   letra o un guion que distingue conceptos distintos y se conserva:
   `CTO_ICBF_0003C_2020`, `CTO_ICBF_0142-1_2015`.
-- **Fechas:** el sitio sólo dice el **año** de cada concepto, así que todos
-  quedan con fecha 1 de enero de su año. La corrida diaria revisa el año en
-  curso completo (y, hasta mediados de febrero, también el año anterior),
-  de modo que un concepto nuevo entra el día en que el ICBF lo publica, aunque
-  sea de diciembre y lo suban en enero.
+- **Fechas:** el listado del sitio sólo dice el **año**, pero cada concepto
+  trae escrita en su encabezado la fecha en que se firmó ("CONCEPTO 10 DE 2026
+  (30 de julio)"). IURISYNC la lee del documento y la usa como fecha del
+  concepto. De los 716 conceptos del sitio, 708 la traen; los otros 8 (5 sin
+  fecha en el encabezado y 3 cuyo archivo es de otro concepto) quedan con el
+  1 de enero de su año y la corrida lo avisa. Es la fecha de firma: el ICBF no
+  dice cuándo publicó cada concepto. La corrida diaria revisa el año en curso
+  completo (y, hasta mediados de febrero, también el año anterior), de modo
+  que un concepto nuevo entra el día en que el ICBF lo publica, aunque sea de
+  diciembre y lo suban en enero.
 - **Datos del sitio con errores:** el concepto 75 de 2015 no tiene archivo y
   sale como aviso en cada corrida. El 13 de 2015 enlaza al archivo
-  "CONCEPTO 14 DE 2014" y se guarda tal cual, con el nombre de su fila. No es
-  una falla de IURISYNC.
+  "CONCEPTO 14 DE 2014", el 146 de 2015 al del 145, y el 2 de 2026 dice
+  "2 de 2025" en su encabezado: se guardan tal cual, con el nombre de su fila
+  y fecha 1 de enero. No es una falla de IURISYNC.
 - **Prueba real (19-nov-2026):** carga completa de 716 conceptos en Word; la
   segunda corrida no volvió a descargar nada.
-- **Aviso de salud:** como todos los conceptos de un año comparten fecha, esta
-  fuente no dispara la alerta de "fuentes que pueden estar fallando". Si el
-  listado deja de traer conceptos, la corrida avisa con un error.
+- **Aviso de salud:** con las fechas reales, el ICBF entra en la alerta de
+  "fuentes que pueden estar fallando" como cualquier otra fuente. Publica poco
+  (unos 10 conceptos al año) y con pausas largas; simulado con sus fechas
+  reales, la alerta no habría saltado ninguna vez desde 2024. Si el listado
+  deja de traer conceptos, la corrida además avisa con un error.
 - **Si el sitio falla a mitad de un año:** se descargan los conceptos de las
   páginas que sí cargaron y la corrida avisa "el año queda incompleto"; basta
   con repetir la corrida de ese año más tarde (los ya guardados no se vuelven
@@ -1343,6 +1351,16 @@ Es seguro repetirlo.
 - **Fuente nueva:** después de actualizar producción hay que correr una vez
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
+- **Corrección de fechas (noviembre de 2026):** los conceptos guardados antes
+  de que IURISYNC leyera la fecha del documento quedaron con el 1 de enero. Al
+  actualizar producción a esa versión hay que correr, **justo después de la
+  actualización y antes de la siguiente corrida diaria**:
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.backfill_icbf_fechas --simular`
+  (solo cuenta) y luego el mismo comando sin `--simular` (aplica). Si se
+  saltara, la siguiente corrida no reconocería los conceptos ya guardados y
+  los volvería a bajar repetidos. Se puede repetir sin daño. Los archivos no
+  se mueven de carpeta (siguen en la del 1 de enero); solo cambia la fecha que
+  muestra IURISYNC.
 
 ### Instituto Colombiano Agropecuario (`ica`)
 

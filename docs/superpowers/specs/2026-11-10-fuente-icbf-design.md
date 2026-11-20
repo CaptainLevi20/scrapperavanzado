@@ -53,6 +53,10 @@ Familia **plana**: sin actuaciones, sin anexos, sin `family_params`.
 
 ## Fechas y filtro
 
+> **Actualizado 2026-11-19 (ver "Fecha de firma desde el .docx" al final):**
+> la fecha ya no es el 1 de enero sino la de firma, leída del encabezado del
+> `.docx`; el 1 de enero queda sólo como respaldo.
+
 El sitio **no da ninguna fecha** del concepto: ni en el listado ni en el
 detalle (la página de detalle sólo tiene `body`, sin campos de fecha). Sólo el
 año. Como pidió el usuario, se usa el año:
@@ -224,7 +228,8 @@ Se corren dirigidas: `pytest tests/families/test_icbf.py tests/test_seed.py`.
 5. **Sigla y prefijo:** se aprueban `ICBF` y `CTO` → `CTO_ICBF_{número}_{año}`
    (mismo esquema que Procuraduría y SSF).
 6. **Aviso de salud de fuentes:** se acepta que esta fuente nunca lo dispare
-   (una sola fecha por año).
+   (una sola fecha por año). *Superado el 2026-11-19: con la fecha de firma
+   sí entra en el aviso; ver al final.*
 
 ## Plan de implementación (cuando se apruebe)
 
@@ -234,3 +239,30 @@ Se corren dirigidas: `pytest tests/families/test_icbf.py tests/test_seed.py`.
 4. Import en `families/__init__.py`, seed y `tests/test_seed.py`.
 5. Corrida real local desde 2015 y segunda corrida sin descargas nuevas.
 6. Ficha en `docs/guia-despliegue-sistemas.md`.
+
+## Fecha de firma desde el .docx (2026-11-19, pedido del administrador)
+
+- **Hallazgo:** cada `.docx` empieza con `CONCEPTO [No.] <n> DE <año>` y, entre
+  paréntesis, el día y el mes de firma: `(30 de julio)`, `(mayo 13)`,
+  `(28 de Noviembre)`. Revisados los 716 del sitio: **708** se leen; 5 no traen
+  fecha (24/2016; 50, 53, 56/2019; 10/2020) y 3 abren el documento de otro
+  concepto (13/2015 → 14/2014; 146/2015 → 145/2015; 2/2026 dice "2 DE 2025").
+  La fecha de subida del archivo (`Last-Modified`) **no sirve**: casi todos
+  dicen 23-jun-2026 (el ICBF re-subió todo de una vez).
+- **Ingesta:** `scrap()` baja el `.docx` (tope 20 MB; el XML, 50 MB), lee el
+  encabezado (`_texto_inicial_docx` une los trozos en que Word parte el texto)
+  y `_fecha_del_encabezado` exige que número y año del encabezado sean los de
+  la fila. `f_public = f_providencia =` fecha de firma; si no se puede, el
+  `<año>-01-01` con aviso. Si el `.docx` no baja, el concepto se omite y se
+  reintenta en la próxima corrida (guardado con el 1 de enero, ya no se
+  corregiría). El filtro sigue siendo por **año** de la fila.
+- **Identidad:** `doc_id_uses_publication_date = False` (sólo la URL), para que
+  corregir una fecha no duplique el concepto.
+- **Ya guardados:** `core/backfill_icbf_fechas.py` (`--simular` / aplica) lee
+  el `.docx` guardado en MinIO, corrige la fecha y pasa el `doc_id` al formato
+  nuevo. Debe correrse justo después del despliegue y antes de la corrida
+  diaria. No mueve los archivos de carpeta.
+- **Aviso de salud:** simulado día a día con las fechas reales (2017-2026), con
+  la configuración normal (`retraso` = 45 días del lookback) no habría saltado
+  ninguna vez desde 2024; las alertas de 2018-2023 coinciden con bajas reales
+  del ritmo del ICBF. No se agrega `alerta_margen_dias`.
