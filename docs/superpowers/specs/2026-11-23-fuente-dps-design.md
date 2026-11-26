@@ -31,8 +31,15 @@ Propuesta (a confirmar, pregunta 1):
 | Leyes (opcional) | `/transparencia/normativa/leyes/` (1202) | `Ley` | `L{número:04}{año:03}` (regla común) | 22 |
 
 Decretos y leyes **no son actos del DPS**: son decretos del Gobierno
-nacional y leyes del Congreso que afectan al sector. El worker ya los
-deduplica con los de Presidencia y ministerios por el código `D…`/`L…`.
+nacional y leyes del Congreso que afectan al sector. El worker los reconoce
+por el código `D…`/`L…`, pero **hoy sólo en un sentido**: el chequeo de
+`worker/tasks.py` (`list_ministerio_documents_by_title`) busca el código en
+las familias de `_MINISTERIO_FAMILIES` (`core/db/repository.py`), y `dps` no
+está ahí. Un decreto del DPS se saltaría si un ministerio ya lo tiene, pero un
+ministerio (o `funcion_publica`) no se saltaría uno que ya tenga el DPS. (No
+existe una familia de Presidencia.) **Aprobado por el administrador el
+2026-11-26:** `dps` y `funcion_publica` entran al chequeo, para que funcione en
+todos los sentidos (ver Integración).
 
 Familia **con anexos** (`_A01`, `_A02`) cuando una fila trae varios PDF;
 sin actuaciones, sin `family_params`.
@@ -107,8 +114,10 @@ todo lo que expide el DPS.
   |---|---|
   | `dd de <mes> de aaaa` / `dd de <mes> aaaa` | `06 de noviembre de 2026`, `19 de junio 2024` |
   | `dd-mmm-aa` / `dd-mmm-aaaa` / `dd-mmm- aaaa` | `27-feb-15`, `01-Sept-2020`, `31-jul- 2018` |
+  | `dd-mmm.-aa` (punto tras el mes) | `05-ene.-17`, `30-dic.-16`, `13-may.-20` (resoluciones 2016-2017 y un decreto de 2020) |
+  | `dd-mmm-aaa` (año de 3 cifras, error de digitación) | `28-sep-018` (resolución 02349 de 2018): se lee como `2018` si coincide con el panel |
   | `dd-mmm` sin año / `dd – mmm` | `06-mar`, `24 – ene` |
-  | `mmm-dd` sin año (orden invertido) | `sept-20`, `Nov-18` |
+  | `mmm-dd` / `mmm-d` sin año (orden invertido) | `sept-20`, `oct-8`, `Nov-18`, `JUL-26` (resoluciones 2021, decretos 2022) |
 
   Meses en español con variantes (`sep`, `sept`, `Sept`, `Dic`…). Se usa
   `core/fecha_es.py` donde sirva y un lector pequeño para las formas cortas;
@@ -122,23 +131,46 @@ todo lo que expide el DPS.
 - Alternativa (pregunta 4): usar el `Last-Modified` de SharePoint como fecha
   de publicación. Se descarta como propuesta: costaría un `HEAD` por fila en
   cada corrida y cambia si el DPS reemplaza el archivo.
+- **Identidad del documento:** `doc_id_uses_publication_date = False`
+  (`doc_id` = sólo el enlace, como `minsalud`, `procuraduria` e `icbf`). La
+  fecha se arma con texto libre de la celda + el año del panel; si el DPS
+  corrige o reescribe ese texto (`05-ene.-17` → `05 de enero de 2017`), con
+  la fecha dentro del `doc_id` el mismo PDF entraría como documento nuevo. El
+  enlace compartido de SharePoint es estable y único por archivo (y ya se
+  deduplica por enlace, ver casos raros).
+- **Salud de fuentes:** Circulares está parada desde 2021 y Acuerdos tiene una
+  sola fila; Resoluciones publica a tandas. Se fija **`alerta_margen_dias`**
+  tras la corrida real, con la pausa más larga entre resoluciones de los
+  últimos años, para que la alerta de "fuente que puede estar fallando" no
+  salte por eso.
 
 ## Número y nombre canónico
 
-- Número = texto del enlace sin `\u200b`, sin ceros a la izquierda, relleno a
-  4 y nunca recortado (como ICA): `00464` → `R_DPS_0464_2016`; `243654` →
-  `R_DPS_243654_2026`. Desde mayo de 2026 el DPS numera con el consecutivo
-  de su gestor documental (5-6 cifras, no consecutivo).
+- Número = texto del enlace sin `\u200b` ni espacios de los extremos,
+  **tal cual lo escribe el DPS**, sin quitar ni poner ceros (decisión del
+  administrador, 2026-11-26; reemplaza el "relleno a 4" de la primera
+  versión): `00464` → `R_DPS_00464_2016`; `243654` → `R_DPS_243654_2026`;
+  circular `018` → `C_DPS_018_2021`. Desde mayo de 2026 el DPS numera con el
+  consecutivo de su gestor documental (5-6 cifras, no consecutivo).
+- Para **comparar** números (dedup por número repetido) se usa el valor
+  numérico (`int`): `2418` y `02418` son el mismo número. El título conserva
+  el texto de la fila que se queda.
 - `Resolución conjunta` (2 desde 2015): mismo prefijo `R` (pregunta 5).
 - Número con texto (`0079 Anexo`, 2024): se toma la parte numérica; los dos
   PDF de la fila quedan como resolución y anexo.
 - Número que no es `\d+` tras limpiar (0 casos más hoy) → texto saneado,
   `title_unverified=True` y aviso.
-- Decretos y leyes: `codigo_ley_decreto("D"|"L", número, año)`.
+- Decretos y leyes: `codigo_ley_decreto("D"|"L", número, año)`. Aquí **no**
+  aplica la regla de "número tal cual": el código común de `core/naming.py`
+  rellena a 4 a propósito, porque es lo que permite reconocer el mismo
+  decreto o ley en varias fuentes.
 - **Anexos:** si la fila trae varios enlaces SharePoint (`00460` de 2026 con
   3 PDF, `1519` de 2020 con 4), el primero es el documento y los demás
   `_A01`, `_A02`… Los enlaces que no son de SharePoint (SUIN, SafeLinks,
-  el host viejo `centrodedocumentacion…`) se ignoran.
+  el host viejo `centrodedocumentacion…`) se ignoran. Si al ignorarlos la
+  fila se queda **sin ningún** enlace SharePoint, se trata como "fila sin
+  enlace": se omite **con aviso**, nunca en silencio. Caso real: la Ley 1878
+  de 2016 sólo trae un enlace a SUIN-Juriscol.
 - `detalle` = epígrafe.
 - `save_path = storage_path(_SOURCE, fecha, tipo, f"{title}(extension)")`.
 
@@ -146,8 +178,8 @@ todo lo que expide el DPS.
 
 | Caso | Qué se hace |
 |---|---|
-| Fila sin enlace (`208303`, 06-11-2026) | Se omite con aviso. |
-| Mismo número dos veces en el año con PDF distintos (`2418`/`02418` de 2020; `208303` de 2026, una sin enlace) | Dedup por (sección, número, año): se queda la primera y se avisa. |
+| Fila sin enlace, o sin ningún enlace SharePoint (hoy: Ley 1878 de 2016, sólo con enlace a SUIN-Juriscol) | Se omite **con aviso**. (El ejemplo original, una segunda fila `208303` de 2026 sin enlace, ya no está: el 2026-11-26 queda una sola fila `208303`, del 06-08-2026, con su PDF. Hoy no hay resoluciones sin enlace; la regla y su prueba se mantienen.) |
+| Mismo número dos veces en el año con PDF distintos (`2418`/`02418` de 2020) | Dedup por (sección, valor numérico del número, año): se queda la primera y se avisa. |
 | Mismo número dos veces con el mismo PDF (`860`/`00860` de 2015) | Dedup por enlace, en silencio. |
 | Mismo PDF para dos números distintos (`02163`/`02000` de 2024; `01780`/`01572` de 2020; circulares `01` de 2018 y de 2019) | Error de carga del sitio: se guarda la primera y se avisa con los dos números. No se "arregla". |
 | Circular `007` dos veces en 2017 con PDF distintos | Dedup por (sección, número, año) + aviso. |
@@ -196,6 +228,28 @@ peticiones de listado y 0-3 PDF nuevos.
 `family_params={}`), `tests/test_seed.py` (conteos), ficha en
 `docs/guia-despliegue-sistemas.md`.
 
+**Cambio fuera de la familia (aprobado por el administrador el 2026-11-26):
+dedup de decretos y leyes en todos los sentidos.**
+
+- `core/db/repository.py`: `list_ministerio_documents_by_title` (el chequeo
+  que usa `worker/tasks.py:418` antes de bajar un `D…`/`L…`) pasa a buscar
+  también en las familias `dps` y `funcion_publica`. Se hace con un conjunto
+  propio para este chequeo, p. ej.
+  `_FAMILIAS_DEDUP_LEY_DECRETO = _MINISTERIO_FAMILIES | {"dps", "funcion_publica"}`,
+  **sin** meterlas en `_MINISTERIO_FAMILIES`: ese conjunto también lo usan
+  `core/backfill_leyes_decretos.py` y `core/backfill_directiva_prefix.py`,
+  que renombran títulos de ministerios y no deben tocar estas dos fuentes si
+  se vuelven a correr. Se actualiza el docstring de la función.
+- `tests/test_tasks.py`: prueba nueva junto a
+  `test_scrape_source_task_skips_a_ley_already_published_by_another_ministerio`:
+  un decreto `D…` que ya está guardado en `dps` no se vuelve a bajar desde
+  una fuente de ministerio, y al revés (ministerio → `dps`). La misma prueba
+  cubre `funcion_publica` (ver su diseño); si los dos diseños se programan
+  por separado, el que llegue primero agrega las dos familias al conjunto y
+  la prueba.
+- Lo que gana es el que ya está guardado (regla de siempre, ver
+  `2026-09-03-formato-leyes-decretos-ministerios`).
+
 Sin migración Alembic. En producción: `python -m core.seed` una vez.
 
 ## Pruebas
@@ -203,19 +257,28 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 `tests/families/test_dps.py`, con `responses` y JSON real de `wp-json`:
 
 1. Limpieza de `\u200b` en tipo, fecha y número.
-2. Fechas: cada formato de la tabla, incluido sin año (año del panel) y
-   `mmm-dd`; fecha ilegible → omitida con aviso.
-3. Número → título: `00464` → `R_DPS_0464_2016`; `243654` →
-   `R_DPS_243654_2026`; `0079 Anexo` → `R_DPS_0079_2024`; decreto `1110` de
-   2026 → `D1110026`; ley → `L…`.
+2. Fechas: cada formato de la tabla, incluidos los que salieron en la
+   revisión del 2026-11-26: `05-ene.-17` (punto tras el mes), `28-sep-018`
+   (año de 3 cifras, panel 2018), `oct-8` y `JUL-26` (`mmm-d`/`mmm-dd` sin
+   año, año del panel), `24 – ene`; fecha ilegible → omitida con aviso.
+3. Número → título, tal cual: `00464` → `R_DPS_00464_2016`; `243654` →
+   `R_DPS_243654_2026`; `0079 Anexo` → `R_DPS_0079_2024`; circular `018` →
+   `C_DPS_018_2021`; decreto `1110` de 2026 → `D1110026` (código común,
+   rellenado); ley → `L…`.
 4. Enlace: `…/IQD…` → `…/IQD…?download=1`; `…?e=LNo08f` → `…?e=LNo08f&download=1`.
 5. Fila con 3 PDF → documento + `_A01` + `_A02`; enlaces no SharePoint y `:f:`
    ignorados.
-6. Fila sin enlace, número repetido, mismo PDF con dos números → avisos y
-   dedup como en la tabla de casos raros.
-7. Filtro por fecha y piso; `scheduled_min_lookback_days == 60`.
+6. Fila sin enlace, número repetido (`2418` y `02418` cuentan como el mismo),
+   mismo PDF con dos números → avisos y dedup como en la tabla de casos raros.
+   Fila con sólo un enlace no SharePoint (como la Ley 1878 de 2016, con
+   enlace a SUIN) → omitida **con aviso**.
+7. Filtro por fecha y piso; `scheduled_min_lookback_days == 60`;
+   `doc_id_uses_publication_date is False`; `alerta_margen_dias` con el valor
+   fijado tras la corrida real.
 8. `stop_event`, `limit`, una sección que falla (aviso y sigue), sección
    vacía → aviso.
+9. Dedup de decretos/leyes en todos los sentidos: prueba en
+   `tests/test_tasks.py` (ver Integración).
 
 ## Preguntas para el usuario / administrador
 
@@ -230,6 +293,16 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 6. **Sigla `DPS`:** ¿se aprueba? (La entidad hoy se llama a sí misma
    "Prosperidad Social", pero `DPS` es la sigla de sus resoluciones y de su
    SharePoint.)
+7. **Número:** **Respondida por el administrador el 2026-11-26:** el número
+   se copia tal cual lo escribe la entidad, sin quitar ni poner ceros, en las
+   tres fuentes (ADRES, DPS y Función Pública): `R_DPS_00464_2016`. Reemplaza
+   el "relleno a 4" de la primera versión de este diseño. Los decretos y leyes
+   siguen con el código común `D…`/`L…` de `core/naming.py`.
+8. **Dedup de decretos y leyes:** **Respondida por el administrador el
+   2026-11-26:** `dps` y `funcion_publica` entran al chequeo de
+   `list_ministerio_documents_by_title`, para que la dedup funcione en todos
+   los sentidos (ver Integración). Si al final se decide no traer Decretos ni
+   Leyes (pregunta 1), el cambio igual sirve para `funcion_publica`.
 
 ## Plan de implementación (cuando se apruebe)
 
@@ -238,5 +311,9 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 2. Prueba + lectura del acordeón con JSON real, enlaces y anexos (casos 4-6).
 3. Prueba + `scrap()` con el sitio simulado (casos 7-8).
 4. Import en `families/__init__.py`, seed y `tests/test_seed.py`.
-5. Corrida real local desde 2015 y segunda corrida sin descargas nuevas.
-6. Ficha en `docs/guia-despliegue-sistemas.md`.
+5. Prueba + dedup de decretos/leyes en todos los sentidos
+   (`core/db/repository.py`, `tests/test_tasks.py`; caso 9), si no lo hizo
+   ya `funcion_publica`.
+6. Corrida real local desde 2015 y segunda corrida sin descargas nuevas.
+   Fijar `alerta_margen_dias` con lo que salga.
+7. Ficha en `docs/guia-despliegue-sistemas.md`.

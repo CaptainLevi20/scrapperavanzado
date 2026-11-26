@@ -1,6 +1,6 @@
 # Fuente Cámara de Comercio de Cartagena — diseño
 
-**Fecha:** 2026-11-23
+**Fecha:** 2026-11-23 (revisado 2026-11-26 con las decisiones del administrador)
 **Entidad:** Cámara de Comercio de Cartagena — Centro de Arbitraje y
 Conciliación (`cc_cartagena`, sigla `CCCAR`)
 **Estado:** **aplazada** por el administrador (2026-11-25): sólo hay laudos
@@ -22,7 +22,8 @@ Familia de scraper nueva `cc_cartagena` con una sección:
 
 Cada laudo (PDF) entra como un `RawDocModel`. Familia **plana**: sin
 actuaciones, sin anexos, sin `family_params`. Mismas convenciones que las
-otras cámaras (`cc_armenia`, `ccb`, `cc_barranquilla`).
+otras cámaras (`cc_armenia`, `ccb`, `cc_barranquilla`). **Sin piso de año:**
+entran los 17 (decisión del administrador del 2026-11-26).
 
 ## Construcción del sitio
 
@@ -87,21 +88,25 @@ otras cámaras (`cc_armenia`, `ccb`, `cc_barranquilla`).
   PDF (ej. Doris Charry: tarjeta `23/04/2018`, PDF "FECHA LAUDO: 23 de abril
   de 2018"). Se toma como **fecha del laudo**. Los otros 4 son escaneos y no
   se pueden comprobar (la fecha de escaneo de cada uno es posterior a la de
-  la tarjeta, que cuadra).
+  la tarjeta, que cuadra). *(Cifra por confirmar al retomar la fuente:
+  14 con texto + 4 escaneos suman 18, no 17; quizá la ficha de 2 páginas de
+  Calicanto 2016 se contó en los dos grupos.)*
 - La única excepción (Gilberto Álvarez vs. Barcelona de Indias): tarjeta
   `05/07/2018`, laudo del **17 de mayo de 2019** (dice el PDF), nombre de
   archivo `…2019…`. Ver "Casos raros".
 - `f_public = f_providencia` = fecha de la tarjeta. Filtro
   `fini <= fecha <= ffin`.
-- **Piso:** propuesta: todo lo que hay, desde **2014** (17 laudos; desde
-  2015 serían 12). Pregunta 3.
+- **Sin piso:** todo lo que hay, hoy desde **2014** (17 laudos). Decisión
+  del administrador del 2026-11-26 (pregunta 3).
 - Como leer el listado es una sola petición, la corrida diaria **recorre
-  todo siempre**: `scheduled_min_lookback_days = 10_000` (como Armenia y
-  Barranquilla).
-- **Alerta de salud:** el último laudo es de 2019. La alerta de "fuente que
-  puede estar fallando" va a salir siempre. En Armenia se aceptó una alerta
-  perpetua; aquí se propone lo mismo o subir `alerta_margen_dias`
-  (pregunta 5).
+  todo siempre**: `scheduled_min_lookback_days = 20_000` (~55 años; el mismo
+  valor en las cuatro cámaras nuevas, ver Cali, que tiene laudos desde 1980).
+- **Alerta de salud:** **no** se pone `alerta_margen_dias`. El aviso toma el
+  mayor entre `scheduled_min_lookback_days` y `alerta_margen_dias`
+  (`api/routers/sources.py`), así que con 20.000 días el margen no cambia
+  nada, y el aviso sale **siempre que no haya ningún laudo con fecha de los
+  últimos 12 meses** (`core/salud_fuentes.py`). El último laudo es de 2019:
+  va a salir siempre, como en Armenia (pregunta 5).
 
 ## Número y nombre canónico
 
@@ -109,13 +114,19 @@ Sin radicado en la página ni en el nombre del archivo. Algunos PDF citan
 radicados de **otros** procesos (sentencias citadas), así que leerlo del
 texto no es fiable, y 4 de 17 son escaneos.
 
-Se reutiliza la propuesta de Barranquilla (pregunta 4):
+Regla común de las cámaras sin radicado (decisión del administrador del
+2026-11-26, pregunta 4):
 
-- **Título:** `LA_CCCAR_{MMDD}_{año}` — la fecha (mes y día) hace de número,
-  manteniendo la forma `{PREFIJO}_{SIGLA}_{número}_{año}`. Ej.:
-  `LA_CCCAR_0919_2019`.
-- Misma fecha dos veces (hoy: los dos Assignia del 05/05/2014): el segundo
-  lleva `_2` y aviso → `LA_CCCAR_0505_2014_2`.
+- **Título:** `LA_CCCAR_{AAAAMMDD}_{año}` — la fecha **completa** del laudo
+  hace de número, manteniendo la forma `{PREFIJO}_{SIGLA}_{número}_{año}`.
+  Ej.: `LA_CCCAR_20190919_2019`. Es la misma regla de Barranquilla y de los
+  laudos de Cali sin radicado.
+- Misma fecha dos veces (hoy: los dos Assignia del 05/05/2014): las tarjetas
+  de esa fecha se ordenan por la URL del PDF, que empieza por la fecha de
+  subida (`file-20251015…`); la primera queda sin sufijo y las siguientes
+  llevan `_2`, `_3`… con aviso → `LA_CCCAR_20140505_2014` y
+  `LA_CCCAR_20140505_2014_2`. Así el orden no depende de cómo la Cámara
+  acomode las tarjetas, y un archivo subido después siempre queda detrás.
 - `detalle` = las partes, desde `b.txt_pdf` sin la palabra "Laudo arbitral"
   (`Portal Calicanto S.A.S. contra Transcaribe`).
 - `save_path = storage_path(_SOURCE, fecha, "Laudo arbitral", f"{title}(extension)")`.
@@ -128,7 +139,7 @@ Se reutiliza la propuesta de Barranquilla (pregunta 4):
 | Caso | Qué se hace |
 |---|---|
 | **Gilberto Álvarez**: tarjeta `05/07/2018`, laudo real 17-05-2019, archivo `…2019…` | Año de la tarjeta ≠ año del nombre del archivo → se usa la fecha de la tarjeta, `title_unverified=True` y aviso (como el cruce de ICA). Alternativa en pregunta 6. |
-| **Dos Assignia contra Transcaribe del 05/05/2014**: uno con ficha + texto (731 págs., la ficha dice Assignia **y Concrescol**), otro escaneado (573 págs., tarjeta "Assignia y Concrescol") | Muy probablemente el **mismo laudo** en dos archivos. Se guardan los dos (`…_0505_2014` y `…_0505_2014_2`) con aviso; no se "arregla". Pregunta 7. |
+| **Dos Assignia contra Transcaribe del 05/05/2014**: uno con ficha + texto (731 págs., la ficha dice Assignia **y Concrescol**), otro escaneado (573 págs., tarjeta "Assignia y Concrescol") | Muy probablemente el **mismo laudo** en dos archivos. Se guardan los dos (`…_20140505_2014` y `…_20140505_2014_2`) con aviso; no se "arregla". Pregunta 7. |
 | **Portal Calicanto 2016** (02/05/2016): el PDF tiene **2 páginas**, sólo la ficha de relatoría, sin el laudo | Se guarda tal cual (es lo que publica la Cámara). Se documenta. |
 | Errata "Laudo **abritral**" (Luis Felipe Aponte) | Se quita igual del inicio para el `detalle`. |
 | Mismo enlace dos veces en la tarjeta (ver/descargar) | Dedup por enlace. |
@@ -141,7 +152,8 @@ Se reutiliza la propuesta de Barranquilla (pregunta 4):
 |---|---|---|---|---|---|---|---|
 | 5 | 1 | 4 | 1 | 3 | 3 | 0 | **17** |
 
-(por fecha de la tarjeta). Corrida completa: 17 PDF, ≈ 123 MB, 1-2 min.
+(por fecha de la tarjeta; comprobado de nuevo el 2026-11-26: 17 tarjetas,
+mismas fechas). Primera corrida: 17 PDF, ≈ 123 MB, 1-2 min.
 Corrida diaria: 1 petición y 0 descargas.
 
 ## Riesgos
@@ -173,6 +185,9 @@ Corrida diaria: 1 petición y 0 descargas.
 `family_params={}`), `tests/test_seed.py` (conteos), ficha en
 `docs/guia-despliegue-sistemas.md`.
 
+Atributos: `scheduled_min_lookback_days = 20_000`,
+`checks_for_republication = False`, sin `alerta_margen_dias`.
+
 Sin cambios en el descargador. Sin migración Alembic. En producción:
 `python -m core.seed` una vez.
 
@@ -183,12 +198,13 @@ del HTML de la página:
 
 1. Lectura de tarjetas: partes, fecha `DD/MM/AAAA`, enlace (dedup de los dos
    `<a>`); errata "abritral".
-2. Título: `LA_CCCAR_0919_2019`; misma fecha dos veces → `_2` + aviso;
+2. Título: `LA_CCCAR_20190919_2019`; misma fecha dos veces → `_2` + aviso
+   para la de URL más reciente, aunque su tarjeta salga primero;
    `detalle` = partes.
 3. Cruce del año de la tarjeta con el del nombre del archivo: distinto →
    `title_unverified=True` + aviso; nombre sin el patrón → sin cruce.
 4. Tarjeta sin enlace / sin fecha / fecha ilegible → omitida con aviso.
-5. Filtro por fecha y piso; `scheduled_min_lookback_days == 10_000`;
+5. Filtro por fecha, sin piso (entra 2014); `scheduled_min_lookback_days == 20_000`;
    `checks_for_republication is False`.
 6. `stop_event`, `limit`, página que falla (aviso, sin tumbar), página sin
    tarjetas → aviso.
@@ -199,11 +215,16 @@ del HTML de la página:
    objeción.
 2. **¿Vale la pena la fuente?** **Respondida (administrador, 2026-11-25):** **por ahora no**. Se
    retoma si la Cámara publica laudos recientes.
-3. **Piso:** ¿todo desde 2014 (propuesto, 17) o desde 2015 (12)?
-4. **Título sin radicado:** ¿`LA_CCCAR_{MMDD}_{año}` (igual que la propuesta
-   de Barranquilla) o el título descriptivo con las partes?
-5. **Alerta de salud:** saldrá siempre (último laudo 2019). ¿Se acepta como
-   en Armenia, o se sube `alerta_margen_dias`?
+   El administrador confirmó el 2026-11-26 que Bogotá se queda con `CCB`.
+3. **Piso:** **Respondida por el administrador el 2026-11-26:** sin piso,
+   todo lo que hay (17 laudos, desde 2014).
+4. **Título sin radicado:** **Respondida por el administrador el
+   2026-11-26:** fecha completa, `LA_CCCAR_{AAAAMMDD}_{año}`
+   (`LA_CCCAR_20190919_2019`), la misma regla en todas las cámaras sin
+   radicado.
+5. **Alerta de salud:** saldrá siempre (último laudo 2019), y
+   `alerta_margen_dias` no lo cambia con `scheduled_min_lookback_days =
+   20_000`. ¿Se acepta como en Armenia? (sigue abierta, propuesta: sí).
 6. **Gilberto Álvarez** (fecha de la tarjeta 2018, laudo 2019): ¿se deja la
    fecha de la tarjeta con `title_unverified` (propuesto) o se corrige a
    mano a `2019-05-17` en el código?

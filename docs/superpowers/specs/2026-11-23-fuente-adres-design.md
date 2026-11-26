@@ -49,13 +49,21 @@ consecutivo iba por la 185.869): es una selección que la entidad publica,
   trae todas las filas en el payload RSC de Next:
 
   ```html
-  <script>self.__next_f.push([1,"…\"blockLabel\":\"docList\",…{\"documents\":[{\"id\":\"6a58…\",\"date\":\"01/10/2026\",\"file\":{\"url\":\"/api/media/file/Resolucion_199531_de_2026.pdf\",\"filename\":\"Resolucion_199531_de_2026.pdf\",\"mimeType\":\"application/pdf\"},\"meta\":[{\"label\":\"Fecha\",\"value\":\"01/10/2026\"},{\"label\":\"Descripción\",\"value\":\"Por medio de la cual …\"}],\"name\":\"Resolucion_199531_de_2026 \",\"description\":\"Se adiciona a la Resolución 1012-2022 …\"}, …]"])</script>
+  <script>self.__next_f.push([1,"…{\"label\":\"docList\",…{\"documents\":[{\"id\":\"6a58…\",\"date\":\"01/10/2026\",\"file\":{\"url\":\"/api/media/file/Resolucion_199531_de_2026.pdf\",\"filename\":\"Resolucion_199531_de_2026.pdf\",\"mimeType\":\"application/pdf\"},\"meta\":[{\"label\":\"Fecha\",\"value\":\"01/10/2026\"},{\"label\":\"Descripción\",\"value\":\"Por medio de la cual …\"}],\"name\":\"Resolucion_199531_de_2026 \",\"description\":\"Se adiciona a la Resolución 1012-2022 …\"}, …],\"heading\":\"ADRES\",\"collapsible\":\"closed\",…,\"pageSize\":30,…,\"sort\":\"date-desc\"}"])</script>
   ```
 
   Se concatenan los `self.__next_f.push([1,"…"])`, se decodifican y se lee
   cada `"documents":[…]` con `json.JSONDecoder.raw_decode`. Cada página tiene
-  dos bloques `docList`: **"ADRES"** (lo propio) y **"Ministerio de Salud"**
-  (normas de MinSalud, que ya cubre la familia `minsalud`; se ignora).
+  dos bloques `docList` (la clave es `"label":"docList"`, no `blockLabel`):
+  **"ADRES"** (lo propio) y **"Ministerio de Salud"** (normas de MinSalud,
+  que ya cubre la familia `minsalud`; se ignora).
+
+  **Ojo con el orden:** el `"heading"` del bloque va **después** del arreglo
+  `documents` (es la clave hermana que sigue al `]`), no antes. El nombre del
+  bloque se lee justo donde termina el `raw_decode`. Si se buscara hacia atrás,
+  se tomaría el `heading` del bloque anterior y "ADRES" y "Ministerio de Salud"
+  quedarían cruzados (comprobado en la revisión del 2026-11-26: así se leen
+  las 11 normas de MinSalud como si fueran de la ADRES).
 
 | Dato | De dónde |
 |---|---|
@@ -70,7 +78,10 @@ consecutivo iba por la 185.869): es una selección que la entidad publica,
   `file.createdAt`. Es pública, pero `robots.txt` dice `Disallow: /api`.
   El RSC es un formato interno de Next.js y puede cambiar al actualizar el
   framework; el objeto `documents` es el mismo en las dos vías y el `doc_id`
-  sale igual.
+  sale igual. **Ojo:** `robots.txt` no sirve para decidir entre las dos, porque
+  los PDF también se bajan de `/api/media/file/…`, que está bajo el mismo
+  `Disallow: /api`: con cualquiera de las dos vías la familia ya pide rutas
+  `/api`. Lo que pesa es la fragilidad del RSC frente a la limpieza del JSON.
 
 ### Descarga
 
@@ -88,14 +99,22 @@ consecutivo iba por la 185.869): es una selección que la entidad publica,
 ## Fechas y filtro
 
 - `meta.Fecha` es la fecha de **expedición**: coincide con la fecha de firma
-  en los 5 PDF con texto que se revisaron. El campo `date` de arriba casi
-  siempre viene vacío y no se usa.
+  en los 5 PDF con texto que se revisaron. El campo `date` de arriba no se
+  usa: en Resoluciones viene vacío casi siempre (lleno en 4 de 146) y en
+  Acuerdos siempre, pero en Circulares viene lleno en las 161 filas
+  (revisión del 2026-11-26). `meta.Fecha` es lo único que está en las tres.
 - `f_public = f_providencia = Fecha`. Filtro: `fini <= Fecha <= ffin`.
 - **Piso:** `_ANIO_MINIMO = 2015`.
 - **Retraso de carga:** entre 0 y 28 días según `file.createdAt` (hay una
   resolución subida a la biblioteca el 23-11 que todavía no está en la
   página). **`scheduled_min_lookback_days = 45`**. No cuesta nada: cada
   corrida lee el listado completo con 3 peticiones.
+- **Salud de fuentes:** la ADRES publica poco (7 resoluciones y 3
+  circulares en 2025), así que es normal pasar meses sin nada nuevo. Se
+  fija **`alerta_margen_dias`** tras la corrida real, con la pausa más larga
+  entre documentos de los últimos años (misma regla que las demás fuentes de
+  publicación esporádica), para que la alerta de "fuente que puede estar
+  fallando" no salte por eso.
 - Fecha ilegible (0 casos hoy) → fila descartada con aviso.
 
 ## Número y nombre canónico
@@ -109,21 +128,39 @@ Regex sobre el texto sin tildes, en minúsculas (probada: 144 de 144
 resoluciones, 161 de 161 circulares, 4 de 4 acuerdos):
 
 ```
-Resoluciones: ^\s*(?:adres\s*-\s*)?(?:res(?:olu?ci?on)?\.?)?[\s_\-\.]*(?:(?:no|numero|npumero)\.?[\s_\-]*)?0*(\d+)(?:[\s_\-]*(?:de|del)?[\s_\-]*(\d{4})(?!\d))?
-Circulares:   ^\s*0*(\d+)(?:[\s_\-]*(?:de)?[\s_\-]*(\d{4})(?!\d))?
-Acuerdos:     ^\s*acuerdo[\s_]*(?:(?:no|numero)[\s_]*)?0*(\d+)(?:[\s_]*de[\s_]*(\d{4}))?
+Resoluciones: ^\s*(?:adres\s*-\s*)?(?:res(?:olu?ci?on)?\.?)?[\s_\-\.]*(?:(?:no|numero|npumero)\.?[\s_\-]*)?(\d+)(?:[\s_\-]*(?:de|del)?[\s_\-]*(\d{4})(?!\d))?
+Circulares:   ^\s*(\d+)(?:[\s_\-]*(?:de)?[\s_\-]*(\d{4})(?!\d))?
+Acuerdos:     ^\s*acuerdo[\s_]*(?:(?:no|numero)[\s_]*)?(\d+)(?:[\s_]*de[\s_]*(\d{4}))?
 ```
 
-- Número **sin ceros a la izquierda**, relleno a 4 y nunca recortado (como
-  ICA): `0128021` → `R_ADRES_128021_2026`; `9` → `R_ADRES_0009_2026`. Desde
-  2024 los números de resolución son de 6-7 cifras (consecutivo tipo
-  radicado), mezclados con algunos de 3-4.
+(Las regex ya **no** quitan los ceros: el grupo del número es `(\d+)` sin
+`0*` delante. Vuelta a probar el 2026-11-26 con el listado vivo: siguen
+cubriendo todas las filas propias.)
+
+- Número **tal cual lo escribe la ADRES** en el `name`, sin quitar ni poner
+  ceros (decisión del administrador, 2026-11-26): `Resolucion_0128021_de_2026`
+  → `R_ADRES_0128021_2026`; `RESOLUCION_0000009_2026` → `R_ADRES_0000009_2026`;
+  `Resolución número 007 de 2019` → `R_ADRES_007_2019`; circular `000008` →
+  `C_ADRES_000008_{año}`. Desde 2024 los números de resolución son de 6-7
+  cifras (consecutivo tipo radicado), mezclados con algunos de 3-4.
+- Para **comparar** números (dedup, choque de títulos) se usa el valor
+  numérico (`int`), no el texto: `02418` y `2418` son el mismo número. El
+  título conserva el texto de la fila que se queda.
 - **Año:** el del `name` si lo trae; si no (9 resoluciones, 150 de 161
   circulares, 1 acuerdo), el de `Fecha`.
-- **Año del nombre distinto del de `Fecha`** (4 resoluciones, p. ej.
-  `Resolución número 0144 de 2021` con Fecha 15/02/2020): son PDF escaneados
-  y no se pudo saber cuál está mal → título con el año del nombre,
-  **`title_unverified=True`** y aviso con los dos años.
+- **Año del nombre distinto del de `Fecha`** (4 resoluciones:
+  `0144 de 2021` con Fecha 15/02/2020, `2152 de 2020` con 10/03/2021,
+  `2707 de 2020` con 29/05/2021, `701 de 2018` con 23/03/2021): todo indica
+  que el error está en el **año** de `Fecha`. Para la 2707 el mismo bloque
+  "ADRES" trae además una fila externa (vlex) de la "Resolución número 2707
+  de 2020" con fecha **29/05/2020**: mismo día y mes, año del nombre. Regla:
+  - título con el año del nombre;
+  - `f_public = f_providencia` = **día y mes de `Fecha` + año del nombre**
+    (`2707 de 2020` → `2020-05-29`), para que quede en la carpeta y el rango
+    de fechas del año correcto; si esa combinación no es una fecha válida
+    (29/02 en año no bisiesto), `<año del nombre>-01-01`;
+  - se mantiene **`title_unverified=True`** y un aviso `on_progress` con la
+    `Fecha` original y la corregida.
 - `name` que no cumple la regex (0 casos hoy) → título con el texto saneado,
   `title_unverified=True` y aviso.
 - `detalle` = `description` (es el correcto en el único caso en que no
@@ -136,9 +173,10 @@ Acuerdos:     ^\s*acuerdo[\s_]*(?:(?:no|numero)[\s_]*)?0*(\d+)(?:[\s_]*de[\s_]*(
 
 | Caso | Qué se hace |
 |---|---|
-| Enlaces a otros dominios en el bloque "ADRES" (vlex.com.co, xhygnusnews.com, supersalud, icbf, asociacionusuariossanitas: 5 filas) | Se descartan (sólo `www.adres.gov.co/api/media/file/`), como hoy. |
+| Enlaces a otros dominios en el bloque "ADRES" de Resoluciones (vlex.com.co → 2707/2020, xhygnusnews.com → 2067/2020) | Se descartan (sólo `www.adres.gov.co/api/media/file/`), como hoy. Las dos resoluciones tienen además su propia fila con PDF de la ADRES. |
+| Acuerdos externos en el bloque "ADRES" de Acuerdos: acuerdos de la CRES 25, 29 y 30 de **2011** (enlaces a normograma.supersalud, icbf.gov.co y asociacionusuariossanitas.com) | Se descartan por dominio ajeno y además quedan bajo el piso de 2015. Son 3 de las 7 filas del bloque; las 4 restantes son los acuerdos propios. |
 | Dos filas con la ruta vieja `/normativa/Documents/…` (1769/2024 y 137/2022) | El archivo existe con el mismo nombre en `/api/media/file/`. Se rehace la URL y se avisa (pregunta 6). |
-| Duplicado 12758/2023: dos filas, mismo archivo (mismo sha1), fechas 29/08 y 01/09 | Dedup por (sección, número, año): se queda la **fecha más antigua** (la que dice el PDF) y se avisa. |
+| Duplicado 12758/2023: dos filas, mismo archivo (mismo sha1), fechas 29/08 y 01/09 | Dedup por (sección, valor numérico del número, año): se queda la **fecha más antigua** (la que dice el PDF) y se avisa. |
 | Duplicado 2935/2020: dos filas, mismo archivo, misma fecha | Dedup y aviso. |
 | Circulares internas (turnos, simulacros, tarjetas de acceso, "PARA: SERVIDORES PÚBLICOS DE LA ADRES") mezcladas con las externas | No se distinguen desde el listado; **se incluyen todas** (decisión del administrador, 2026-11-25). Hoy no chocan en (número, año). |
 | `Resolucion_2682_de_2025`, un número de otra serie en un año donde el consecutivo va por 185.869 | Se deja tal cual. |
@@ -152,7 +190,9 @@ Acuerdos:     ^\s*acuerdo[\s_]*(?:(?:no|numero)[\s_]*)?0*(\d+)(?:[\s_]*de[\s_]*(
 | Acuerdos | 1 | 0 | 0 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 4 |
 
 Resoluciones: 140 = 140 archivos propios + 2 rutas viejas rehechas − 2
-duplicados. Corrida completa: **~305 documentos, ~245 MB, 4-6 min**.
+duplicados. (El 2026-11-26 el listado ya traía 10 resoluciones de 2026, no
+8: se sumaron `RESOLUCION_0204811_2026`, del 25-11, y
+`Resolucion_0204744_2026`. El retraso de carga es el esperado.) Corrida completa: **~305 documentos, ~245 MB, 4-6 min**.
 Corrida diaria: 3 peticiones (~3 s) y 0-2 documentos nuevos por semana.
 
 ## Fuera de alcance
@@ -220,20 +260,31 @@ Alembic.
 
 `tests/families/test_adres.py`, con `responses` y HTML/RSC real:
 
-1. Lectura del RSC → lista de documentos por bloque; se ignora "Ministerio
-   de Salud".
-2. `name` → título: `Resolucion_199531_de_2026` → `R_ADRES_199531_2026`;
-   `Res.146756-2024` → `R_ADRES_146756_2024`; `Resolución 1659` + Fecha 2019 →
-   `R_ADRES_1659_2019`; circular `0000004_2026` → `C_ADRES_0004_2026`;
-   circular `000008` + Fecha 2022 → `C_ADRES_0008_2022`;
-   `Acuerdo_numero_497_de_2017` → `A_ADRES_0497_2017`.
-3. Año del nombre ≠ año de Fecha → `title_unverified=True` + aviso.
+1. Lectura del RSC → lista de documentos por bloque (`"label":"docList"`);
+   se ignora "Ministerio de Salud". **El `heading` se toma del que sigue al
+   arreglo `documents`:** con un fragmento real de dos bloques seguidos
+   ("ADRES" y luego "Ministerio de Salud"), las filas del primero quedan como
+   "ADRES" y las del segundo como "Ministerio de Salud", no al revés.
+2. `name` → título, con el número tal cual: `Resolucion_199531_de_2026` →
+   `R_ADRES_199531_2026`; `Resolucion_0128021_de_2026` →
+   `R_ADRES_0128021_2026`; `RESOLUCION_0000009_2026` →
+   `R_ADRES_0000009_2026`; `Res.146756-2024` → `R_ADRES_146756_2024`;
+   `Resolución 1659` + Fecha 2019 → `R_ADRES_1659_2019`; circular
+   `0000004_2026` → `C_ADRES_0000004_2026`; circular `000008` + Fecha 2022 →
+   `C_ADRES_000008_2022`; `Acuerdo_numero_497_de_2017` → `A_ADRES_497_2017`;
+   `Acuerdo_numero_0000002_de_2020` → `A_ADRES_0000002_2020`.
+3. Año del nombre ≠ año de Fecha (`Resolución número 2707 de 2020` con
+   Fecha `29/05/2021`) → título `R_ADRES_2707_2020`, `f_public == "2020-05-29"`,
+   `title_unverified=True` + aviso con las dos fechas; Fecha `29/02/AAAA`
+   con año del nombre no bisiesto → `<año>-01-01`.
 4. `name` fuera de patrón → título saneado, `title_unverified=True`, aviso.
 5. Dominio ajeno descartado; ruta vieja `/normativa/Documents/x.pdf` →
    `/api/media/file/x.pdf` + aviso.
-6. Dedup 12758/2023 → queda la fecha más antigua + aviso.
+6. Dedup 12758/2023 → queda la fecha más antigua + aviso; dos filas con el
+   mismo número escrito distinto (`02418` y `2418`) cuentan como duplicado.
 7. Filtro por fecha y piso; `scheduled_min_lookback_days == 45`;
-   `checks_for_republication is False`.
+   `checks_for_republication is False`; `alerta_margen_dias` con el valor
+   fijado tras la corrida real.
 8. **Página sin ningún bloque "ADRES" o sin RSC → aviso "Error: …"** (para que
    un cambio de sitio como el de agosto no vuelva a pasar en silencio).
 9. `stop_event`, `limit`, una sección que falla (aviso y sigue).
@@ -241,22 +292,28 @@ Alembic.
 
 ## Preguntas para el usuario / administrador
 
-1. **Transporte:** ¿HTML + RSC (permitido por `robots.txt`, más frágil,
-   recomendado) o la API de Payload `/api/pages` (JSON limpio, pero
-   `robots.txt: Disallow: /api`)?
+1. **Transporte:** ¿HTML + RSC (más frágil, recomendado) o la API de Payload
+   `/api/pages` (JSON limpio)? `robots.txt` (`Disallow: /api`) no distingue
+   entre las dos: los PDF se bajan de `/api/media/file/` en ambos casos.
 2. **Alcance:** **Respondida (administrador, 2026-11-25):** Resoluciones, Circulares y Acuerdos.
    Los bloques de MinSalud **no** (se publican en MinSalud).
 3. **Circulares internas:** **Respondida (administrador, 2026-11-25):** **se incluyen**. Hay contrato
    con la entidad, así que conviene tenerlas y revisarlas.
-4. **Número:** **Respondida (administrador, 2026-11-25):** sin ceros a la izquierda, relleno a 4
-   sólo si tiene menos de 4 cifras: `R_ADRES_128021_2026`, `R_ADRES_0085_2026`.
-   Es lo que ya propone este diseño.
+4. **Número:** ~~Respondida (administrador, 2026-11-25): sin ceros a la
+   izquierda, relleno a 4 sólo si tiene menos de 4 cifras.~~ **Esa respuesta
+   quedó reemplazada.** **Respondida por el administrador el 2026-11-26:** el
+   número se copia **tal cual lo escribe la entidad**, sin quitar ni poner
+   ceros, en las tres fuentes (ADRES, DPS y Función Pública):
+   `R_ADRES_0128021_2026`, `R_ADRES_0000009_2026`, `C_ADRES_000008_2022`.
+   El diseño ya está ajustado a esta regla.
 5. **Sigla `ADRES`:** ¿se aprueba?
 6. **Rutas viejas** (2 resoluciones): ¿se rehacen como `/api/media/file/` o se
-   omiten con aviso?
+   omiten con aviso? (Comprobado el 2026-11-26: los dos archivos existen en
+   `/api/media/file/` y bajan como PDF; rehacerlas funciona.)
 7. **Duplicado 12758/2023:** ¿se queda la fila con la fecha más antigua?
 8. **Republicación:** `HEAD` da 404. ¿`checks_for_republication = False`
    (propuesto) o se acepta bajar entero cada día lo que esté en la ventana?
+   (Comprobado el 2026-11-26: `HEAD` → 404 JSON y `GET` → 200 PDF.)
 9. **Migración:** ¿cuántos documentos `adres` hay en producción y alguno está
    marcado? → opción A o B.
 10. **Normograma** (`normograma.adres.gov.co`): ¿se estudia como fuente
