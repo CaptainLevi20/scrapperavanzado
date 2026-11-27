@@ -2,8 +2,9 @@
 
 **Fecha:** 2026-11-23
 **Entidad:** Administradora de los Recursos del Sistema General de Seguridad Social en Salud (`adres`, sigla propuesta `ADRES`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Las preguntas que
+seguían abiertas toman la propuesta del diseño; la migración es la opción A.
+Plan: `docs/superpowers/plans/2026-11-26-fuente-adres.md`.
 
 > **La familia `adres` ya existe** (`core/scrapers/families/adres.py`, port
 > de julio de 2026, sin diseño ni ficha en la guía de despliegue) **y hoy no
@@ -114,7 +115,9 @@ consecutivo iba por la 185.869): es una selección que la entidad publica,
   fija **`alerta_margen_dias`** tras la corrida real, con la pausa más larga
   entre documentos de los últimos años (misma regla que las demás fuentes de
   publicación esporádica), para que la alerta de "fuente que puede estar
-  fallando" no salte por eso.
+  fallando" no salte por eso. **Fijado en 140 días** (corrida del
+  2026-11-26: la pausa más larga desde 2022 fue de 133 días, del 26-03 al
+  06-08-2025).
 - Fecha ilegible (0 casos hoy) → fila descartada con aviso.
 
 ## Número y nombre canónico
@@ -133,7 +136,9 @@ Circulares:   ^\s*(\d+)(?:[\s_\-]*(?:de)?[\s_\-]*(\d{4})(?!\d))?
 Acuerdos:     ^\s*acuerdo[\s_]*(?:(?:no|numero)[\s_]*)?(\d+)(?:[\s_]*de[\s_]*(\d{4}))?
 ```
 
-(Las regex ya **no** quitan los ceros: el grupo del número es `(\d+)` sin
+(Al programar se agregó `(?!\d)` justo después del grupo del número en las
+tres: sin él, la circular `0000014_24_06_2024` se partía en número `000` y
+año `0014`. Las regex ya **no** quitan los ceros: el grupo del número es `(\d+)` sin
 `0*` delante. Vuelta a probar el 2026-11-26 con el listado vivo: siguen
 cubriendo todas las filas propias.)
 
@@ -295,6 +300,7 @@ Alembic.
 1. **Transporte:** ¿HTML + RSC (más frágil, recomendado) o la API de Payload
    `/api/pages` (JSON limpio)? `robots.txt` (`Disallow: /api`) no distingue
    entre las dos: los PDF se bajan de `/api/media/file/` en ambos casos.
+   **Se toma la propuesta (aprobación del 2026-11-26):** HTML + RSC.
 2. **Alcance:** **Respondida (administrador, 2026-11-25):** Resoluciones, Circulares y Acuerdos.
    Los bloques de MinSalud **no** (se publican en MinSalud).
 3. **Circulares internas:** **Respondida (administrador, 2026-11-25):** **se incluyen**. Hay contrato
@@ -306,18 +312,24 @@ Alembic.
    ceros, en las tres fuentes (ADRES, DPS y Función Pública):
    `R_ADRES_0128021_2026`, `R_ADRES_0000009_2026`, `C_ADRES_000008_2022`.
    El diseño ya está ajustado a esta regla.
-5. **Sigla `ADRES`:** ¿se aprueba?
+5. **Sigla `ADRES`:** ¿se aprueba? **Se toma la propuesta (aprobación del
+   2026-11-26):** `ADRES`.
 6. **Rutas viejas** (2 resoluciones): ¿se rehacen como `/api/media/file/` o se
    omiten con aviso? (Comprobado el 2026-11-26: los dos archivos existen en
-   `/api/media/file/` y bajan como PDF; rehacerlas funciona.)
+   `/api/media/file/` y bajan como PDF; rehacerlas funciona.) **Se toma la
+   propuesta (aprobación del 2026-11-26):** se rehacen, con aviso.
 7. **Duplicado 12758/2023:** ¿se queda la fila con la fecha más antigua?
+   **Se toma la propuesta (aprobación del 2026-11-26):** sí.
 8. **Republicación:** `HEAD` da 404. ¿`checks_for_republication = False`
    (propuesto) o se acepta bajar entero cada día lo que esté en la ventana?
-   (Comprobado el 2026-11-26: `HEAD` → 404 JSON y `GET` → 200 PDF.)
+   (Comprobado el 2026-11-26: `HEAD` → 404 JSON y `GET` → 200 PDF.) **Se toma
+   la propuesta (aprobación del 2026-11-26):** `checks_for_republication = False`.
 9. **Migración:** ¿cuántos documentos `adres` hay en producción y alguno está
-   marcado? → opción A o B.
+   marcado? → opción A o B. **Respondida por el usuario el 2026-11-26:**
+   opción A, `core/backfill_adres_v2.py` (simula por defecto; `--aplicar`).
 10. **Normograma** (`normograma.adres.gov.co`): ¿se estudia como fuente
-    aparte?
+    aparte? **Se toma la propuesta (aprobación del 2026-11-26):** fuera de
+    alcance de esta versión.
 
 ## Plan de implementación (cuando se apruebe)
 

@@ -3,8 +3,9 @@
 **Fecha:** 2026-11-23 (revisado 2026-11-26 con las decisiones del
 administrador y una revisión contra el sitio en vivo)
 **Entidad:** Auditoría General de la República (`auditoria`, sigla propuesta `AGR`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Implementado en
+`core/scrapers/families/auditoria.py` (plan:
+`docs/superpowers/plans/2026-11-26-fuente-auditoria.md`).
 
 > El enlace que dio el usuario
 > (`https://www.auditoria.gov.co/web/guest/auditoria/normatividad`) es un
@@ -333,8 +334,10 @@ paginación):
 
 1. **Secciones:** ¿conceptos + resoluciones orgánicas y reglamentarias +
    circulares (propuesto)?
+   **Se toma la propuesta (aprobación del 2026-11-26).**
 2. **Resoluciones ordinarias** (casi todas ofertas de bienes dados de baja;
    3 desde 2025): ¿se dejan fuera (propuesto)?
+   **Se toma la propuesta (aprobación del 2026-11-26).**
 3. **Piso:** **Respondida por el administrador el 2026-11-25:** primero
    respondió "desde 2015" y luego "documentos del 2025 en adelante". Se
    toma la última, **2025**. **Respondida por el administrador el
@@ -349,13 +352,16 @@ paginación):
    código: `AGR` sólo existe como código de especialidad "Asuntos agrarios"
    de SAMAI, que no va en títulos; `CD` no existe en ningún título. No hay
    choque.)
+   **Se toma la propuesta (aprobación del 2026-11-26): `CD` y `AGR`.**
 5. **Fecha:** ¿`f_public` = fecha de carga al sitio y `f_providencia` =
    1 de enero del año del documento (propuesto)? Con el piso 2025 ya no
    aplica el problema de las cargas masivas de 2019/2023.
+   **Se toma la propuesta (aprobación del 2026-11-26).**
 6. **Números repetidos con asunto distinto:** ¿el segundo como `_A01` con
    aviso (propuesto) o como documento aparte con sufijo? (Revisado en el
    sitio el 2026-11-26: todos los casos conocidos son de 2017-2024; desde
    2025 no hay ninguno, así que hoy no afecta.)
+   **Se toma la propuesta (aprobación del 2026-11-26).**
 7. **Formato del número:** **Respondida por el administrador el
    2026-11-26:** el número se copia tal como lo escribe la entidad, sin
    rellenar con ceros ni quitarlos (`CTO_AGR_015_2025`,

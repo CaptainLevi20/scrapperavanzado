@@ -3,8 +3,9 @@
 **Fecha:** 2026-11-23 (revisado 2026-11-26 con las decisiones del
 administrador y una nueva medición contra la API en vivo)
 **Entidad:** Contraloría General de la República (`contraloria`, sigla propuesta `CGR`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Implementado en
+`core/scrapers/families/contraloria.py` (plan:
+`docs/superpowers/plans/2026-11-26-fuente-contraloria.md`).
 
 > El enlace que dio el usuario
 > (`https://www.contraloria.gov.co/web/relatoria/normatividad-y-relatoria`)
@@ -454,10 +455,12 @@ una vez.
    medición de la tarde, 30 de 60 —, igual que puede pasar con las
    resoluciones, y la verificación lo cubre: las que fallan se omiten con
    aviso y entran al repetir la corrida de su rango más adelante.)
+   Se toma la propuesta (aprobación del 2026-11-26).
 2. **Error de la API:** ¿se avisa a la CGR de que su buscador, para los `Id`
    que se repiten entre bibliotecas (184 resoluciones, 60 circulares y 1
    concepto desde 2015), entrega a veces el archivo de otra biblioteca?
    (No es algo que se pueda arreglar de nuestro lado.)
+   Se toma la propuesta (aprobación del 2026-11-26).
 3. **Nombre de resoluciones:** **Respondida por el administrador el
    2026-11-26:** la serie va en el número y se conserva `R`:
    `R_CGR_OGZ-0897_2026`, `R_CGR_REG-EJE-0123_2026`,
@@ -465,6 +468,7 @@ una vez.
    (`R_AGR_ORG-003_2026`).
 4. **Conceptos de 2015** (radicado en vez de número): ¿
    `CTO_CGR_2015EE0012345_2015` (propuesto)?
+   Se toma la propuesta (aprobación del 2026-11-26).
 5. **Piso:** **Respondida por el administrador el 2026-11-26:** 2015 en
    todas las secciones, conceptos incluidos, aceptando ~10 GB en la primera
    corrida; antes hay que ampliar el disco de producción y la primera
@@ -473,8 +477,13 @@ una vez.
    `…/getDownloadFileApiBuffer#OGZ-0897-2026.pdf` en la URL (funciona con el
    código actual), o se prefiere un cambio pequeño en `core/downloader.py`
    (`link["filename"]`)?
+   Se toma la propuesta (aprobación del 2026-11-26).
+   (Implementado con una variante: el fragmento lleva la clave de identidad
+   y la extensión en minúscula, `#OGZ-897-2026.pdf`, en vez del
+   `FileLeafRef` crudo, que trae espacios, mayúsculas y a veces `#`.)
 7. **Sigla `CGR`:** ¿se aprueba? (Revisado en el código: no existe en
    ningún título ni familia; no hay choque.)
+   Se toma la propuesta (aprobación del 2026-11-26).
 8. **Formato del número:** **Respondida por el administrador el
    2026-11-26:** el número se copia tal como lo escribe la entidad, sin
    rellenar con ceros ni quitarlos (`CTO_CGR_130_2026`,

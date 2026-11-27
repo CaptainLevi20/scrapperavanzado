@@ -2,8 +2,11 @@
 
 **Fecha:** 2026-11-23
 **Entidad:** Departamento Administrativo para la Prosperidad Social (`dps`, sigla propuesta `DPS`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Alcance decidido por
+el usuario el mismo día: sólo lo propio del DPS (resoluciones, circulares y
+acuerdos), sin decretos ni leyes. Implementado en
+`core/scrapers/families/dps.py` (plan:
+`docs/superpowers/plans/2026-11-26-fuente-dps.md`).
 
 > El enlace que dio el usuario
 > (`https://prosperidadsocial.gov.co/transparencia/normativa/`) es un
@@ -20,17 +23,17 @@ hasta que se apruebe.
 ## Objetivo
 
 Familia de scraper nueva `dps`, desde **2015** (año de expedición).
-Propuesta (a confirmar, pregunta 1):
+Alcance aprobado (pregunta 1: sólo lo propio del DPS):
 
 | Sección | Página WP (id) | tipo | título | Filas desde 2015 |
 |---|---|---|---|---|
 | Resoluciones | `/transparencia/normativa/resoluciones/` (33139) | `Resolución` | `R_DPS_{número}_{año}` | 479 |
 | Circulares | `/transparencia/normativa/circulares/` (1221) | `Circular` | `C_DPS_{número}_{año}` | 16 (la última es de 2021) |
 | Acuerdos interinstitucionales | `/transparencia/normativa/acuerdos-interinstitucionales/` (52177) | `Acuerdo` | `A_DPS_{número}_{año}` | 1 |
-| Decretos (opcional) | `/transparencia/normativa/decretos/` (1207) | `Decreto` | `D{número:04}{año:03}` (regla común) | 114 |
-| Leyes (opcional) | `/transparencia/normativa/leyes/` (1202) | `Ley` | `L{número:04}{año:03}` (regla común) | 22 |
 
-Decretos y leyes **no son actos del DPS**: son decretos del Gobierno
+**Fuera de alcance (usuario, 2026-11-26):** las páginas de Decretos (1207,
+114 filas desde 2015) y Leyes (1202, 22 filas). Decretos y leyes **no son
+actos del DPS**: son decretos del Gobierno
 nacional y leyes del Congreso que afectan al sector. El worker los reconoce
 por el código `D…`/`L…`, pero **hoy sólo en un sentido**: el chequeo de
 `worker/tasks.py` (`list_ministerio_documents_by_title`) busca el código en
@@ -160,7 +163,7 @@ todo lo que expide el DPS.
   PDF de la fila quedan como resolución y anexo.
 - Número que no es `\d+` tras limpiar (0 casos más hoy) → texto saneado,
   `title_unverified=True` y aviso.
-- Decretos y leyes: `codigo_ley_decreto("D"|"L", número, año)`. Aquí **no**
+- (No aplica en v1: decretos y leyes quedaron fuera.) Decretos y leyes: `codigo_ley_decreto("D"|"L", número, año)`. Aquí **no**
   aplica la regla de "número tal cual": el código común de `core/naming.py`
   rellena a 4 a propósito, porque es lo que permite reconocer el mismo
   decreto o ley en varias fuentes.
@@ -231,6 +234,10 @@ peticiones de listado y 0-3 PDF nuevos.
 **Cambio fuera de la familia (aprobado por el administrador el 2026-11-26):
 dedup de decretos y leyes en todos los sentidos.**
 
+Con decretos y leyes fuera del `dps` v1, el cambio sigue valiendo para
+`funcion_publica` y se programa con esa familia (no en `dps.py`); deja
+`dps` en el conjunto para cuando se sumen.
+
 - `core/db/repository.py`: `list_ministerio_documents_by_title` (el chequeo
   que usa `worker/tasks.py:418` antes de bajar un `D…`/`L…`) pasa a buscar
   también en las familias `dps` y `funcion_publica`. Se hace con un conjunto
@@ -283,16 +290,17 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 ## Preguntas para el usuario / administrador
 
 1. **Secciones:** ¿sólo lo propio del DPS (resoluciones, circulares,
-   acuerdo), o también decretos y leyes del sector?
+   acuerdo), o también decretos y leyes del sector? **Respondida:** sólo lo
+   propio del DPS (usuario, 2026-11-26). Sin decretos ni leyes.
 2. **Normograma:** ¿se suma en una v2 para las ~78 resoluciones que faltan
-   en WordPress y los 127 conceptos jurídicos?
-3. **Piso:** ¿2015?
+   en WordPress y los 127 conceptos jurídicos? **Se toma la propuesta (aprobación del 2026-11-26).**
+3. **Piso:** ¿2015? **Se toma la propuesta (aprobación del 2026-11-26).**
 4. **Fecha:** ¿`f_public` = fecha de expedición (propuesto) o el
-   `Last-Modified` de SharePoint como fecha de publicación?
-5. **Resoluciones conjuntas** (2): ¿`R_DPS_…` (propuesto) o prefijo propio?
+   `Last-Modified` de SharePoint como fecha de publicación? **Se toma la propuesta (aprobación del 2026-11-26).**
+5. **Resoluciones conjuntas** (2): ¿`R_DPS_…` (propuesto) o prefijo propio? **Se toma la propuesta (aprobación del 2026-11-26).**
 6. **Sigla `DPS`:** ¿se aprueba? (La entidad hoy se llama a sí misma
    "Prosperidad Social", pero `DPS` es la sigla de sus resoluciones y de su
-   SharePoint.)
+   SharePoint.) **Se toma la propuesta (aprobación del 2026-11-26).**
 7. **Número:** **Respondida por el administrador el 2026-11-26:** el número
    se copia tal cual lo escribe la entidad, sin quitar ni poner ceros, en las
    tres fuentes (ADRES, DPS y Función Pública): `R_DPS_00464_2016`. Reemplaza
@@ -304,7 +312,32 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
    los sentidos (ver Integración). Si al final se decide no traer Decretos ni
    Leyes (pregunta 1), el cambio igual sirve para `funcion_publica`.
 
-## Plan de implementación (cuando se apruebe)
+## Resultado de la implementación (2026-11-26)
+
+Corrida real del scraper contra el sitio (sin base de datos), de 2015-01-01
+a hoy, en 1,2 s: **498 documentos**: 482 resoluciones (6 de ellas anexos
+`_A01`…), 15 circulares y 1 acuerdo. 0 sin verificar, 0 fechas ilegibles,
+0 filas sin enlace. Una segunda pasada devuelve exactamente lo mismo.
+Avisos: `02418`/`2418` de 2020 y `00860`/`860` de 2015 (en ambos casos los
+dos enlaces bajan el **mismo** archivo: mismo tamaño y `ETag`; se queda la
+primera fila), `01572`/`01780` de 2020 con el mismo enlace, y la circular
+`007` dos veces en 2017. Los casos `02163`/`02000` de 2024 y las circulares
+`01` de 2018/2019 ya no aparecen en el sitio. La circular `018` de 2021 sale
+con fecha `22-sept`.
+
+Cambios frente al diseño:
+
+- La página de Circulares **no tiene fila de cabecera**: la cabecera se
+  reconoce por su texto (`TIPO`/`FECHA`), no por ser la primera fila.
+- Si la fecha trae un año distinto al del panel, manda el panel (no hay
+  casos hoy).
+- Dedup: se recorren todas las filas desde el piso, aunque caigan fuera de
+  la ventana, para que el documento que se queda no dependa del rango.
+- `alerta_margen_dias = 120`: la pausa más larga entre resoluciones desde
+  2020 es de 53 días (142 entre ago-2019 y ene-2020), más el retraso de
+  carga.
+
+## Plan de implementación
 
 1. Prueba + limpieza de `\u200b`, lector de fechas y número → título
    (casos 1-3).

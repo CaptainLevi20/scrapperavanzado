@@ -2,8 +2,8 @@
 
 **Fecha:** 2026-11-23
 **Entidad:** Departamento Administrativo de la Función Pública (`funcion_publica`, sigla propuesta `DAFP`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Las preguntas que
+seguían abiertas toman la propuesta del diseño.
 
 > El enlace que dio el usuario
 > (`https://www.funcionpublica.gov.co/eva/gestornormativo/consulta_avanzada.php`)
@@ -316,24 +316,40 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
 - **PDF generado:** si la Función Pública cambia la plantilla, los PDF nuevos
   se verán distintos a los viejos; no hay republicación que detectar.
 - Si el sitio arregla el certificado, se puede quitar `verify=False`.
+- **Hallazgo de la implementación (2026-11-26) — bloquea la descarga:** el
+  servidor manda `Content-Length` igual al tamaño del PDF **sin** contar los
+  dos bytes `\t\n` del principio, así que **todos** los PDF llegan cortados
+  en los dos últimos bytes: terminan en `%%E` en vez de `%%EOF` (comprobado
+  con 7 normas de 2020 y 2026, por HTTP/1.1, HTTP/1.0 y con gzip; el corte
+  está en el servidor). El PDF se abre y se lee bien (la tabla `xref` y el
+  `startxref` están completos), pero `core/verificacion_archivos.py` lo
+  rechaza ("no tiene marca de final") y cada documento quedaría fallido.
+  **Decisión del usuario (2026-11-26):** el descargador completa la marca.
+  Cada enlace de la familia lleva `link["completar_fin_pdf"] = True` y
+  `core/downloader.py` (`_completar_fin_pdf`), antes de verificar, agrega
+  `OF` o `F` sólo si el archivo termina justo en `startxref <número> %%E` o
+  `%%EO`; cualquier otro corte se deja igual y la verificación lo sigue
+  rechazando. La huella SHA-256 se calcula sobre el archivo ya completado.
+  La verificación no cambia. Comprobado en vivo con 5 conceptos de 2026: pasan
+  la verificación y se leen bien. Conviene avisar a la Función Pública.
 
 ## Preguntas para el usuario / administrador
 
 1. **Alcance de "Departamentos Administrativos":** ¿se quiere sólo lo que
    expide la Función Pública (propuesta), o todo el Gestor filtrado a algún
    otro departamento administrativo? (Para Prosperidad Social el Gestor sólo
-   tiene 1 norma; ver su propio diseño.)
+   tiene 1 norma; ver su propio diseño.) **Se toma la propuesta (aprobación del 2026-11-26).**
 2. **Tipos:** ¿todos los de la tabla, o sólo conceptos? Los conceptos son el
-   99 % del volumen (~23.000).
+   99 % del volumen (~23.000). **Se toma la propuesta (aprobación del 2026-11-26).**
 3. **Prefijo `CU`** para "Circular Unificada" (9 desde 2015): ¿se aprueba o
-   se usa `C`?
+   se usa `C`? **Se toma la propuesta (aprobación del 2026-11-26).**
 4. **Fecha corregida** cuando la expedición no cuadra con el año del título:
    ¿se aprueba el orden expedición → vigencia → `<año>-01-01`? (La primera
    versión iba directo a `<año>-01-01`; se agregó el paso por la fecha de
-   vigencia tras la revisión del 2026-11-26.)
-5. **Sigla `DAFP`:** ¿se aprueba?
+   vigencia tras la revisión del 2026-11-26.) **Se toma la propuesta (aprobación del 2026-11-26).**
+5. **Sigla `DAFP`:** ¿se aprueba? **Se toma la propuesta (aprobación del 2026-11-26).**
 6. **Carga inicial** de ~14 horas: ¿se lanza entera o por tramos? (Se
-   recomienda por tramos, por el espacio en disco: ver Riesgos.)
+   recomienda por tramos, por el espacio en disco: ver Riesgos.) **Se toma la propuesta (aprobación del 2026-11-26).**
 7. **Número:** **Respondida por el administrador el 2026-11-26:** el número
    se copia tal cual lo escribe la entidad, sin quitar ni poner ceros, en las
    tres fuentes (ADRES, DPS y Función Pública). Aquí cambia sólo Resoluciones
@@ -344,7 +360,9 @@ Sin migración Alembic. En producción: `python -m core.seed` una vez.
    `list_ministerio_documents_by_title`, para que la dedup funcione en todos
    los sentidos (ver Integración).
 
-## Plan de implementación (cuando se apruebe)
+## Plan de implementación
+
+Plan detallado: `docs/superpowers/plans/2026-11-26-fuente-funcion_publica.md`.
 
 1. Prueba + función `h5` → título (casos 1-2).
 2. Prueba + parseo de listado y detalle con HTML real (casos 3-5).

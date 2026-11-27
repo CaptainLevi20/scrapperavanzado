@@ -1386,6 +1386,410 @@ Es seguro repetirlo.
   `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
   para que aparezca en el listado. Es seguro repetirlo.
 
+### Administradora de los Recursos del Sistema General de Seguridad Social en Salud (`adres`)
+
+- **Qué trae:** las **resoluciones**, **circulares** y **acuerdos** propios de
+  la ADRES que publica su sitio (`adres.gov.co/normativa/…`), de 2015 en
+  adelante (la ADRES empezó en 2017, así que en la práctica es todo).
+  Incluye las circulares internas (turnos, simulacros…), porque el sitio las
+  mezcla con las externas y hay contrato con la entidad.
+- **Cuánto entrega:** el listado completo (revisado el 26-nov-2026) tiene 307
+  documentos: 142 resoluciones, 161 circulares y 4 acuerdos (~245 MB). Cada
+  corrida, diaria o completa, lee las tres páginas en un par de segundos; la
+  carga completa tarda unos minutos por las descargas.
+- **Qué no trae:** las normas del Ministerio de Salud que aparecen en las
+  mismas páginas (las trae la fuente del Ministerio), los proyectos de acto
+  administrativo, las acciones populares, los fallos de tutela (traen nombres
+  de personas) ni el normograma aparte de la ADRES. Las resoluciones del sitio
+  son una selección que hace la ADRES, no todo lo que expide.
+- **Cómo quedan nombrados:** `R_ADRES_0128021_2026`, `C_ADRES_000008_2024`,
+  `A_ADRES_497_2017`. El número va tal como lo escribe la ADRES, con sus
+  ceros.
+- **Fechas:** la fecha de expedición que muestra el sitio. La ADRES tarda
+  hasta unas 4 semanas en listar lo que sube, así que la corrida diaria mira
+  **45 días** atrás (no cuesta nada: siempre se leen las tres páginas
+  completas).
+- **Datos del sitio con errores:** 4 resoluciones tienen en el sitio una fecha
+  de otro año que el de su nombre (p. ej. "2707 de 2020" con fecha de 2021).
+  Se guardan con el año del nombre y quedan **por verificar**, con un aviso en
+  la corrida. Dos resoluciones están repetidas (12758 de 2023 y 2935 de 2020):
+  se guarda una. Dos enlazan a una dirección vieja del sitio y se corrigen
+  solas. Los enlaces a otros sitios (vlex, noticias) se ignoran.
+- **Aviso de salud:** la ADRES publica poco y a saltos (en 2025, 7
+  resoluciones y 3 circulares); la alerta de "fuentes que pueden estar
+  fallando" tolera hasta 140 días sin documentos nuevos. Si el sitio vuelve a
+  cambiar y las páginas dejan de traer el listado, la corrida avisa con un
+  error (antes, el cambio de agosto de 2026 pasó en silencio).
+- **Detalle técnico:** el sitio rechaza programas que no se presentan como
+  navegador; el sistema ya lo hace. No se revisa si un documento ya guardado
+  fue reemplazado en el sitio, porque el sitio no responde a esa consulta.
+- **Cambio de sitio de agosto de 2026 (una sola vez):** la fuente ya existía,
+  pero desde mediados de agosto no traía nada. Con el sitio nuevo cambió la
+  dirección de todos los archivos, así que, para que no se dupliquen los
+  documentos ya guardados, después de actualizar producción y **antes de la
+  primera corrida** hay que correr:
+
+  ```
+  docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.backfill_adres_v2
+  ```
+
+  Eso solo muestra lo que cambiaría. Si se ve bien, se repite con
+  `--aplicar` al final. Les pone a los documentos guardados su nombre y su
+  dirección nuevos y renombra el archivo, sin descargar nada ni perder las
+  marcas de revisión. Los que no encuentra los deja como estaban y los lista.
+  Después se lanza una corrida completa desde 2015 para traer lo que falte.
+  No hace falta correr `core.seed`: la fuente ya existe.
+
+### Auditoría General de la República (`auditoria`)
+
+- **Qué trae:** de la sección "Normatividad" del sitio de la AGR, los
+  **conceptos jurídicos**, las **resoluciones orgánicas y reglamentarias** y
+  las **circulares** (externas, conjuntas y dispositivas), de **2025 en
+  adelante** (año del documento).
+- **Cuánto entrega:** la consulta del 26-nov-2026 encontró 198 documentos:
+  151 conceptos, 21 resoluciones orgánicas (una de ellas es un anexo), 17
+  reglamentarias, 6 circulares externas y 3 dispositivas. Todos en PDF,
+  unos 0,2 GB en total. La consulta tarda unos 5 segundos; la AGR sube 1 o 2
+  conceptos por semana.
+- **Qué no trae:** resoluciones ordinarias (casi todas son ofertas de bienes
+  dados de baja), la carpeta "Repositorio Ofi Jurídica" (resoluciones del
+  Ministerio de Salud), el normograma (es de uso interno y pide clave), el
+  Decreto Ley 272 de 2000 ni nada de antes de 2025.
+- **Cómo quedan nombrados:** conceptos `CTO_AGR_015_2025`; resoluciones con
+  la clase dentro del número, porque orgánicas y reglamentarias llevan
+  numeración aparte: `R_AGR_ORG-003_2026`, `R_AGR_REG-005_2026`; circulares
+  `CE_AGR_006_2025` (externa), `CJ_AGR_…` (conjunta), `CD_AGR_003_2026`
+  (dispositiva). El número va **tal como lo escribe la AGR**, con sus ceros.
+  En el detalle va el asunto que trae el nombre del archivo.
+- **Fechas:** el sitio no dice cuándo se expidió cada documento, solo el
+  año (por la carpeta) y el día en que se subió. Por eso la fecha que se ve
+  es la **fecha en que la AGR lo subió** al sitio, y la de expedición queda
+  como 1 de enero de su año. La corrida diaria recorre todas las carpetas
+  desde 2025 (unos segundos) y encuentra lo nuevo el día en que aparece.
+  **Ojo con las corridas manuales por rango:** el rango se compara con la
+  fecha de subida, no con la de expedición; un concepto de diciembre de 2025
+  subido en enero de 2026 sale en el rango de 2026.
+- **Datos del sitio con errores:**
+  - El archivo `39-02-2025_010-IGIP.pdf` (carpeta de orgánicas 2025) no dice
+    qué resolución es; por su número se guarda como anexo de la Orgánica 010
+    de 2025 (`R_AGR_ORG-010_2025_A01`) y la corrida lo avisa.
+  - En la carpeta principal de conceptos hay cuatro conceptos viejos sin
+    año en el nombre (dos "SIA ATC" y los 110_08 y 110_09); no se puede
+    saber si son de 2025 en adelante, así que se omiten y salen como aviso en
+    cada corrida. El concepto 015 de 2025 está repetido en esa carpeta y en
+    la de 2025: se guarda una vez.
+  - Si la AGR sube dos archivos con el mismo número (o un "anexo"/"manual"
+    del mismo número), el segundo se guarda como anexo (`_A01`) y, si no dice
+    "anexo", la corrida avisa con los dos nombres para revisarlo. Hoy no hay
+    casos desde 2025.
+- **Detalle técnico:** el certificado de seguridad del sitio está mal
+  instalado (envía un certificado intermedio equivocado), así que para este
+  sitio, y solo para él, no se valida el certificado al consultar ni al
+  descargar. Si la AGR sube una versión nueva del mismo archivo, se detecta
+  como republicación y se vuelve a descargar.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Contraloría General de la República (`contraloria`)
+
+- **Qué trae:** del "Sistema de Búsqueda de Normas de la CGR" (la página de
+  Relatoría del sitio de la Contraloría), lo expedido en 2015 en adelante:
+  **resoluciones** (organizacionales y reglamentarias ejecutivas y orgánicas),
+  **conceptos jurídicos** de la Oficina Jurídica y **circulares** (también
+  las conjuntas).
+- **Cuánto entrega:** desde 2015 hay unas 520 resoluciones, 2.510 conceptos y
+  60 circulares: **unos 3.090 archivos, del orden de 10 GB** (los conceptos
+  son escaneos de unos 4 MB cada uno). En un año normal: unas 25-75
+  resoluciones, 200 conceptos y pocas circulares (prueba del 26-nov-2026:
+  2025 dio 243 documentos y 2020 dio 305). Leer el listado tarda segundos; lo
+  lento es la descarga.
+- **Qué no trae:** la jurisprudencia del buscador (son sentencias del Consejo
+  de Estado y la Corte Constitucional sobre la Contraloría, que ya llegan por
+  las fuentes de las cortes), el Boletín Jurídico, la "Normativa aplicable"
+  (leyes de otras entidades), los proyectos de norma, ni nada anterior a 2015.
+- **Cómo quedan nombrados:** la serie de la resolución va dentro del número,
+  porque cada serie tiene su propio consecutivo: `R_CGR_OGZ-0897_2026`,
+  `R_CGR_REG-EJE-0123_2026`, `R_CGR_REG-ORG-0043_2020`. Conceptos:
+  `CTO_CGR_130_2026` (los de 2015 llevan el radicado: `CTO_CGR_2015EE0012345_2015`).
+  Circulares: `C_CGR_023_2025`, y las conjuntas `CJ_CGR_0010_2025`. El número
+  se copia tal como lo escribe la Contraloría, con o sin ceros. En el detalle
+  va el tema o epígrafe.
+- **Fechas:** la de expedición. La corrida diaria mira **120 días atrás**,
+  porque la Contraloría sube algunos documentos semanas o meses después; no
+  cuesta nada, porque cada corrida lee el listado completo de una vez, y lo ya
+  guardado no se vuelve a bajar.
+- **Datos del sitio con errores:**
+  - **Archivo equivocado.** El buscador de la Contraloría a veces entrega el
+    archivo de **otra** sección (por ejemplo, pides una resolución y entrega
+    un concepto). Pasa con unos 245 registros desde 2015 y cambia de un
+    momento a otro. Antes de guardar esos registros, la corrida le pregunta
+    al sitio qué archivo va a entregar; si no es el correcto, **no lo guarda**
+    y lo avisa ("la CGR entrega otro archivo para este registro en este
+    momento"). Los recientes entran solos en una corrida diaria posterior;
+    los viejos, repitiendo a mano una corrida del año que indica el aviso.
+  - Algunos números están dos veces (el mismo concepto subido dos veces, o
+    `0219` y `219`): se guarda uno y se avisa.
+  - La resolución `OGZ-00801-2022` no tiene fecha en el sitio y no se
+    descarga; sale un aviso en cada corrida. Lo mismo una circular sin
+    archivo (registro "2026").
+  - Unos pocos documentos tienen en el número un año distinto al de su
+    fecha (p. ej. `R_CGR_REG-EJE-0103_2021`, expedida en enero de 2022): se
+    nombran con el año del número y la corrida lo avisa.
+  - La circular "Circular - Auditorías" (2020) no tiene número: se guarda con
+    ese nombre y queda **por verificar**.
+- **Detalle técnico:** el enlace "ver en el sitio" de estos documentos no
+  abre nada (el sitio sólo entrega los archivos a pedido del buscador, no
+  por un enlace directo). Por la misma razón no se revisa si la Contraloría
+  reemplaza un archivo ya guardado.
+- **Prueba real (26-nov-2026):** se leyeron los listados de 2025 y 2020 y se
+  descargaron muestras (resoluciones, conceptos, circulares y un Word); todas
+  coincidieron con el listado. _(Completar con la corrida local completa y la
+  segunda corrida sin descargas nuevas.)_
+- **Atención, disco de producción:** la primera carga son unos **10 GB**.
+  **No se lanza hasta que sistemas amplíe el disco** del servidor (se llenó el
+  19-nov-2026). Después se hace **por años**, una corrida por año empezando
+  por el más reciente (2026, 2025, … 2015), revisando el espacio libre entre
+  una y otra. La corrida diaria baja muy poco (0-5 archivos).
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Departamento Administrativo de la Función Pública (`funcion_publica`)
+
+- **Qué trae:** las normas que expide la propia Función Pública en su
+  Gestor Normativo (`funcionpublica.gov.co/eva/gestornormativo`), de 2015 en
+  adelante: **conceptos** (incluidos los "Concepto Marco" y los "Conceptos
+  Guías"), **decretos** (y decretos salariales), **resoluciones** y
+  **circulares** (externas, conjuntas y unificadas). Cada norma se descarga en
+  PDF.
+- **Cuánto entrega:** casi todo son conceptos (el 99 %). La prueba del
+  26-nov-2026 con todo 2026 dio 271 normas — 231 conceptos, 27 decretos y 13
+  circulares — y tardó unos 4 minutos y medio, porque hay que abrir la ficha
+  de cada norma para saber su fecha. Desde 2015 hay unas 23.300 normas; la
+  carga completa tarda alrededor de **14 horas**.
+- **Carga inicial por tramos:** no lance la carga completa de una vez. Antes,
+  confirme con sistemas que el disco del servidor tiene espacio de sobra (los
+  PDF ocupan unos 2 GB, más la base de datos y los temporales). Lance la
+  corrida manual por tramos de años desde el frontend (por ejemplo, 2026-2025,
+  luego 2024, 2023, 2022, 2021 —el año más grande, unas 6.200 normas—, 2020,
+  2019 y 2015-2018) y revise el espacio libre entre un tramo y el siguiente.
+- **Qué no trae:** las normas de otras entidades que el Gestor también
+  recopila (leyes, sentencias, decretos de ministerios…), ni las leyes,
+  sentencias, comunicados y documentos de relatoría que el Gestor asocia a la
+  Función Pública. Tampoco el oficio original firmado: el Gestor sólo entrega
+  un PDF que arma a partir del texto de la norma. Nada anterior a 2015.
+- **Cómo quedan nombrados:** con la sigla `DAFP` y el número tal como lo
+  escribe la entidad: `CTO_DAFP_138331_2026`, `CTO_DAFP_000511_2026`,
+  `R_DAFP_035_2020`, `CE_DAFP_100-011_2026`, `CJ_DAFP_01_2026`,
+  `CU_DAFP_1_2020` (circular unificada). Los decretos usan el código común de
+  todas las fuentes, sin sigla: `D1384026`. Si un decreto ya está guardado en
+  un ministerio o en Prosperidad Social, no se vuelve a bajar (y al revés).
+- **Fechas:** se usa la fecha de expedición de la ficha de cada norma. Si esa
+  fecha no corresponde al año del título (o está en el futuro o vacía), se
+  usa la fecha de entrada en vigencia y, si tampoco sirve, el 1 de enero del
+  año del título; en esos casos la corrida lo avisa con las fechas que traía
+  el sitio. En 2026 fueron 14 de 271 (13 al 1 de enero, 1 por vigencia).
+- **Corrida diaria:** la Función Pública carga las normas con meses de
+  retraso y por tandas, así que la corrida diaria revisa el **año en curso y
+  el anterior completos** (unos 5 a 10 minutos). Lo ya guardado no se vuelve
+  a bajar.
+- **Datos del sitio con errores:** algunas fechas de expedición son de otro
+  año que el título, futuras o vacías (31-12-1969), y se corrigen como se
+  explica arriba. Unos pocos títulos traen signos raros en el número
+  (`451981*`, `¿248691`, `C-197`) o no traen número; se limpian y quedan **por
+  verificar**. El concepto 050101 de 2026 aparece dos veces en el Gestor con
+  el mismo número (dos fichas distintas); se guardan las dos y la corrida
+  avisa para revisarlas a mano.
+- **Detalle técnico:** el certificado de seguridad del sitio está mal
+  instalado (envía un certificado intermedio que no corresponde), así que
+  para este sitio se desactiva la verificación del certificado, como en
+  `ssf`, `snr` y `supersolidaria`. El PDF se genera de nuevo en cada
+  descarga y cambia unos bytes cada vez, por eso esta fuente no revisa
+  republicaciones.
+- **PDF cortados por el sitio:** el servidor de la Función Pública corta los
+  dos últimos caracteres de todos sus PDF (la marca de final queda
+  incompleta). El sistema completa esa marca al descargar, sólo para esta
+  fuente y sólo cuando falta exactamente eso; un PDF dañado de otra forma se
+  sigue rechazando. Conviene avisarle a la entidad.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Departamento Administrativo para la Prosperidad Social (`dps`)
+
+- **Qué trae:** lo que el DPS publica en "Transparencia → Normativa" de
+  `prosperidadsocial.gov.co`, de lo expedido en 2015 en adelante:
+  **resoluciones**, **circulares** y **acuerdos interinstitucionales**.
+  Las resoluciones del sitio son una selección de interés general (grupos de
+  trabajo, planta, delegaciones, programas), no todo lo que expide el DPS.
+- **Cuánto entrega:** la consulta del 26-nov-2026 dio 498 documentos — 482
+  resoluciones (6 de ellas anexos), 15 circulares (la última es de 2021) y
+  1 acuerdo (2025). El sitio entrega cada sección entera de una sola vez, así
+  que leer el listado tarda unos segundos; la primera carga es casi toda
+  descarga de PDF (unos 500, del orden de 1 a 2 GB). La corrida diaria baja
+  0 a 3 PDF.
+- **Qué no trae:** las páginas de Decretos y Leyes (son normas del Gobierno y
+  del Congreso, no del DPS; decisión del 26-nov-2026), el Normograma aparte
+  de la entidad (tiene unas 78 resoluciones más y 127 conceptos jurídicos;
+  queda para una segunda versión), proyectos de actos, directivas, avisos de
+  tutelas, ni nada anterior a 2015.
+- **Cómo quedan nombrados:** con el número tal como lo escribe el DPS, sin
+  quitar ni poner ceros: `R_DPS_00464_2016`, `R_DPS_243654_2026`,
+  `C_DPS_018_2021`, `A_DPS_001_2025`. Las resoluciones conjuntas también van
+  con `R`. Si una fila trae varios PDF, el primero es la resolución y los
+  demás sus anexos: `R_DPS_00460_2026_A01`, `_A02`.
+- **Fechas:** la fecha de cada documento es la de expedición que muestra la
+  tabla; muchas veces no trae el año, y se toma el del año del listado en que
+  aparece. El DPS sube los PDF días o semanas después de expedirlos, así que
+  la corrida diaria mira **60 días** atrás (no cuesta: el listado se lee
+  entero en cada corrida).
+- **Datos del sitio con errores:** la resolución 2418 de 2020 aparece dos
+  veces (`2418` y `02418`), igual que la 860 de 2015 (`860` y `00860`); en
+  ambos casos los dos enlaces bajan el mismo archivo y se guarda uno. La
+  01572 y la 01780 de 2020 enlazan al mismo PDF y la circular 007 de 2017
+  está dos veces con archivos distintos: se guarda la primera y la corrida
+  avisa. No es una falla de IURISYNC.
+- **Aviso de salud:** las resoluciones salen a tandas (hasta casi dos meses
+  sin ninguna) y las circulares están paradas desde 2021. La alerta de
+  "fuentes que pueden estar fallando" espera 120 días sin resoluciones antes
+  de salir.
+- **Detalle técnico:** los PDF están en SharePoint (enlaces compartidos
+  públicos del DPS); se bajan sin iniciar sesión.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Cámara de Comercio de Barranquilla (`cc_barranquilla`)
+
+- **Qué trae:** los **laudos arbitrales** del Centro de Conciliación y
+  Arbitraje, de la carpeta "Laudos Arbitrales" que la Cámara comparte desde
+  su página del Centro. Todos, desde 2014 (sin año mínimo), incluidos los de
+  arbitraje social.
+- **Cuánto entrega:** 71 laudos, unos 266 MB (prueba del 26-nov-2026). La
+  revisión de la carpeta tarda unos 4 segundos; la primera descarga, unos
+  minutos. Casi nunca hay nuevos.
+- **Qué no trae:** conciliaciones, amigable composición, insolvencia, listas
+  de árbitros ni tarifas.
+- **Cómo quedan nombrados:** los laudos no traen radicado, así que la fecha
+  completa del laudo hace de número: `LA_CCBAR_20260831_2026`. La sigla es
+  `CCBAR` porque `CCB` ya es la Cámara de Comercio de Bogotá. Si dos laudos
+  tuvieran la misma fecha, el que se subió después lleva `_2`. Los que no
+  traen fecha quedan como `LA_CCBAR_SF1_2021` (sin fecha, número 1 de la
+  carpeta 2021). Las partes van en el detalle.
+- **Fechas:** la del laudo, que sólo aparece en el nombre del archivo. Los
+  laudos se suben semanas (a veces años) después, y revisar la carpeta es
+  rápido, así que la corrida diaria la revisa completa siempre.
+- **Datos del sitio con errores** (salen como aviso en cada corrida, pero sí
+  se guardan, marcados "sin verificar" cuando aplica):
+  - Dos laudos sin fecha en el nombre (carpetas 2021 y 2025): se les pone el
+    1 de enero del año de la carpeta.
+  - Uno con la fecha mal escrita (`2018-09-2018`): se toma el 1 de septiembre
+    de 2018.
+  - Uno de 2019 guardado en la carpeta de 2018: manda la fecha del nombre.
+- **Aviso de salud:** sale si pasa un año sin laudos nuevos con fecha
+  reciente (en 2025 la Cámara subió uno solo). Es esperado.
+- **Detalle técnico:** la carpeta es el OneDrive personal de una funcionaria
+  de la Cámara, compartido con "cualquier persona con el vínculo". Para
+  bajar cada archivo, el sistema abre primero ese enlace público (que da un
+  permiso temporal, sin usuario ni contraseña). Si la funcionaria deja la
+  Cámara o se quita el permiso del enlace, la fuente deja de funcionar y la
+  corrida lo muestra como error.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Cámara de Comercio de Cali (`cc_cali`)
+
+- **Qué trae:** los **laudos arbitrales** del Centro de Conciliación,
+  Arbitraje y Amigable Composición, de las páginas por año que enlaza su
+  índice de laudos. Todo lo que publica el sitio, sin año mínimo: desde la
+  página "1980-1996" hasta 2025. También entran las aclaraciones, adiciones
+  y salvamentos de voto que la Cámara publica en filas aparte, y una
+  "Demanda arbitral contra QUATRO MTJ" (página 2014) que no es un laudo pero
+  está en la tabla.
+- **Cuánto entrega:** 273 laudos, unos 560 MB (prueba del 26-nov-2026; la
+  lectura del sitio tarda unos 15 segundos, y la primera descarga completa
+  del orden de 40 a 60 minutos). Casi nunca hay nuevos, pero la Cámara a
+  veces agrega laudos a años viejos (en agosto de 2026 subió 13 a 2015-2021).
+- **Cómo quedan nombrados:**
+  - con radicado en el nombre: `LA_CCC_A-20201223-0803_2022` (radicado tal
+    como lo escribe la Cámara y año);
+  - sin radicado pero con fecha: `LA_CCC_20240306_2024` (fecha del laudo);
+  - sin radicado ni fecha (245 de 273): las partes y el año, por ejemplo
+    `LA_CCC_Ana_Rosa_Barrios_Vs_Hospital_Isaias_Duarte_Cancino_ESE_2015`,
+    marcados **sin verificar**. Quedan así: el sitio no publica más datos.
+  - Si dos laudos quedan con el mismo nombre (pasa con 6 pares: laudo y su
+    aclaración o salvamento), el segundo lleva `_2` y sale un aviso.
+  El texto completo de la fila (partes) va en el detalle.
+- **Fechas:** el sitio no trae fecha por laudo. Se toma la que venga en el
+  texto o en el nombre del archivo (28 casos); si no hay, el 1 de enero del
+  año de la página. Los 10 de la página "1980-1996" quedan con
+  1996-01-01, sin verificar y con aviso. Si la fecha del nombre es de otro
+  año que la página (2 casos en la página 2025), manda la del nombre, con
+  aviso. La corrida diaria revisa todas las páginas cada vez.
+- **Datos del sitio con errores:** 12 laudos con fecha en el nombre y 16 con
+  radicado; los demás no traen ninguno de los dos. No es una falla de
+  IURISYNC.
+- **Aviso de salud:** el último laudo con fecha es de enero de 2025, así que
+  esta fuente aparecerá en "fuentes que pueden estar fallando" hasta que la
+  Cámara publique laudos de 2026. Es esperado.
+- **Detalle técnico:** el sitio está detrás de Cloudflare, que hoy no pone
+  ningún desafío. Si un día lo pone, la fuente se pausa (no se intenta
+  saltar).
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
+### Cámara de Comercio de Medellín para Antioquia (`cc_medellin`)
+
+- **Qué trae:** los **laudos arbitrales** del Centro de Conciliación,
+  Arbitraje y Amigable Composición, de su página "Laudos arbitrales" (un
+  acordeón por año). Todos los que publica, desde 1999, sin piso de año.
+  Incluye los laudos de validación de acuerdos de recuperación empresarial
+  (radicados `AP`), con el mismo tipo.
+- **Cuánto entrega:** 292 laudos (de 299 filas de la página; prueba del
+  26-nov-2026), 186 de ellos desde 2015. Unos 465 MB en total. La primera
+  corrida baja todo en unos 5-8 minutos; las diarias casi nunca traen nada:
+  el Centro sube los laudos por tandas, una o dos veces al año.
+- **Qué no trae:** el buscador Dat@rbitral (árbitros, temas, cuantía), que
+  es una copia atrasada de la misma lista; reglamentos, listas de árbitros
+  ni actas de conciliación.
+- **Cómo quedan nombrados:** `LA_CCMA_2025-A-0032_2026` — radicado del
+  Centro tal como lo escribe la Cámara (año de radicación, `A` o `AP` y
+  consecutivo, sin agregar ni quitar ceros) y año del laudo. Las partes van
+  en el detalle.
+- **Fechas:** la del laudo, que trae cada fila. El sitio no dice cuándo se
+  publicó cada uno y sube los laudos con meses o años de retraso; como la
+  página entera llega en una sola consulta, la corrida diaria la revisa
+  completa desde 1999.
+- **Datos del sitio con errores:** la página la edita una persona a mano y
+  tiene errores que salen como aviso en cada corrida. No es una falla de
+  IURISYNC:
+  - **7 filas enlazan el PDF de otro laudo** (`2020 A 0007`, `2021 A 0048`,
+    `2019 A 0035`, `2018 A 0032`, `2016 A 012`, `2022 AP 0001` y
+    `2010 A 051`). Se guarda una sola vez el PDF, con su radicado real, y la
+    fila equivocada se omite: esos 7 laudos no se pueden descargar del sitio.
+  - **9 laudos quedan "sin verificar"** porque la fila dice un radicado y el
+    PDF es de otro (el título sale del nombre del archivo, que es el que
+    coincide con el documento), o porque el nombre del archivo no trae
+    radicado. Dos de ellos (2014) son filas que se intercambiaron los PDF.
+  - En un laudo (`2019 A 0087`) la fila dice "12 de agosto de 2010"; se usa
+    2020, el año del panel.
+  - Cuando la fecha de la fila y la del nombre del archivo no coinciden, se
+    usa la de la fila y se avisa.
+- **Aviso de salud:** como los laudos se suben por tandas, la fuente puede
+  aparecer en "fuentes que pueden estar fallando" cuando pasa un año sin
+  laudos recientes. Es esperado.
+- **Detalle técnico:** el sitio está detrás de Cloudflare, que hoy deja
+  pasar sin desafío. Si un día pide verificación de navegador, la fuente se
+  pausa (no se intenta saltar). Certificado válido. Los enlaces se guardan
+  sin el sello de versión `?ver=…` del sitio, para que un cambio de ese sello
+  no duplique el laudo.
+- **Fuente nueva:** después de actualizar producción hay que correr una vez
+  `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api python -m core.seed`
+  para que aparezca en el listado. Es seguro repetirlo.
+
 ### Fuentes que publican con retraso (ventana de la corrida diaria)
 
 La corrida automática diaria normalmente mira solo los últimos 3 días. Algunas
@@ -1402,6 +1806,10 @@ con esa ventana nunca se recogerían. Por eso su corrida diaria mira más atrás
 | Corte Constitucional | 21 días | Tarda 10+ días en indexar |
 | Ministerio de Salud | 60 días | Sube documentos semanas después |
 | Superintendencia de Industria y Comercio | 30 días | La "fecha de publicación" la digita su personal y puede quedar antes del día en que sube la ficha |
+| ADRES | 45 días | Tarda hasta unas 4 semanas en listar lo que sube |
+| Prosperidad Social | 60 días | Sube los PDF días o semanas después de expedirlos |
+| Contraloría General de la República | 120 días | Carga sus normas en el buscador semanas o meses después de expedirlas |
+| Función Pública | Año en curso y anterior (400 días) | Carga las normas con meses de retraso y por tandas |
 
 En SAMAI, un documento que reaparece con la misma fecha no se vuelve a
 descargar (solo una fecha nueva indica una republicación), así que la ventana

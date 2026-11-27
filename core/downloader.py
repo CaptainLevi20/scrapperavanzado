@@ -89,6 +89,32 @@ def check_remote_content_length(url: str, timeout: int = 15, verify: bool = True
     return int(content_length) if content_length is not None else None
 
 
+_PDF_FIN_CORTADO = re.compile(rb"startxref\s+\d+\s+%%E(O?)\Z")
+
+
+def _completar_fin_pdf(ruta: Path, huella) -> None:
+    """Completa la marca "%%EOF" de un PDF al que el servidor le cortó el final.
+
+    Solo para enlaces con link["completar_fin_pdf"] (Función Pública): su
+    servidor anuncia un Content-Length que no cuenta los dos bytes "\\t\\n"
+    que pone antes de "%PDF-", así que todos sus PDF llegan sin los dos
+    últimos bytes. Solo se toca un archivo que termina justo en
+    "startxref <número> %%E" o "%%EO": cualquier otro corte se deja igual y
+    la verificación lo rechaza como siempre. La huella se actualiza con lo
+    agregado para que coincida con el archivo guardado.
+    """
+    with open(ruta, "rb") as archivo:
+        archivo.seek(max(0, ruta.stat().st_size - 64))
+        final = archivo.read()
+    coincidencia = _PDF_FIN_CORTADO.search(final)
+    if coincidencia is None:
+        return
+    faltante = b"F" if coincidencia.group(1) else b"OF"
+    with open(ruta, "ab") as archivo:
+        archivo.write(faltante)
+    huella.update(faltante)
+
+
 def _find_soffice() -> str:
     found = shutil.which("soffice")
     if found:
@@ -191,6 +217,20 @@ class Downloader:
         raise FileNotFoundError(f"Archivo aún no disponible en SAMAI: {jwt_url[:80]}")
 
     @staticmethod
+    def _resolve_sharepoint_compartido(link: dict, headers: dict) -> requests.Response:
+        """Archivo dentro de una carpeta de OneDrive/SharePoint compartida con
+        "cualquier persona con el vínculo" (Cámara de Comercio de Barranquilla).
+        SharePoint sólo entrega el archivo con la cookie anónima FedAuth que
+        deja abrir el enlace compartido (link["compartido"]), así que las dos
+        peticiones van en la misma sesión. Si la cookie no llega, la respuesta
+        es la página de inicio de sesión (HTML) y la descarga falla con motivo."""
+        session = requests.Session()
+        session.headers.update(headers)
+        enlace = session.get(link["compartido"], timeout=60)
+        enlace.raise_for_status()
+        return session.get(link["url"], stream=True, timeout=120)
+
+    @staticmethod
     def _resolve_storage_key(doc: RawDocModel, filename: dict) -> str:
         if doc.save_path:
             return doc.save_path.replace("(filename)", filename["filename"]).replace(
@@ -228,6 +268,8 @@ class Downloader:
                     response = requests.post(doc.link["url"], json=body, headers=headers, stream=True, timeout=120, verify=verify)
                 elif doc.link["method"] == "jwt_indirect":
                     response = self._resolve_jwt_indirect(doc.link["url"], headers)
+                elif doc.link["method"] == "sharepoint_compartido":
+                    response = self._resolve_sharepoint_compartido(doc.link, headers)
                 else:
                     response = requests.get(doc.link["url"], headers=headers, stream=True, timeout=120, verify=verify)
 
@@ -312,6 +354,9 @@ class Downloader:
                 intentos_red += 1
                 if intentos_red >= 3:
                     raise
+
+        if doc.link.get("completar_fin_pdf"):
+            _completar_fin_pdf(temp_path, huella)
 
         # El archivo viene de un sitio ajeno y la mayoría pasan después a los
         # demás productos: antes de devolverlo para guardarlo se comprueba su

@@ -42,10 +42,10 @@ def test_seed_running_concurrently_does_not_crash_or_duplicate_rows(test_engine,
     assertion_session = session_factory()
     try:
         families = repository.list_source_families(assertion_session)
-        assert len(families) == 38
+        assert len(families) == 45
 
         sources = repository.list_sources(assertion_session, limit=500)
-        assert len(sources) == 1 + 28 + 35 + 33 + 6
+        assert len(sources) == 1 + 28 + 42 + 33 + 6
     finally:
         assertion_session.close()
 
@@ -61,13 +61,14 @@ def test_seed_populates_families_and_sources_and_is_idempotent(db_session):
         "minambiente", "minvivienda", "mineducacion", "mininterior", "mindeporte", "minjusticia", "minenergia", "mintrabajo", "superfinanciera",
         "supersalud", "ssf", "snr", "supersociedades", "supersolidaria", "procuraduria", "minsalud", "sic", "supertransporte", "supervigilancia", "cdmb",
         "cc_armenia", "ccb", "corantioquia", "corporinoquia", "icbf", "ica",
+        "auditoria", "contraloria", "funcion_publica", "dps", "cc_barranquilla", "cc_cali", "cc_medellin",
     }
 
     sources = repository.list_sources(db_session, limit=None)
-    # 1 (Corte Constitucional) + 28 (SAMAI) + 35 (fuente única: corte_suprema, jep, cndj,
+    # 1 (Corte Constitucional) + 28 (SAMAI) + 42 (fuente única: corte_suprema, jep, cndj,
     # adr, adres, ane, anh, mincit, madr, minambiente, minvivienda, mineducacion,
-    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera, supersalud, ssf, snr, supersociedades, supersolidaria, procuraduria, minsalud, sic, supertransporte, supervigilancia, cdmb, cc_armenia, ccb, corantioquia, corporinoquia, icbf, ica) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 103
-    assert len(sources) == 1 + 28 + 35 + 33 + 6
+    # mininterior, mindeporte, minjusticia, minenergia, mintrabajo, superfinanciera, supersalud, ssf, snr, supersociedades, supersolidaria, procuraduria, minsalud, sic, supertransporte, supervigilancia, cdmb, cc_armenia, ccb, corantioquia, corporinoquia, icbf, ica, auditoria, contraloria, funcion_publica, dps, cc_barranquilla, cc_cali, cc_medellin) + 33 (Tribunales Superiores, incl. Bogotá D.C.) + 6 (tipos de Juzgado) = 110
+    assert len(sources) == 1 + 28 + 42 + 33 + 6
 
     rama_judicial_sources = repository.list_sources(db_session, family_key="rama_judicial")
     assert len(rama_judicial_sources) == 39

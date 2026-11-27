@@ -3,8 +3,9 @@
 **Fecha:** 2026-11-23 (revisado 2026-11-26 con las decisiones del administrador)
 **Entidad:** Cámara de Comercio de Cali — Centro de Conciliación, Arbitraje y
 Amigable Composición (`cc_cali`, sigla `CCC`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Implementado en
+`core/scrapers/families/cc_cali.py` (plan:
+`docs/superpowers/plans/2026-11-26-fuente-cc_cali.md`).
 
 > **Sigla:** `CCC`, decidida por el administrador el 2026-11-25 (pregunta 1).
 > Cartagena queda como `CCCAR`, así que no se confunden. `CC` (carta
@@ -193,7 +194,8 @@ radicación + consecutivo). Solo aparece en el nombre en 16 de 273 archivos
   Hoy pasa en 5 grupos, porque el corte a 80 caracteres se come la parte que
   los distingue: el laudo y su "Aclaración" de Hotel Spiwak (2015), Limor
   (2013), Servimed (2010 y 2013) y Burbado (2012, dos filas con el mismo
-  texto).
+  texto). (Lectura en vivo del 2026-11-26: son **6** grupos; el sexto es
+  Consorcio Desarrollo Valle del Cauca y su salvamento de voto, 2013.)
 - `save_path = storage_path(_SOURCE, fecha, "Laudo arbitral", f"{title}(extension)")`.
 
 ### Leer el PDF (`resolve_unverified_document`) — opcional
@@ -298,33 +300,35 @@ tres páginas de año (`1980-1996`, 2015 y 2024):
 1. **Sigla:** **Respondida (administrador, 2026-11-25):** `CCC` (Cartagena
    pasa a `CCCAR`). El administrador también confirmó que la página publica
    laudos hasta 2025.
-2. **Clave de familia:** ¿`cc_cali`? (sigue abierta; no choca con ninguna
-   clave existente).
+2. **Clave de familia:** ¿`cc_cali`? Se toma la propuesta (aprobación del 2026-11-26): `cc_cali`.
 3. **Piso:** **Respondida por el administrador el 2026-11-26:** sin piso,
    todo lo que publica el sitio, desde la página `1980-1996` (273 laudos).
 4. **Año:** cuando el nombre trae una fecha de otro año que la página (3
-   casos), ¿manda la fecha del nombre (propuesto) o la página? (sigue
-   abierta).
+   casos), ¿manda la fecha del nombre (propuesto) o la página? Se toma la propuesta (aprobación del 2026-11-26):
+   manda la fecha del nombre, con aviso.
 5. **Títulos:** **Respondida por el administrador el 2026-11-26:** el
    radicado se copia tal cual lo escribe la Cámara
    (`LA_CCC_A-20201223-0803_2022`); sin radicado y con fecha, fecha completa
    `LA_CCC_{AAAAMMDD}_{año}`. Sigue abierto si los que no tienen ni radicado
    ni fecha (245) van con el respaldo de partes y `title_unverified`
-   (propuesto) o de otra forma.
+   (propuesto) o de otra forma. Se toma la propuesta (aprobación del 2026-11-26): respaldo con
+   partes y `title_unverified`.
 6. **Alerta de salud:** `alerta_margen_dias` no tiene efecto con
    `scheduled_min_lookback_days = 20_000`; el aviso va a salir desde el
    principio porque no hay laudos con fecha de los últimos 12 meses. ¿Se
-   acepta, como en Armenia? (sigue abierta, propuesta: sí).
+   acepta, como en Armenia? Se toma la propuesta (aprobación del 2026-11-26): sí.
 7. **Leer el PDF** para sacar radicado y fecha (`resolve_unverified_document`):
    ¿v2, o se descarta? Sin piso pesa más: 245 de 273 quedan sin verificar.
-   (sigue abierta).
+   Se toma la propuesta (aprobación del 2026-11-26): v2, no en esta versión.
 8. **¿Se le pide a la Cámara** que ponga el radicado y la fecha en la tabla?
-   (sigue abierta).
+   (sigue abierta; no cambia el código).
 9. **Página `1980-1996`** (10 laudos sin año propio): ¿`1996-01-01` con
-   aviso y `title_unverified` (propuesto), o `1980-01-01`? (nueva).
+   aviso y `title_unverified` (propuesto), o `1980-01-01`? Se toma la propuesta (aprobación del 2026-11-26): `1996-01-01`
+   con aviso y `title_unverified`.
 10. **La "Demanda arbitral contra QUATRO MTJ"** (página 2014) no es un
     laudo: ¿entra como `Laudo arbitral` igual (propuesto: todo lo de la
-    tabla) o se omite con aviso? (nueva).
+    tabla) o se omite con aviso? Se toma la propuesta (aprobación del 2026-11-26): entra como `Laudo
+    arbitral`.
 
 ## Plan de implementación (cuando se apruebe)
 

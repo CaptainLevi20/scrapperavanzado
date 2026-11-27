@@ -3,8 +3,8 @@
 **Fecha:** 2026-11-23 (revisado 2026-11-26 con las decisiones del administrador)
 **Entidad:** Cámara de Comercio de Barranquilla — Centro de Conciliación y
 Arbitraje (`cc_barranquilla`, sigla `CCBAR`)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Plan:
+`docs/superpowers/plans/2026-11-26-fuente-cc_barranquilla.md`.
 
 > **Ojo con "CCB":** la carpeta se llama "LAUDOS CENTRO DE CONCILIACIÓN Y
 > ARBITRAJE **CCB**" y la propia Cámara de Barranquilla se abrevia "CCB" en
@@ -288,20 +288,21 @@ API REST:
 3. **Piso:** **Respondida por el administrador el 2026-11-26:** sin piso,
    todo lo que hay (hoy desde 2014, 71 laudos).
 4. **Laudos sin fecha** (2): ¿`<año de la carpeta>-01-01` con aviso?
-   (sigue abierta).
+   Se toma la propuesta (aprobación del 2026-11-26).
 5. **Título sin radicado:** **Respondida por el administrador el
    2026-11-26:** fecha completa, `LA_CCBAR_{AAAAMMDD}_{año}`
    (`LA_CCBAR_20260831_2026`), la misma regla en todas las cámaras sin
    radicado.
 6. **Alerta de salud:** con `scheduled_min_lookback_days = 20_000`,
    `alerta_margen_dias` no tiene efecto; el aviso sale solo si pasa un año
-   sin laudos con fecha reciente. ¿Se acepta, como en Armenia? (sigue
-   abierta, propuesta: sí).
+   sin laudos con fecha reciente. ¿Se acepta, como en Armenia? Se toma la
+   propuesta (aprobación del 2026-11-26): sí.
 7. **¿Se le pide a la Cámara** que publique los laudos en una biblioteca
-   institucional en vez del OneDrive personal de una funcionaria? (sigue
-   abierta).
+   institucional en vez del OneDrive personal de una funcionaria? Se toma
+   la propuesta (aprobación del 2026-11-26): se sugiere a la Cámara; no
+   cambia el código.
 
-## Plan de implementación (cuando se apruebe)
+## Plan de implementación
 
 1. Prueba + método `sharepoint_compartido` en `core/downloader.py` (caso 8).
 2. Prueba + lector de fecha y título desde el nombre (casos 1-3).

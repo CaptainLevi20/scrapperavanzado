@@ -4,8 +4,9 @@
 **Entidad:** Cámara de Comercio de Medellín para Antioquia — Centro de
 Conciliación, Arbitraje y Amigable Composición (`cc_medellin`, sigla
 `CCMA`, aprobada por el administrador el 2026-11-26)
-**Estado:** pendiente de aprobación del administrador. No se programa nada
-hasta que se apruebe.
+**Estado:** aprobado por el administrador el 2026-11-26. Implementado en
+`core/scrapers/families/cc_medellin.py` (plan:
+`docs/superpowers/plans/2026-11-26-fuente-cc_medellin.md`).
 
 > El enlace que dio el usuario
 > (`/quiero-un-servicio-para-mi-empresa/solucion-de-conflictos/arbitraje/laudos-arbitrales`)
@@ -221,7 +222,8 @@ enlace copiado o archivo repetido), de los que **4** van con
 enlace copiado), de los que **5** van con `title_unverified` (2 por error de
 digitación, 2 por el enlace cruzado, 1 sin radicado en el nombre).
 
-**Total:** 299 filas → **292 laudos**, 11 con `title_unverified`.
+**Total:** 299 filas → **292 laudos**, 9 con `title_unverified` (4 + 5;
+comprobado en la corrida real del 2026-11-26).
 
 ## Volumen esperado
 
@@ -322,33 +324,37 @@ maquetas del encabezado, también las de antes de 2015):
    el 2026-11-26:** sigla `CCMA` aprobada. (La clave `cc_medellin` no tuvo
    objeción.)
 2. **Nombre de la fuente** en el seed: "Cámara de Comercio de Medellín para
-   Antioquia" (nombre legal) o "Cámara de Comercio de Medellín". (sigue
-   abierta).
+   Antioquia" (nombre legal) o "Cámara de Comercio de Medellín". Se toma la
+   propuesta (aprobación del 2026-11-26): el nombre legal.
 3. **Laudos de validación de acuerdos de recuperación** (`AP`, 4): ¿entran
-   con el mismo tipo `Laudo arbitral` (propuesto)? (sigue abierta).
+   con el mismo tipo `Laudo arbitral` (propuesto)? Se toma la propuesta
+   (aprobación del 2026-11-26).
 4. **Piso:** **Respondida por el administrador el 2026-11-26:** sin piso,
    todo desde 1999 (292 laudos).
 5. **Título:** **Respondida por el administrador el 2026-11-26:** el
    consecutivo se copia tal cual, sin rellenar (`LA_CCMA_2016-A-004_2017`).
    Sigue abierto solo el separador: `LA_CCMA_2025-A-0032_2026` (propuesto) o
-   `LA_CCMA_2025A0032_2026`.
+   `LA_CCMA_2025A0032_2026`. Se toma la propuesta (aprobación del
+   2026-11-26): con guiones.
 6. **Alerta de salud:** `alerta_margen_dias` no tiene efecto con
    `scheduled_min_lookback_days = 20_000`; el aviso sale solo si pasa un año
    sin laudos con fecha reciente (puede pasar entre tandas). ¿Se acepta, como
-   en Armenia? (sigue abierta, propuesta: sí).
+   en Armenia? Se toma la propuesta (aprobación del 2026-11-26): sí.
 7. **Dos PDF distintos con el mismo radicado** (laudo + aclaración, 0 casos
    hoy): ¿quedarse con el primero y avisar (propuesto), o actuaciones como
    Bogotá? (Actuaciones exigiría registrar la familia fuera de ella:
    `core/naming.py`, `core/db/repository.py` y un patrón en `core/utils.py`.)
-   (sigue abierta).
+   Se toma la propuesta (aprobación del 2026-11-26): el primero, con aviso.
 8. **Dat@rbitral:** ¿interesa una v2 que agregue árbitros y temas al
-   `detalle`? (sigue abierta).
+   `detalle`? Se toma la propuesta (aprobación del 2026-11-26): fuera de la
+   v1.
 9. ¿Se avisa a la Cámara de los **7 laudos con enlace equivocado**
    (`2020 A 0007`, `2021 A 0048`, `2019 A 0035`, `2018 A 0032`, `2016 A 012`,
    `2022 AP 0001` y, antes de 2015, `2010 A 051`) y del **enlace cruzado**
-   de 2014 (`2013 A 007` ↔ `2013 A 031`)? (sigue abierta).
+   de 2014 (`2013 A 007` ↔ `2013 A 031`)? Queda para el administrador; no
+   cambia el código.
 
-## Plan de implementación (cuando se apruebe)
+## Plan de implementación
 
 1. Prueba + lector de radicado del nombre, título y URL (casos 1, 8).
 2. Prueba + fechas: encabezado, respaldos, año imposible (caso 2).
