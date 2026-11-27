@@ -872,13 +872,24 @@ _MINISTERIO_FAMILIES = frozenset(
 )
 
 
+# Fuentes entre las que se deduplica el código canónico de leyes/decretos:
+# los ministerios más los departamentos administrativos que también publican
+# decretos con el código común (Prosperidad Social, Función Pública). Es un
+# conjunto aparte a propósito: _MINISTERIO_FAMILIES lo usan también
+# core/backfill_leyes_decretos.py y core/backfill_directiva_prefix.py, que
+# renombran títulos de ministerios y no deben tocar estas fuentes.
+_FAMILIAS_DEDUP_LEY_DECRETO = _MINISTERIO_FAMILIES | {"dps", "funcion_publica"}
+
+
 def list_ministerio_documents_by_title(db: Session, title: str) -> list[Document]:
-    """Documentos con ese título exacto en CUALQUIER fuente de ministerio —
-    para deduplicar leyes/decretos que varios ministerios publican."""
+    """Documentos con ese título exacto en CUALQUIER fuente de ministerio, de
+    Prosperidad Social (`dps`) o de Función Pública (`funcion_publica`) —
+    para deduplicar leyes/decretos que varias de esas fuentes publican, en
+    todos los sentidos (ver _FAMILIAS_DEDUP_LEY_DECRETO)."""
     stmt = (
         select(Document)
         .join(Source, Source.id == Document.source_id)
-        .where(Source.family_key.in_(_MINISTERIO_FAMILIES), Document.title == title)
+        .where(Source.family_key.in_(_FAMILIAS_DEDUP_LEY_DECRETO), Document.title == title)
     )
     return list(db.scalars(stmt).all())
 

@@ -764,3 +764,115 @@ def test_download_cancelar_durante_una_espera_por_429_corta_de_inmediato(tmp_pat
     with pytest.raises(InterruptedError):
         Downloader().download(_doc(), tmp_path, stop_event=parar)
     assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_download_sharepoint_compartido_opens_share_link_then_file_with_same_session(tmp_path):
+    # Cámara de Comercio de Barranquilla: OneDrive compartido "cualquier persona
+    # con el vínculo". El archivo sólo baja con la cookie anónima FedAuth que
+    # deja el enlace compartido; sin ella, SharePoint manda al inicio de sesión.
+    compartido = "https://tenant-my.sharepoint.com/:f:/g/personal/x/AbC?e=1"
+    archivo = "https://tenant-my.sharepoint.com/personal/x/_layouts/15/download.aspx?UniqueId=abc"
+    responses.add(
+        responses.GET, compartido, status=200, body="<html>onedrive</html>",
+        headers={"Set-Cookie": "FedAuth=galleta; path=/; secure; HttpOnly"},
+    )
+
+    def _archivo(request):
+        if "FedAuth=galleta" not in (request.headers.get("Cookie") or ""):
+            return (200, {"Content-Type": "text/html; charset=utf-8"}, "<html>Inicie sesión</html>")
+        return (200, {"Content-Type": "application/pdf",
+                      "Content-Disposition": 'attachment; filename="laudo.pdf"'}, b"%PDF-1.4 laudo")
+
+    responses.add_callback(responses.GET, archivo, callback=_archivo)
+    doc = _doc(method="sharepoint_compartido", url=archivo)
+    doc.link["compartido"] = compartido
+
+    result = Downloader().download(doc, tmp_path)
+
+    assert result.local_path.read_bytes() == b"%PDF-1.4 laudo"
+    assert result.content_type == "application/pdf"
+    assert [c.request.url for c in responses.calls] == [compartido, archivo]
+
+
+@responses.activate
+def test_download_sharepoint_compartido_without_cookie_fails_instead_of_saving_login_page(tmp_path):
+    compartido = "https://tenant-my.sharepoint.com/:f:/g/personal/x/AbC?e=1"
+    archivo = "https://tenant-my.sharepoint.com/personal/x/_layouts/15/download.aspx?UniqueId=abc"
+    responses.add(responses.GET, compartido, status=200, body="<html>sin cookie</html>")
+    responses.add(
+        responses.GET, archivo, status=200, body="<html>Inicie sesión en su cuenta</html>",
+        headers={"Content-Type": "text/html; charset=utf-8"},
+    )
+    doc = _doc(method="sharepoint_compartido", url=archivo)
+    doc.link["compartido"] = compartido
+
+    with pytest.raises(FileNotFoundError):
+        Downloader().download(doc, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+# Función Pública (funcion_publica): su servidor anuncia un Content-Length que
+# no cuenta los dos bytes "\t\n" que antepone al PDF, así que todos llegan sin
+# los dos últimos bytes ("%%E" en vez de "%%EOF"). Con link["completar_fin_pdf"]
+# el descargador completa solo esa marca; sin la bandera el PDF se rechaza.
+_PDF_CORTADO = b"\t\n%PDF-1.4\n1 0 obj<<>>endobj\nxref\n0 1\ntrailer<<>>\nstartxref\n9\n%%E"
+
+
+def _doc_completar(body, completar=True):
+    doc = _doc(url="https://www.funcionpublica.gov.co/eva/gestornormativo/norma_pdf.php?i=1")
+    if completar:
+        doc.link["completar_fin_pdf"] = True
+    responses.add(
+        responses.GET, doc.link["url"], body=body,
+        headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    return doc
+
+
+@pytest.mark.verificar_archivos
+@responses.activate
+def test_download_completes_cut_pdf_end_marker_when_link_asks(tmp_path):
+    import hashlib
+
+    result = Downloader().download(_doc_completar(_PDF_CORTADO), tmp_path)
+
+    contenido = result.local_path.read_bytes()
+    assert contenido == _PDF_CORTADO + b"OF"
+    assert result.file_size_bytes == len(contenido)
+    assert result.sha256 == hashlib.sha256(contenido).hexdigest()
+
+
+@pytest.mark.verificar_archivos
+@responses.activate
+def test_download_completes_end_marker_cut_by_one_byte(tmp_path):
+    result = Downloader().download(_doc_completar(_PDF_CORTADO + b"O"), tmp_path)
+
+    assert result.local_path.read_bytes().endswith(b"startxref\n9\n%%EOF")
+
+
+@pytest.mark.verificar_archivos
+@responses.activate
+def test_download_leaves_complete_pdf_untouched_when_link_asks(tmp_path):
+    completo = _PDF_CORTADO + b"OF"
+
+    result = Downloader().download(_doc_completar(completo), tmp_path)
+
+    assert result.local_path.read_bytes() == completo
+
+
+@pytest.mark.verificar_archivos
+@responses.activate
+def test_download_still_rejects_cut_pdf_without_the_flag(tmp_path):
+    with pytest.raises(ArchivoNoPermitido, match="marca de final"):
+        Downloader().download(_doc_completar(_PDF_CORTADO, completar=False), tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.verificar_archivos
+@responses.activate
+def test_download_does_not_invent_end_of_truly_truncated_pdf(tmp_path):
+    # Cortado a la mitad: no termina en "%%E"/"%%EO" tras startxref, así que
+    # no se completa nada y la verificación lo sigue rechazando.
+    with pytest.raises(ArchivoNoPermitido, match="marca de final"):
+        Downloader().download(_doc_completar(_PDF_CORTADO[:30]), tmp_path)

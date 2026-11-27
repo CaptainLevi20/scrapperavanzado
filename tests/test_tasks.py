@@ -1775,6 +1775,92 @@ def test_scrape_source_task_skips_a_ley_already_published_by_another_ministerio(
         assertion_session.close()
 
 
+@responses.activate
+@pytest.mark.parametrize(
+    "familia_guardada,familia_corrida",
+    [
+        ("funcion_publica", "minambiente"),
+        ("funcion_publica", "dps"),
+        ("dps", "funcion_publica"),
+        ("madr", "funcion_publica"),
+        ("madr", "dps"),
+    ],
+)
+def test_scrape_source_task_skips_a_decreto_already_published_by_dps_or_funcion_publica(
+    db_session, test_engine, monkeypatch, familia_guardada, familia_corrida
+):
+    """El chequeo de leyes/decretos funciona en todos los sentidos entre los
+    ministerios, Prosperidad Social (dps) y Función Pública (funcion_publica):
+    si el código canónico (D1384026) ya está guardado en una de ellas, no se
+    vuelve a bajar desde otra; un decreto nuevo sí entra."""
+    from core.db.models import Document
+    from core.scrapers.registry import FAMILY_REGISTRY
+
+    monkeypatch.setitem(FAMILY_REGISTRY, familia_corrida, DummyFamilyScraper)
+    celery_app.conf.task_always_eager = True
+    task_session_factory = sessionmaker(bind=test_engine, future=True)
+    monkeypatch.setattr("worker.tasks.SessionLocal", task_session_factory)
+    monkeypatch.setattr("core.storage.get_settings", lambda: _settings_with_test_bucket())
+
+    repository.create_source_family(db_session, key=familia_guardada, display_name=familia_guardada)
+    guardada = repository.create_source(
+        db_session, family_key=familia_guardada, name=f"Fuente {familia_guardada}", family_params={}
+    )
+    repository.insert_document(
+        db_session, doc_id="ya-existe", source_id=guardada.id, title="D1384026",
+        storage_bucket=TEST_S3_BUCKET, storage_key=f"{familia_guardada}/2026-08-07/Decreto/D1384026.pdf",
+        f_public="2026-08-07",
+    )
+
+    repository.create_source_family(db_session, key=familia_corrida, display_name=familia_corrida)
+    corrida = repository.create_source(
+        db_session, family_key=familia_corrida, name=f"Fuente {familia_corrida}", family_params={}
+    )
+    run = repository.create_run(db_session, triggered_by="manual", fini=None, ffin=None)
+    run_source = repository.create_run_source(db_session, run_id=run.id, source_id=corrida.id)
+
+    DummyFamilyScraper.docs_to_return = [
+        RawDocModel(
+            source=f"Fuente {familia_corrida}",
+            link={"url": "https://example.com/otra-copia", "method": "GET"},
+            title="D1384026", tipo="Decreto", f_public="2026-08-07",
+        ),
+        RawDocModel(
+            source=f"Fuente {familia_corrida}",
+            link={"url": "https://example.com/decreto-nuevo", "method": "GET"},
+            title="D9999099", tipo="Decreto", f_public="2099-01-01",
+        ),
+    ]
+    responses.add(
+        responses.GET, "https://example.com/otra-copia",
+        body=b"copia", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+    responses.add(
+        responses.GET, "https://example.com/decreto-nuevo",
+        body=b"contenido", headers={"Content-Type": "application/pdf"}, status=200,
+    )
+
+    scrape_source_task(run_source.id)
+
+    assertion_session = task_session_factory()
+    try:
+        d1384 = assertion_session.scalars(select(Document).where(Document.title == "D1384026")).all()
+        assert len(d1384) == 1
+        assert d1384[0].source_id == guardada.id
+        assert "D9999099" in set(assertion_session.scalars(select(Document.title)).all())
+    finally:
+        assertion_session.close()
+
+
+def test_backfills_de_ministerios_no_incluyen_dps_ni_funcion_publica():
+    """core/backfill_leyes_decretos.py y core/backfill_directiva_prefix.py
+    renombran títulos de _MINISTERIO_FAMILIES: dps y funcion_publica sólo
+    entran al chequeo de leyes/decretos, no a esos backfills."""
+    assert not {"dps", "funcion_publica"} & repository._MINISTERIO_FAMILIES
+    assert {"dps", "funcion_publica"} <= repository._FAMILIAS_DEDUP_LEY_DECRETO
+    assert repository._MINISTERIO_FAMILIES <= repository._FAMILIAS_DEDUP_LEY_DECRETO
+
+
 def _settings_with_test_bucket():
     from core.config import get_settings
 

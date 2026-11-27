@@ -159,6 +159,34 @@ _FAMILIES = {
         "Instituto Colombiano Agropecuario",
         "Resoluciones seccionales y resoluciones nacionales (MSF y RT) del Instituto Colombiano Agropecuario",
     ),
+    "auditoria": (
+        "Auditoría General de la República",
+        "Conceptos jurídicos, resoluciones orgánicas y reglamentarias y circulares de la Auditoría General de la República",
+    ),
+    "contraloria": (
+        "Contraloría General de la República",
+        "Resoluciones, conceptos jurídicos y circulares del Sistema de Búsqueda de Normas de la Contraloría General de la República",
+    ),
+    "funcion_publica": (
+        "Departamento Administrativo de la Función Pública",
+        "Conceptos, decretos, resoluciones y circulares que expide el Departamento Administrativo de la Función Pública (Gestor Normativo)",
+    ),
+    "dps": (
+        "Departamento Administrativo para la Prosperidad Social",
+        "Resoluciones, circulares y acuerdos interinstitucionales del Departamento Administrativo para la Prosperidad Social",
+    ),
+    "cc_barranquilla": (
+        "Cámara de Comercio de Barranquilla",
+        "Laudos arbitrales del Centro de Conciliación y Arbitraje de la Cámara de Comercio de Barranquilla",
+    ),
+    "cc_cali": (
+        "Cámara de Comercio de Cali",
+        "Laudos arbitrales del Centro de Conciliación, Arbitraje y Amigable Composición de la Cámara de Comercio de Cali",
+    ),
+    "cc_medellin": (
+        "Cámara de Comercio de Medellín para Antioquia",
+        "Laudos arbitrales del Centro de Conciliación, Arbitraje y Amigable Composición de la Cámara de Comercio de Medellín para Antioquia",
+    ),
 }
 
 
@@ -337,6 +365,34 @@ def seed_source_families_and_sources(db) -> None:
 
     repository.create_source_if_missing(
         db, family_key="ica", name="Instituto Colombiano Agropecuario", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="auditoria", name="Auditoría General de la República", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="contraloria", name="Contraloría General de la República", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="funcion_publica", name="Departamento Administrativo de la Función Pública", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="dps", name="Departamento Administrativo para la Prosperidad Social", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="cc_barranquilla", name="Cámara de Comercio de Barranquilla", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="cc_cali", name="Cámara de Comercio de Cali", family_params={}
+    )
+
+    repository.create_source_if_missing(
+        db, family_key="cc_medellin", name="Cámara de Comercio de Medellín para Antioquia", family_params={}
     )
 
 
